@@ -1,0 +1,20 @@
+THIRD-PARTY NOTICES
+
+Haigure Signage Subset
+----------------------
+The source repository contains Haigure Signage Subset Bold, a modified subset
+of Noto Sans JP. The font remains licensed under the SIL Open Font License,
+Version 1.1.
+
+Original font copyright metadata:
+© 2014-2021 Adobe (http://www.adobe.com/), with Reserved Font Name 'Source'.
+
+Upstream:
+https://github.com/notofonts/noto-cjk
+Pinned commit:
+f8d157532fbfaeda587e826d4cd5b21a49186f7c
+
+The production browser distribution contains only rendered signage atlas
+graphics and text mesh geometry; it does not contain the subset TTF. The full
+OFL text is included in LICENSES/NotoSansJP-OFL-1.1.txt. Source-distribution
+modification details are recorded in LICENSES/NotoSansJP-FONTLOG.md.

@@ -26,6 +26,7 @@ from build_b03_school_interiors import (
     remove_imported_sources,
     swatch_uv,
 )
+from b06_signage_manifest import SIGN_SIZE
 
 
 ROOM_VARIANT_IDS = (
@@ -80,11 +81,13 @@ NAV_GRID_ORIGIN_Y_BLENDER = 52.5
 NAV_TILE_SIZE_BLENDER = 1.0
 NAV_GRID_WIDTH = 84
 NAV_GRID_HEIGHT = 68
+ROOM_DOOR_CLOSED_PLANES = {
+    "west": -3.28,
+    "north": 36.28,
+}
 ROOM_DOOR_OPEN_NORMAL_OFFSETS = {
-    ("west", "f01"): -0.04,
-    ("west", "upper"): 0.08,
-    ("north", "f01"): 0.04,
-    ("north", "upper"): -0.04,
+    "west": 0.0,
+    "north": 0.0,
 }
 TOILET_STALL_OPEN_ROTATION_Z = -math.radians(85.0)
 TOILET_STALL_KNOB_CENTERS = (
@@ -1361,24 +1364,20 @@ def _build_room_doors(
             opening_center = (minimum + maximum) / 2.0
             open_sign = 1.0 if opening_center < room_center else -1.0
             if room.wall_axis == "west":
-                door_plane = -3.66 if room.base_z == 0.0 else -3.38
+                door_plane = ROOM_DOOR_CLOSED_PLANES[room.wall_axis]
                 root_location = (door_plane, opening_center, room.base_z)
                 panel_size = (0.08, 1.20, 2.30)
-                normal_offset = ROOM_DOOR_OPEN_NORMAL_OFFSETS[
-                    ("west", "f01" if room.base_z == 0.0 else "upper")
-                ]
+                normal_offset = ROOM_DOOR_OPEN_NORMAL_OFFSETS[room.wall_axis]
                 open_delta = (
                     normal_offset,
                     open_sign * 1.20,
                     0.0,
                 )
             else:
-                door_plane = 36.66 if room.base_z == 0.0 else 36.34
+                door_plane = ROOM_DOOR_CLOSED_PLANES[room.wall_axis]
                 root_location = (opening_center, door_plane, room.base_z)
                 panel_size = (1.20, 0.08, 2.30)
-                normal_offset = ROOM_DOOR_OPEN_NORMAL_OFFSETS[
-                    ("north", "f01" if room.base_z == 0.0 else "upper")
-                ]
+                normal_offset = ROOM_DOOR_OPEN_NORMAL_OFFSETS[room.wall_axis]
                 open_delta = (
                     open_sign * 1.20,
                     normal_offset,
@@ -1429,10 +1428,10 @@ def _build_rooftop_changing_doors(
             token=token,
             door_id=door_id,
             door_class="room",
-            root_location=(center_x, 38.48, 14.50),
+            root_location=(center_x, 38.42, 14.50),
             root_rotation_z=0.0,
             panel_size=(1.20, 0.08, 2.30),
-            open_delta=(1.20, -0.04, 0.0),
+            open_delta=(1.20, 0.0, 0.0),
             visual_collection=visual_collection,
             collider_collection=collider_collection,
             semantic_collection=semantic_collection,
@@ -2142,6 +2141,12 @@ def _replay_local_placement(
         furniture.add_batch(temporary.furniture, Matrix.Identity(4))
         signs.add_batch(temporary.signs, Matrix.Identity(4))
         collider_boxes.extend(temporary.colliders)
+    elif placement.kind == "sign":
+        signs.add_sign_box(
+            (0.0, 0.0, 0.0),
+            SIGN_SIZE,
+            placement.prop_type,
+        )
     else:
         raise RuntimeError(
             f"個別再配置に未対応のplacement種別です: {placement.kind}"
@@ -3165,7 +3170,9 @@ def _build_room_variants(
     if signs_material is None:
         raise RuntimeError("SignsPaper atlas Materialがありません")
     sources = import_prop_sources(VARIANT_SOURCE_TYPES)
-    normal_rooms, _classroom_metrics = build_school_rooms(sources)
+    normal_rooms, _classroom_metrics, _signage_result = build_school_rooms(
+        sources
+    )
     normal_rooms_by_name = {room.name: room for room in normal_rooms}
     for room in ROOM_VARIANT_SPECS:
         token = _token(room.author_name)

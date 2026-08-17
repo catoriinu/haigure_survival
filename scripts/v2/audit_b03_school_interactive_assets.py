@@ -14,7 +14,12 @@ import bpy
 from mathutils import Matrix, Quaternion, Vector
 
 
+SCRIPT_DIRECTORY = Path(__file__).resolve().parent
+if str(SCRIPT_DIRECTORY) not in sys.path:
+    sys.path.insert(0, str(SCRIPT_DIRECTORY))
 sys.dont_write_bytecode = True
+
+from b06_signage_manifest import SIGN_PLACEMENTS, SIGN_SIZE
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 BLEND_PATH = (
@@ -24,14 +29,29 @@ GLB_PATH = (
     REPOSITORY_ROOT / "public/stage-assets/v2/B02/b02_school_blockout.glb"
 )
 EXPORT_COLLECTION_NAME = "EXP_Stage_school"
-EXPECTED_GENERATOR_VERSION = "b06-1-school-structure-polish-v38"
+EXPECTED_GENERATOR_VERSION = "b06-3-school-props-signage-v1"
 EXPECTED_HUMAN_NAV_PROFILE = "school-humanoid-room-variants-v2"
 
 GLB_MAGIC = b"glTF"
 GLB_VERSION = 2
 JSON_CHUNK_TYPE = 0x4E4F534A
+BINARY_CHUNK_TYPE = 0x004E4942
 TOLERANCE = 1.0e-5
 OVERLAP_TOLERANCE = 1.0e-4
+GLTF_COMPONENT_FORMATS = {
+    5121: "B",
+    5123: "H",
+    5125: "I",
+    5126: "f",
+}
+GLTF_TYPE_COMPONENT_COUNTS = {
+    "SCALAR": 1,
+    "VEC3": 3,
+}
+SIGN_COMPONENT_OBJECT_NAMES = frozenset(
+    f"VIS_B03_Interior_{placement.owner_room}_SignsPaper"
+    for placement in SIGN_PLACEMENTS
+)
 INFIRMARY_CURTAIN_PANEL_NAMES = ("North", "West", "East", "Divider")
 INFIRMARY_NORMAL_CURTAIN_BEAM_SIGHT_COLLIDER_NAME = (
     "COL_BeamSightOnly_B03_Interior_F01_Infirmary_Curtains"
@@ -464,6 +484,9 @@ class DoorSpec:
     elevator_id: str | None = None
     stop_id: str | None = None
     wall_axis: str | None = None
+    wall_normal_bounds: tuple[float, float] | None = None
+    corridor_normal_direction: int | None = None
+    minimum_wall_clearance: float | None = None
 
 
 @dataclass(frozen=True)
@@ -489,6 +512,7 @@ class NodeRecord:
     local_matrix: Matrix
     world_matrix: Matrix
     local_bounds: tuple[Vector, Vector] | None
+    local_component_bounds: tuple[tuple[Vector, Vector], ...]
     triangle_count: int
 
 
@@ -735,6 +759,25 @@ def positive_aabb_overlap(
     return all(depth > OVERLAP_TOLERANCE for depth in overlap_depths)
 
 
+def coplanar_aabb_face_overlap(
+    first: tuple[Vector, Vector],
+    second: tuple[Vector, Vector],
+) -> bool:
+    overlap_depths = tuple(
+        min(first[1][axis], second[1][axis])
+        - max(first[0][axis], second[0][axis])
+        for axis in range(3)
+    )
+    coplanar_axes = sum(
+        abs(depth) <= OVERLAP_TOLERANCE for depth in overlap_depths
+    )
+    return coplanar_axes == 1 and all(
+        depth > OVERLAP_TOLERANCE
+        for depth in overlap_depths
+        if abs(depth) > OVERLAP_TOLERANCE
+    )
+
+
 def blender_mesh_bounds(
     obj: bpy.types.Object,
 ) -> tuple[Vector, Vector] | None:
@@ -792,6 +835,18 @@ def build_blender_graph() -> AssetGraph:
             local_matrix=obj.matrix_basis.copy(),
             world_matrix=obj.matrix_world.copy(),
             local_bounds=blender_mesh_bounds(obj),
+            local_component_bounds=(
+                tuple(
+                    component_bounds(component)
+                    for component in mesh_connected_components(obj)
+                )
+                if obj.type == "MESH"
+                and (
+                    obj.name in SIGN_COMPONENT_OBJECT_NAMES
+                    or obj.name.startswith("COL_DoorPanel_")
+                )
+                else ()
+            ),
             triangle_count=(
                 sum(len(polygon.vertices) - 2 for polygon in obj.data.polygons)
                 if obj.type == "MESH"
@@ -801,7 +856,7 @@ def build_blender_graph() -> AssetGraph:
     return AssetGraph("Blender", nodes)
 
 
-def read_glb_json(path: Path) -> dict[str, Any]:
+def read_glb(path: Path) -> tuple[dict[str, Any], bytes]:
     data = path.read_bytes()
     require(len(data) >= 20, "GLBが短すぎます")
     magic, version, declared_length = struct.unpack_from("<4sII", data, 0)
@@ -810,6 +865,7 @@ def read_glb_json(path: Path) -> dict[str, Any]:
     require(declared_length == len(data), "GLB宣言長と実ファイル長が不一致です")
 
     document: dict[str, Any] | None = None
+    binary_chunk: bytes | None = None
     offset = 12
     while offset < len(data):
         require(offset + 8 <= len(data), "GLB chunk headerが途中で終わっています")
@@ -826,9 +882,22 @@ def read_glb_json(path: Path) -> dict[str, Any]:
             document = json.loads(
                 chunk.decode("utf-8").rstrip("\x00 ")
             )
+        elif chunk_type == BINARY_CHUNK_TYPE:
+            require(binary_chunk is None, "GLBにBIN chunkが複数あります")
+            binary_chunk = chunk
     require(offset == len(data), "GLB末尾に未解釈bytesがあります")
     require(document is not None, "GLBにJSON chunkがありません")
-    return document
+    require(binary_chunk is not None, "GLBにBIN chunkがありません")
+    buffers = document.get("buffers", [])
+    require(len(buffers) == 1, "GLBのbufferが1件ではありません")
+    declared_binary_length = buffers[0].get("byteLength")
+    require(
+        isinstance(declared_binary_length, int)
+        and declared_binary_length <= len(binary_chunk)
+        and len(binary_chunk) - declared_binary_length <= 3,
+        "GLBのBIN chunk長がbuffer宣言と一致しません",
+    )
+    return document, binary_chunk
 
 
 def gltf_matrix(node: dict[str, Any]) -> Matrix:
@@ -863,6 +932,187 @@ def gltf_matrix(node: dict[str, Any]) -> Matrix:
         Matrix.Translation(Vector(tuple(float(value) for value in translation)))
         @ quaternion.to_matrix().to_4x4()
         @ Matrix.Diagonal(tuple(float(value) for value in scale) + (1.0,))
+    )
+
+
+def gltf_accessor_values(
+    document: dict[str, Any],
+    binary_chunk: bytes,
+    accessor_index: int,
+    *,
+    expected_type: str,
+    allowed_component_types: frozenset[int],
+) -> tuple[tuple[int | float, ...], ...]:
+    accessors = document.get("accessors", [])
+    buffer_views = document.get("bufferViews", [])
+    require(
+        0 <= accessor_index < len(accessors),
+        f"GLB accessor参照が範囲外です: {accessor_index}",
+    )
+    accessor = accessors[accessor_index]
+    require("sparse" not in accessor, f"GLB sparse accessorは許可しません: {accessor_index}")
+    require(
+        accessor.get("type") == expected_type,
+        f"GLB accessor型が{expected_type}ではありません: {accessor_index}",
+    )
+    component_type = accessor.get("componentType")
+    require(
+        component_type in allowed_component_types
+        and component_type in GLTF_COMPONENT_FORMATS,
+        f"GLB accessor componentTypeが不正です: {accessor_index}/{component_type}",
+    )
+    require(
+        not accessor.get("normalized", False),
+        f"GLB geometry accessorがnormalizedです: {accessor_index}",
+    )
+    buffer_view_index = accessor.get("bufferView")
+    require(
+        isinstance(buffer_view_index, int)
+        and 0 <= buffer_view_index < len(buffer_views),
+        f"GLB accessorのbufferView参照が不正です: {accessor_index}",
+    )
+    buffer_view = buffer_views[buffer_view_index]
+    require(
+        buffer_view.get("buffer", 0) == 0,
+        f"GLB bufferViewが内蔵BINを参照していません: {buffer_view_index}",
+    )
+    count = accessor.get("count")
+    require(
+        isinstance(count, int) and count > 0,
+        f"GLB accessor countが不正です: {accessor_index}/{count}",
+    )
+    component_count = GLTF_TYPE_COMPONENT_COUNTS[expected_type]
+    component_format = GLTF_COMPONENT_FORMATS[component_type]
+    component_size = struct.calcsize("<" + component_format)
+    element_size = component_size * component_count
+    byte_stride = buffer_view.get("byteStride", element_size)
+    require(
+        isinstance(byte_stride, int)
+        and byte_stride >= element_size
+        and byte_stride % component_size == 0,
+        f"GLB bufferView byteStrideが不正です: {buffer_view_index}/{byte_stride}",
+    )
+    view_offset = buffer_view.get("byteOffset", 0)
+    view_length = buffer_view.get("byteLength")
+    accessor_offset = accessor.get("byteOffset", 0)
+    require(
+        isinstance(view_offset, int)
+        and view_offset >= 0
+        and isinstance(view_length, int)
+        and view_length > 0
+        and isinstance(accessor_offset, int)
+        and accessor_offset >= 0,
+        f"GLB accessor byte範囲が不正です: {accessor_index}",
+    )
+    first_offset = view_offset + accessor_offset
+    final_offset = first_offset + (count - 1) * byte_stride + element_size
+    require(
+        final_offset <= view_offset + view_length
+        and final_offset <= len(binary_chunk),
+        f"GLB accessorがBIN範囲外です: {accessor_index}",
+    )
+    unpack_format = "<" + component_format * component_count
+    return tuple(
+        struct.unpack_from(
+            unpack_format,
+            binary_chunk,
+            first_offset + element_index * byte_stride,
+        )
+        for element_index in range(count)
+    )
+
+
+def gltf_mesh_component_bounds(
+    document: dict[str, Any],
+    binary_chunk: bytes,
+    mesh_index: int,
+    node_name: str,
+) -> tuple[tuple[Vector, Vector], ...]:
+    meshes = document.get("meshes", [])
+    require(
+        0 <= mesh_index < len(meshes),
+        f"{node_name}: mesh参照が範囲外です",
+    )
+    adjacency: dict[tuple[float, float, float], set[tuple[float, float, float]]] = {}
+    coordinates: dict[tuple[float, float, float], Vector] = {}
+    for primitive in meshes[mesh_index].get("primitives", []):
+        require(
+            primitive.get("mode", 4) == 4,
+            f"{node_name}: GLB primitiveがTRIANGLESではありません",
+        )
+        position_index = primitive.get("attributes", {}).get("POSITION")
+        require(
+            isinstance(position_index, int),
+            f"{node_name}: POSITION accessor参照がありません",
+        )
+        positions = gltf_accessor_values(
+            document,
+            binary_chunk,
+            position_index,
+            expected_type="VEC3",
+            allowed_component_types=frozenset({5126}),
+        )
+        position_keys = tuple(
+            tuple(round(float(value), 6) for value in position)
+            for position in positions
+        )
+        indices_index = primitive.get("indices")
+        if indices_index is None:
+            indices = tuple(range(len(positions)))
+        else:
+            require(
+                isinstance(indices_index, int),
+                f"{node_name}: indices accessor参照が不正です",
+            )
+            indices = tuple(
+                int(value[0])
+                for value in gltf_accessor_values(
+                    document,
+                    binary_chunk,
+                    indices_index,
+                    expected_type="SCALAR",
+                    allowed_component_types=frozenset({5121, 5123, 5125}),
+                )
+            )
+        require(
+            len(indices) % 3 == 0
+            and all(0 <= index < len(positions) for index in indices),
+            f"{node_name}: triangle index列が不正です",
+        )
+        for triangle_offset in range(0, len(indices), 3):
+            triangle_keys = tuple(
+                position_keys[index]
+                for index in indices[triangle_offset:triangle_offset + 3]
+            )
+            for key in triangle_keys:
+                coordinates[key] = Vector(key)
+                adjacency.setdefault(key, set()).update(triangle_keys)
+
+    require(bool(adjacency), f"{node_name}: component判定対象triangleがありません")
+    pending = set(adjacency)
+    components: list[tuple[Vector, Vector]] = []
+    while pending:
+        component_keys: set[tuple[float, float, float]] = set()
+        frontier = [min(pending)]
+        while frontier:
+            key = frontier.pop()
+            if key not in pending:
+                continue
+            pending.remove(key)
+            component_keys.add(key)
+            frontier.extend(adjacency[key] & pending)
+        components.append(
+            bounds_from_points([coordinates[key] for key in component_keys])
+        )
+    return tuple(
+        sorted(
+            components,
+            key=lambda bounds: tuple(
+                round(float(bounds[bound][axis]), 6)
+                for bound in (0, 1)
+                for axis in range(3)
+            ),
+        )
     )
 
 
@@ -923,7 +1173,10 @@ def gltf_mesh_geometry(
     return bounds_from_points(points), triangle_count
 
 
-def build_glb_graph(document: dict[str, Any]) -> AssetGraph:
+def build_glb_graph(
+    document: dict[str, Any],
+    binary_chunk: bytes,
+) -> AssetGraph:
     raw_nodes = document.get("nodes", [])
     require(isinstance(raw_nodes, list), "GLB nodesが配列ではありません")
     names = [node.get("name") for node in raw_nodes]
@@ -1001,6 +1254,7 @@ def build_glb_graph(document: dict[str, Any]) -> AssetGraph:
         }
         mesh_index = raw_node.get("mesh")
         local_bounds = None
+        local_component_bounds: tuple[tuple[Vector, Vector], ...] = ()
         triangle_count = 0
         kind = "EMPTY"
         if mesh_index is not None:
@@ -1011,6 +1265,16 @@ def build_glb_graph(document: dict[str, Any]) -> AssetGraph:
                 mesh_index,
                 name,
             )
+            if (
+                name in SIGN_COMPONENT_OBJECT_NAMES
+                or name.startswith("COL_DoorPanel_")
+            ):
+                local_component_bounds = gltf_mesh_component_bounds(
+                    document,
+                    binary_chunk,
+                    mesh_index,
+                    name,
+                )
         nodes[name] = NodeRecord(
             name=name,
             kind=kind,
@@ -1034,6 +1298,7 @@ def build_glb_graph(document: dict[str, Any]) -> AssetGraph:
             local_matrix=local_matrix,
             world_matrix=world_matrix(index),
             local_bounds=local_bounds,
+            local_component_bounds=local_component_bounds,
             triangle_count=triangle_count,
         )
     return AssetGraph("GLB", nodes)
@@ -1071,18 +1336,18 @@ def expected_door_specs() -> tuple[DoorSpec, ...]:
             opening_center = (minimum + maximum) / 2.0
             open_sign = 1.0 if opening_center < room_center else -1.0
             if room.wall_axis == "west":
-                door_plane = -3.66 if room.base_z == 0.0 else -3.38
+                door_plane = -3.28
                 root_location = (door_plane, opening_center, room.base_z)
-                normal_offset = -0.04 if room.base_z == 0.0 else 0.08
+                normal_offset = 0.0
                 open_location = (
                     normal_offset,
                     open_sign * 1.20,
                     0.0,
                 )
             else:
-                door_plane = 36.66 if room.base_z == 0.0 else 36.34
+                door_plane = 36.28
                 root_location = (opening_center, door_plane, room.base_z)
-                normal_offset = 0.04 if room.base_z == 0.0 else -0.04
+                normal_offset = 0.0
                 open_location = (
                     open_sign * 1.20,
                     normal_offset,
@@ -1099,6 +1364,15 @@ def expected_door_specs() -> tuple[DoorSpec, ...]:
                     open_rotation_z=0.0,
                     parent_name=None,
                     wall_axis=room.wall_axis,
+                    wall_normal_bounds=(
+                        (-3.65, -3.35)
+                        if room.wall_axis == "west"
+                        else (36.35, 36.65)
+                    ),
+                    corridor_normal_direction=(
+                        1 if room.wall_axis == "west" else -1
+                    ),
+                    minimum_wall_clearance=0.01,
                 )
             )
 
@@ -1112,11 +1386,14 @@ def expected_door_specs() -> tuple[DoorSpec, ...]:
                 door_id=door_id,
                 door_class="room",
                 motion_kind="slide",
-                root_location=(center_x, 38.48, 14.50),
-                open_location=(1.20, -0.04, 0.0),
+                root_location=(center_x, 38.42, 14.50),
+                open_location=(1.20, 0.0, 0.0),
                 open_rotation_z=0.0,
                 parent_name=None,
                 wall_axis="north",
+                wall_normal_bounds=(38.50, 38.80),
+                corridor_normal_direction=-1,
+                minimum_wall_clearance=0.02,
             )
         )
 
@@ -1599,6 +1876,8 @@ def audit_doors(
     sweep_containment_checks = 0
     elevator_pocket_checks = 0
     room_wall_clearance_checks = 0
+    room_hardware_wall_clearance_checks = 0
+    corridor_side_checks = 0
     hardware_counts = Counter()
     expected_hardware_names: set[str] = set()
     for spec in specs:
@@ -1702,6 +1981,7 @@ def audit_doors(
             visual = graph.require_node(visual_name)
             collider = graph.require_node(collider_name)
             open_pose = graph.require_node(open_pose_name)
+            hardware = None
             expected_panel_children = {visual_name, collider_name}
             if hardware_name is not None:
                 expected_panel_children.add(hardware_name)
@@ -1901,33 +2181,91 @@ def audit_doors(
             sweep_containment_checks += 2
 
             if spec.wall_axis is not None:
+                require(
+                    spec.wall_normal_bounds is not None
+                    and spec.corridor_normal_direction in {-1, 1},
+                    f"{panel.name}: 廊下側を判定する壁契約がありません",
+                )
+                require(
+                    spec.minimum_wall_clearance is not None,
+                    f"{panel.name}: 壁離隔の固定契約がありません",
+                )
+                closed_world_bounds = transformed_bounds(
+                    collider.local_bounds,
+                    root.world_matrix @ panel.local_matrix,
+                )
                 open_world_bounds = transformed_bounds(
                     collider.local_bounds,
                     root.world_matrix @ open_pose.local_matrix,
                 )
                 if spec.wall_axis == "west":
                     normal_axis = 0
-                    wall_minimum = -3.65
-                    wall_maximum = -3.35
                 else:
                     normal_axis = 2 if glb_coordinates else 1
-                    wall_minimum = -36.65 if glb_coordinates else 36.35
-                    wall_maximum = -36.35 if glb_coordinates else 36.65
-                panel_minimum = open_world_bounds[0][normal_axis]
-                panel_maximum = open_world_bounds[1][normal_axis]
-                panel_center = (panel_minimum + panel_maximum) / 2.0
+                wall_minimum, wall_maximum = spec.wall_normal_bounds
+                corridor_direction = spec.corridor_normal_direction
+                if glb_coordinates and spec.wall_axis == "north":
+                    wall_minimum, wall_maximum = -wall_maximum, -wall_minimum
+                    corridor_direction *= -1
                 wall_center = (wall_minimum + wall_maximum) / 2.0
-                wall_clearance = (
-                    wall_minimum - panel_maximum
-                    if panel_center < wall_center
-                    else panel_minimum - wall_maximum
-                )
-                require(
-                    wall_clearance >= 0.01 - TOLERANCE,
-                    f"{panel.name}: 開姿勢が隣接壁から0.01m離れていません: "
-                    f"actual={wall_clearance}",
-                )
-                room_wall_clearance_checks += 1
+                for pose_name, pose_bounds in (
+                    ("閉姿勢", closed_world_bounds),
+                    ("開姿勢", open_world_bounds),
+                ):
+                    panel_center = (
+                        pose_bounds[0][normal_axis] + pose_bounds[1][normal_axis]
+                    ) / 2.0
+                    require(
+                        (panel_center - wall_center) * corridor_direction > 0.0,
+                        f"{panel.name}: {pose_name}が廊下側にありません: "
+                        f"panel={panel_center}, wall={wall_center}",
+                    )
+                    corridor_side_checks += 1
+                    panel_minimum = pose_bounds[0][normal_axis]
+                    panel_maximum = pose_bounds[1][normal_axis]
+                    wall_clearance = (
+                        panel_minimum - wall_maximum
+                        if corridor_direction > 0
+                        else wall_minimum - panel_maximum
+                    )
+                    require(
+                        wall_clearance
+                        >= spec.minimum_wall_clearance - TOLERANCE,
+                        f"{panel.name}: {pose_name}が隣接壁から"
+                        f"{spec.minimum_wall_clearance:.2f}m離れていません: "
+                        f"actual={wall_clearance}",
+                    )
+                    room_wall_clearance_checks += 1
+                    if spec.door_class == "room":
+                        require(
+                            hardware is not None
+                            and hardware.local_bounds is not None,
+                            f"{panel.name}: 部屋扉の取っ手AABBがありません",
+                        )
+                        pose_transform = (
+                            root.world_matrix @ panel.local_matrix
+                            if pose_name == "閉姿勢"
+                            else root.world_matrix @ open_pose.local_matrix
+                        )
+                        hardware_bounds = transformed_bounds(
+                            hardware.local_bounds,
+                            pose_transform,
+                        )
+                        hardware_minimum = hardware_bounds[0][normal_axis]
+                        hardware_maximum = hardware_bounds[1][normal_axis]
+                        hardware_wall_clearance = (
+                            hardware_minimum - wall_maximum
+                            if corridor_direction > 0
+                            else wall_minimum - hardware_maximum
+                        )
+                        require(
+                            hardware_wall_clearance
+                            >= spec.minimum_wall_clearance - TOLERANCE,
+                            f"{hardware.name}: {pose_name}が隣接壁から"
+                            f"{spec.minimum_wall_clearance:.2f}m離れていません: "
+                            f"actual={hardware_wall_clearance}",
+                        )
+                        room_hardware_wall_clearance_checks += 1
 
             if spec.door_class in {"elevator_car", "elevator_landing"}:
                 horizontal_x = 0
@@ -2010,6 +2348,21 @@ def audit_doors(
         == Counter({"room_handle": 40, "toilet_knob": 24}),
         f"{graph.source}: 扉金物内訳が不正です: {hardware_counts}",
     )
+    require(
+        corridor_side_checks == 80,
+        f"{graph.source}: 部屋・屋上更衣室扉の閉開廊下側監査が80件ではありません: "
+        f"{corridor_side_checks}",
+    )
+    require(
+        room_wall_clearance_checks == 80,
+        f"{graph.source}: 部屋・屋上更衣室の閉開壁離隔監査が80件ではありません: "
+        f"{room_wall_clearance_checks}",
+    )
+    require(
+        room_hardware_wall_clearance_checks == 80,
+        f"{graph.source}: 部屋・屋上更衣室の閉開取っ手壁離隔監査が"
+        f"80件ではありません: {room_hardware_wall_clearance_checks}",
+    )
     actual_hardware_names = {
         name
         for name in graph.nodes
@@ -2040,9 +2393,167 @@ def audit_doors(
         "sweep_containment_checks": sweep_containment_checks,
         "elevator_pocket_checks": elevator_pocket_checks,
         "room_wall_clearance_checks": room_wall_clearance_checks,
+        "room_hardware_wall_clearance_checks": (
+            room_hardware_wall_clearance_checks
+        ),
+        "corridor_side_checks": corridor_side_checks,
         "hardware": dict(sorted(hardware_counts.items())),
         "classes": dict(sorted(door_classes.items())),
         "motions": dict(sorted(motion_kinds.items())),
+    }
+
+
+def expected_sign_world_bounds(
+    position: tuple[float, float, float],
+    rotation_z: float,
+    *,
+    glb_coordinates: bool,
+) -> tuple[Vector, Vector]:
+    half_size = Vector(tuple(value / 2.0 for value in SIGN_SIZE))
+    bounds = transformed_bounds(
+        (-half_size, half_size),
+        Matrix.Translation(Vector(position))
+        @ Matrix.Rotation(rotation_z, 4, "Z"),
+    )
+    return convert_bounds(bounds) if glb_coordinates else bounds
+
+
+def manifest_sign_component_bounds(
+    graph: AssetGraph,
+    *,
+    glb_coordinates: bool,
+) -> tuple[tuple[str, tuple[Vector, Vector]], ...]:
+    require(
+        len(SIGN_PLACEMENTS) == 30,
+        f"表札manifestが30配置ではありません: {len(SIGN_PLACEMENTS)}",
+    )
+    matched_components: set[tuple[str, int]] = set()
+    result: list[tuple[str, tuple[Vector, Vector]]] = []
+    for placement in SIGN_PLACEMENTS:
+        object_name = f"VIS_B03_Interior_{placement.owner_room}_SignsPaper"
+        node = graph.require_node(object_name)
+        require(
+            node.kind == "MESH" and bool(node.local_component_bounds),
+            f"{graph.source}: 表札owner Meshの実形状componentがありません: "
+            f"{object_name}",
+        )
+        expected_bounds = expected_sign_world_bounds(
+            placement.position,
+            placement.rotation_z,
+            glb_coordinates=glb_coordinates,
+        )
+        component_matches = [
+            (component_index, world_bounds)
+            for component_index, local_bounds in enumerate(
+                node.local_component_bounds
+            )
+            if bounds_close(
+                world_bounds := transformed_bounds(
+                    local_bounds,
+                    node.world_matrix,
+                ),
+                expected_bounds,
+            )
+        ]
+        require(
+            len(component_matches) == 1,
+            f"{graph.source}: manifest表札に一致する実形状componentが"
+            f"1件ではありません: {placement.placement_id}/"
+            f"{len(component_matches)}",
+        )
+        component_index, actual_bounds = component_matches[0]
+        component_key = (object_name, component_index)
+        require(
+            component_key not in matched_components,
+            f"{graph.source}: 同じ表札componentを複数placementが参照しています: "
+            f"{component_key}",
+        )
+        matched_components.add(component_key)
+        result.append((placement.placement_id, actual_bounds))
+    require(
+        len(result) == 30 and len(matched_components) == 30,
+        f"{graph.source}: manifest表札component対応が30件ではありません",
+    )
+    return tuple(result)
+
+
+def audit_door_sign_clearance(
+    graph: AssetGraph,
+    *,
+    glb_coordinates: bool,
+) -> dict[str, int]:
+    sign_components = manifest_sign_component_bounds(
+        graph,
+        glb_coordinates=glb_coordinates,
+    )
+    room_door_specs = tuple(
+        spec for spec in expected_door_specs() if spec.door_class == "room"
+    )
+    require(
+        len(room_door_specs) == 40,
+        f"{graph.source}: 表札干渉監査対象の部屋・屋上扉が40件ではありません",
+    )
+    intersections: list[str] = []
+    coplanar_face_overlaps: list[str] = []
+    pose_checks = 0
+    component_pair_checks = 0
+    for spec in room_door_specs:
+        panel_spec = expected_panel_specs(spec)[0]
+        root = graph.require_node(f"MRK_Door_{spec.token}")
+        panel = graph.require_node(f"MRK_DoorPanel_{panel_spec.token}")
+        open_pose = graph.require_node(
+            f"MRK_DoorOpenPose_{panel_spec.token}"
+        )
+        collider = graph.require_node(f"COL_DoorPanel_{panel_spec.token}")
+        require(
+            len(collider.local_component_bounds) == 1,
+            f"{graph.source}: 部屋扉Colliderの実形状componentが1件ではありません: "
+            f"{collider.name}/{len(collider.local_component_bounds)}",
+        )
+        collider_component = collider.local_component_bounds[0]
+        for pose_name, pose_matrix in (
+            ("closed", panel.local_matrix),
+            ("open", open_pose.local_matrix),
+        ):
+            door_bounds = transformed_bounds(
+                collider_component,
+                root.world_matrix @ pose_matrix @ collider.local_matrix,
+            )
+            pose_checks += 1
+            for placement_id, sign_bounds in sign_components:
+                component_pair_checks += 1
+                label = f"{spec.token}/{pose_name}/{placement_id}"
+                if positive_aabb_overlap(door_bounds, sign_bounds):
+                    intersections.append(label)
+                if coplanar_aabb_face_overlap(door_bounds, sign_bounds):
+                    coplanar_face_overlaps.append(label)
+    require(
+        pose_checks == 80,
+        f"{graph.source}: 部屋・屋上40扉の閉開姿勢監査が80件ではありません: "
+        f"{pose_checks}",
+    )
+    require(
+        component_pair_checks == 2_400,
+        f"{graph.source}: 80扉姿勢×30表札のcomponent比較が2400件ではありません: "
+        f"{component_pair_checks}",
+    )
+    require(
+        not intersections,
+        f"{graph.source}: 部屋扉と表札の正の体積交差があります: "
+        f"{intersections}",
+    )
+    require(
+        not coplanar_face_overlaps,
+        f"{graph.source}: 部屋扉と表札に正面積の共面重複があります: "
+        f"{coplanar_face_overlaps}",
+    )
+    return {
+        "doors": len(room_door_specs),
+        "poses": pose_checks,
+        "sign_components": len(sign_components),
+        "component_pair_checks": component_pair_checks,
+        "intersections": len(intersections),
+        "coplanar_face_overlaps": len(coplanar_face_overlaps),
     }
 
 
@@ -3306,45 +3817,6 @@ def audit_blender_geometry() -> dict[str, int]:
         f"VIS={changed_visual_rooms}, COL={changed_collider_rooms}",
     )
 
-    sign_component_bounds: list[tuple[Vector, Vector]] = []
-    for obj in bpy.data.objects:
-        if obj.type != "MESH" or not obj.name.endswith("_SignsPaper"):
-            continue
-        vertices = [
-            obj.matrix_world @ vertex.co
-            for vertex in obj.data.vertices
-        ]
-        require(
-            len(vertices) % 8 == 0
-            and len(obj.data.polygons) == len(vertices) // 8 * 6,
-            f"{obj.name}: SignsPaperが箱集合Meshではありません",
-        )
-        for offset in range(0, len(vertices), 8):
-            sign_component_bounds.append(
-                bounds_from_points(vertices[offset:offset + 8])
-            )
-
-    door_sign_intersections: list[str] = []
-    for room in ROOM_SPECS:
-        for opening_index in range(1, len(room.openings) + 1):
-            door_token = f"{token(room.author_name)}_{opening_index:02d}"
-            collider = bpy.data.objects[f"COL_DoorPanel_{door_token}"]
-            open_pose = bpy.data.objects[f"MRK_DoorOpenPose_{door_token}"]
-            open_bounds = transformed_bounds(
-                blender_mesh_bounds(collider),
-                open_pose.matrix_world,
-            )
-            if any(
-                positive_aabb_overlap(open_bounds, sign_bounds)
-                for sign_bounds in sign_component_bounds
-            ):
-                door_sign_intersections.append(door_token)
-    require(
-        not door_sign_intersections,
-        "室内扉の開姿勢が掲示物と交差します: "
-        f"{door_sign_intersections}",
-    )
-
     closed_roles = {
         "door_sweep",
         "elevator_call_mat",
@@ -3378,7 +3850,6 @@ def audit_blender_geometry() -> dict[str, int]:
         "disordered_component_bounds_checks": (
             disordered_component_bounds_checks
         ),
-        "door_sign_intersections": len(door_sign_intersections),
         "infirmary_curtain_checks": infirmary_curtain_checks,
         "manifold_checks": manifold_checks,
         "threshold_profile_checks": threshold_profile_checks,
@@ -3678,7 +4149,7 @@ def main() -> None:
     require(
         bpy.context.scene.get("b03_architecture_generator_version")
         == EXPECTED_GENERATOR_VERSION,
-        "Blender正本の生成版がB06-1学校構造仕上げ版ではありません",
+        "Blender正本の生成版がB06-3小物・表札版ではありません",
     )
     raw_generation_result = bpy.context.scene.get("b03_3c_interactive_result")
     require(
@@ -3716,8 +4187,8 @@ def main() -> None:
     require(GLB_PATH.is_file(), f"GLBがありません: {GLB_PATH}")
 
     blender_graph = build_blender_graph()
-    glb_document = read_glb_json(GLB_PATH)
-    glb_graph = build_glb_graph(glb_document)
+    glb_document, glb_binary_chunk = read_glb(GLB_PATH)
+    glb_graph = build_glb_graph(glb_document, glb_binary_chunk)
     blender_geometry = audit_blender_geometry()
 
     blender_result = {
@@ -3727,6 +4198,10 @@ def main() -> None:
             glb_coordinates=False,
         ),
         "doors": audit_doors(
+            blender_graph,
+            glb_coordinates=False,
+        ),
+        "door_sign_clearance": audit_door_sign_clearance(
             blender_graph,
             glb_coordinates=False,
         ),
@@ -3747,6 +4222,10 @@ def main() -> None:
             glb_graph,
             glb_coordinates=True,
         ),
+        "door_sign_clearance": audit_door_sign_clearance(
+            glb_graph,
+            glb_coordinates=True,
+        ),
         "elevator": audit_elevator(
             glb_graph,
             glb_coordinates=True,
@@ -3755,6 +4234,17 @@ def main() -> None:
         "spawns": audit_spawn_semantics(glb_graph),
     }
     parity = audit_blender_glb_parity(blender_graph, glb_graph)
+    require(
+        blender_result["door_sign_clearance"]
+        == glb_result["door_sign_clearance"],
+        "Blender/GLBの扉・表札component監査件数が一致しません",
+    )
+    parity["door_sign_pose_checks"] = blender_result[
+        "door_sign_clearance"
+    ]["poses"]
+    parity["door_sign_component_pair_checks"] = blender_result[
+        "door_sign_clearance"
+    ]["component_pair_checks"]
 
     result = {
         "blend": {

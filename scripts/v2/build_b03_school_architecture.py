@@ -3,7 +3,6 @@ from __future__ import annotations
 import hashlib
 import json
 import math
-import os
 import re
 import sys
 from dataclasses import dataclass
@@ -40,6 +39,12 @@ from build_b03_school_interactive_assets import (
     ROOM_VARIANT_AUTHOR_NAMES,
     ROOM_VARIANT_SPECS,
     build_school_interactive_assets,
+)
+from b06_signage_manifest import (
+    ADJUSTMENT_TEXT,
+    EXPECTED_FONT_BYTES,
+    EXPECTED_FONT_SHA256,
+    SIGNAGE_FONT_RELATIVE_PATH,
 )
 
 
@@ -79,7 +84,7 @@ BIT_FLIGHT_BLOCKER_HALF_HEIGHT_METERS = (
 BIT_FLIGHT_PROJECTION_DISTANCE_METERS = 3.0
 BIT_FLIGHT_NAV_PROFILE = "bit-flight-body-0.44-margin-0.10-v1"
 HUMAN_NAV_PROFILE = "school-humanoid-room-variants-v2"
-GENERATOR_VERSION = "b06-1-school-structure-polish-v38"
+GENERATOR_VERSION = "b06-3-school-props-signage-v1"
 GENERATOR_VERSION_PROPERTY = "b03_architecture_generator_version"
 GENERATOR_SIGNATURE_PROPERTY = "b03_architecture_generator_signature"
 T04_CORRECTION_VERSION_PROPERTY = "t04_2b_nav_connectivity_version"
@@ -1831,17 +1836,23 @@ def create_elevator_adjustment_text(
     target_collection: bpy.types.Collection,
     material: bpy.types.Material,
 ) -> bpy.types.Object:
-    windows_directory = os.environ["WINDIR"]
-    font_path = Path(windows_directory) / "Fonts" / "meiryob.ttc"
-    if not font_path.exists():
-        raise RuntimeError(f"日本語表示用フォントがありません: {font_path.name}")
-    font = bpy.data.fonts.get("B03_JapaneseBold")
-    if font is None:
-        font = bpy.data.fonts.load(str(font_path), check_existing=True)
-        font.name = "B03_JapaneseBold"
+    font_path = REPOSITORY_ROOT / SIGNAGE_FONT_RELATIVE_PATH
+    if not font_path.is_file():
+        raise RuntimeError(
+            f"調整中表示用subset fontがありません: {SIGNAGE_FONT_RELATIVE_PATH}"
+        )
+    actual_font_bytes = font_path.stat().st_size
+    actual_font_sha256 = sha256(font_path)
+    if actual_font_bytes != EXPECTED_FONT_BYTES or actual_font_sha256 != EXPECTED_FONT_SHA256.upper():
+        raise RuntimeError(
+            "調整中表示用subset fontが固定生成物と一致しません: "
+            f"bytes={actual_font_bytes}, sha256={actual_font_sha256}"
+        )
+    font = bpy.data.fonts.load(str(font_path), check_existing=True)
+    font.name = "B06_HaigureSignageSubsetBold"
 
     curve = bpy.data.curves.new(name, type="FONT")
-    curve.body = "調整中"
+    curve.body = ADJUSTMENT_TEXT
     curve.font = font
     curve.align_x = "CENTER"
     curve.align_y = "CENTER"
@@ -1870,6 +1881,13 @@ def create_elevator_adjustment_text(
             Vector((-8.74, ELEVATOR_CENTER_Y, floor_base_z + 1.26))
         )
     )
+    if curve.users == 0:
+        bpy.data.curves.remove(curve)
+    if font.users == 0:
+        bpy.data.fonts.remove(font)
+    bpy.context.scene["b06_3_adjustment_text"] = ADJUSTMENT_TEXT
+    bpy.context.scene["b06_3_signage_font_source"] = SIGNAGE_FONT_RELATIVE_PATH
+    bpy.context.scene["b06_3_signage_font_sha256"] = EXPECTED_FONT_SHA256
     return mesh_obj
 
 

@@ -52,11 +52,12 @@ export const createV2PortraitAssetCatalogFromPublicPaths = (
   });
 };
 
-const detectedPortraitFiles = import.meta.glob(
-  "/public/picture/chara/*/*.{png,jpg,jpeg,webp,gif,bmp,avif,svg}"
-);
+const EMPTY_PORTRAIT_PUBLIC_PATHS: readonly string[] = Object.freeze([]);
+const portraitAssetInventory = import.meta.env.DEV
+  ? await import("./v2PortraitAssetInventory.dev")
+  : Object.freeze({ portraitPublicPaths: EMPTY_PORTRAIT_PUBLIC_PATHS });
 
 export const V2_PORTRAIT_ASSET_CATALOG =
   createV2PortraitAssetCatalogFromPublicPaths(
-    Object.keys(detectedPortraitFiles)
+    portraitAssetInventory.portraitPublicPaths
   );

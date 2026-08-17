@@ -47,13 +47,13 @@ BASELINE_PATH = (
 )
 
 GENERATOR_VERSION_PROPERTY = "b03_architecture_generator_version"
-EXPECTED_GENERATOR_VERSION = "b06-1-school-structure-polish-v38"
+EXPECTED_GENERATOR_VERSION = "b06-3-school-props-signage-v1"
 TOLERANCE = 1.0e-5
 BAND_LENGTH_TOLERANCE = 1.0e-4
 MAX_GLB_BYTES = 25_000_000
-MAX_GLB_NODES = 1_907
-MAX_GLB_MESHES = 1_461
-MAX_GLB_PRIMITIVES = 1_461
+MAX_GLB_NODES = 1_912
+MAX_GLB_MESHES = 1_466
+MAX_GLB_PRIMITIVES = 1_466
 MAX_GLB_VERTICES = 900_000
 MAX_GLB_INDICES = 1_350_000
 MAX_GLB_TRIANGLES = 450_000
@@ -258,6 +258,60 @@ EXPECTED_NINTH_REWORK_CHANGED_OBJECTS: frozenset[str] = frozenset(
         "NAV_Walkable_Interior2F",
         "NAV_Walkable_Interior3F",
         "NAV_Walkable_Interior4F",
+    }
+)
+# 38室扉と屋上更衣室2扉は閉姿勢の廊下側平面統一により
+# root／panel／collider／sweepが変わる。第3要素はB06-1 baselineに対して
+# open-pose markerのworld座標も変わる扉だけを明示する。
+B06_3_ROOM_DOOR_CHANGE_SPECS: tuple[tuple[str, int, bool], ...] = (
+    ("F01_Infirmary", 2, True),
+    ("F01_Library", 2, True),
+    ("F01_StaffRoom", 2, True),
+    ("F01_PcRoom", 2, True),
+    ("F02_Classroom01", 2, True),
+    ("F02_Classroom02", 2, True),
+    ("F02_Classroom03", 2, True),
+    ("F02_Council", 1, True),
+    ("F02_Broadcast", 1, True),
+    ("F02_Science", 2, True),
+    ("F03_Classroom01", 2, True),
+    ("F03_Classroom02", 2, True),
+    ("F03_Classroom03", 2, True),
+    ("F03_Art", 2, True),
+    ("F03_HomeEc", 2, True),
+    ("F04_Classroom01", 2, True),
+    ("F04_Classroom02", 2, True),
+    ("F04_Classroom03", 2, True),
+    ("F04_LL", 2, True),
+    ("F04_Music", 2, True),
+    ("RoofChangingMale", 1, True),
+    ("RoofChangingFemale", 1, True),
+)
+B06_3_ROOM_DOOR_TOKENS: tuple[str, ...] = tuple(
+    f"{base_token}_{index:02d}"
+    for base_token, door_count, _ in B06_3_ROOM_DOOR_CHANGE_SPECS
+    for index in range(1, door_count + 1)
+)
+B06_3_ROOM_DOOR_OPEN_POSE_CHANGED_TOKENS: tuple[str, ...] = tuple(
+    f"{base_token}_{index:02d}"
+    for base_token, door_count, open_pose_changed in B06_3_ROOM_DOOR_CHANGE_SPECS
+    if open_pose_changed
+    for index in range(1, door_count + 1)
+)
+EXPECTED_B06_3_CORRECTION_CHANGED_OBJECTS: frozenset[str] = frozenset(
+    {
+        f"{prefix}_{token}"
+        for prefix in (
+            "COL_DoorPanel",
+            "MRK_DoorPanel",
+            "MRK_Door",
+            "VOL_DoorSweep",
+        )
+        for token in B06_3_ROOM_DOOR_TOKENS
+    }
+    | {
+        f"MRK_DoorOpenPose_{token}"
+        for token in B06_3_ROOM_DOOR_OPEN_POSE_CHANGED_TOKENS
     }
 )
 EXPECTED_MISSING_OBJECTS: frozenset[str] = frozenset(
@@ -1655,8 +1709,10 @@ def audit_geometry_regression(
     baseline: dict[str, object],
     current: dict[str, object],
 ) -> None:
+    # GLB全体bytesはB06-3のSignsPaper Atlasと文字Meshを含むため、
+    # 上段の現行MAX_GLB_BYTESで固定する。B06-1変更前との回帰比較は
+    # 形状量そのものを表す頂点・index・三角形へ限定する。
     for metric_name in (
-        "glb_bytes",
         "glb_vertices",
         "glb_indices",
         "glb_triangles",
@@ -1728,6 +1784,7 @@ def compare_after() -> None:
         EXPECTED_CHANGED_OBJECTS
         | EXPECTED_FIFTH_REWORK_CHANGED_OBJECTS
         | EXPECTED_NINTH_REWORK_CHANGED_OBJECTS
+        | EXPECTED_B06_3_CORRECTION_CHANGED_OBJECTS
     )
     require(
         changed == expected_changed,

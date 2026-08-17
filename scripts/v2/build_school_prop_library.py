@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import math
 import sys
@@ -25,6 +26,9 @@ LIBRARY_COLLECTION_NAME = "B03_PropLibrary"
 OVERVIEW_COLLECTION_NAME = "B03_PreviewOverview"
 SCALE_COLLECTION_NAME = "B03_PreviewScale"
 SHARED_COLLECTION_NAME = "B03_PreviewShared"
+B06_PROP_GENERATOR_VERSION = "b06-3-school-props-signage-v1"
+B06_PROP_SIGNATURE_PROPERTY = "b06_3_prop_library_signature"
+B06_PROP_VERSION_PROPERTY = "b06_3_prop_library_version"
 
 VISUAL_NAMES = (
     "VIS_Prop_ClassroomDesk",
@@ -78,6 +82,11 @@ WALL_ORIGIN_VISUALS = frozenset(VISUAL_NAMES) - FLOOR_ORIGIN_VISUALS
 BOOKSHELF_BOOK_SPINE_COUNT = 28
 BOOKSHELF_COMPONENT_COUNT = 36
 BOOKSHELF_TRIANGLE_COUNT = 432
+B06_PROP_COMPONENT_COUNTS = {
+    "VIS_Prop_Urinal": 4,
+    "VIS_Prop_WesternToilet": 3,
+    "VIS_Prop_GrandPiano": 34,
+}
 
 EXPECTED_VISUAL_DIMENSIONS = {
     "VIS_Prop_ClassroomDesk": (0.65, 0.45, 0.70),
@@ -199,6 +208,15 @@ def build_materials() -> dict[str, bpy.types.Material]:
             "MAT_Prop_Blackboard", (0.035, 0.16, 0.095, 1.0), roughness=0.88
         ),
         "paper": make_material("MAT_Prop_Paper", (0.90, 0.87, 0.76, 1.0)),
+        "key_white": make_material(
+            "MAT_Prop_KeyWhite", (0.96, 0.96, 0.96, 1.0), roughness=0.36
+        ),
+        "pedal_brass": make_material(
+            "MAT_Prop_PedalBrass",
+            (0.56, 0.43, 0.16, 1.0),
+            metallic=0.62,
+            roughness=0.34,
+        ),
         "accent": make_material(
             "MAT_Prop_AccentOrange", (0.83, 0.25, 0.035, 1.0), metallic=0.25
         ),
@@ -223,6 +241,50 @@ def add_box(
     bpy.ops.object.transform_apply(location=False, rotation=False, scale=True)
     if material is not None:
         assign_material(obj, material)
+    return obj
+
+
+def add_box_without_faces(
+    size: tuple[float, float, float],
+    center: tuple[float, float, float],
+    material: bpy.types.Material,
+    *,
+    omitted_faces: frozenset[str],
+) -> bpy.types.Object:
+    half_x, half_y, half_z = (value / 2.0 for value in size)
+    center_x, center_y, center_z = center
+    vertices = [
+        (center_x - half_x, center_y - half_y, center_z - half_z),
+        (center_x + half_x, center_y - half_y, center_z - half_z),
+        (center_x + half_x, center_y + half_y, center_z - half_z),
+        (center_x - half_x, center_y + half_y, center_z - half_z),
+        (center_x - half_x, center_y - half_y, center_z + half_z),
+        (center_x + half_x, center_y - half_y, center_z + half_z),
+        (center_x + half_x, center_y + half_y, center_z + half_z),
+        (center_x - half_x, center_y + half_y, center_z + half_z),
+    ]
+    face_definitions = {
+        "bottom": (3, 2, 1, 0),
+        "top": (4, 5, 6, 7),
+        "front": (0, 1, 5, 4),
+        "right": (1, 2, 6, 5),
+        "back": (2, 3, 7, 6),
+        "left": (3, 0, 4, 7),
+    }
+    unknown_faces = omitted_faces - face_definitions.keys()
+    if unknown_faces:
+        raise RuntimeError(f"除外面名が不正です: {sorted(unknown_faces)}")
+    faces = [
+        face
+        for face_name, face in face_definitions.items()
+        if face_name not in omitted_faces
+    ]
+    mesh = bpy.data.meshes.new("TemporaryOpenBox")
+    mesh.from_pydata(vertices, [], faces)
+    mesh.update()
+    obj = bpy.data.objects.new("TemporaryOpenBox", mesh)
+    bpy.context.scene.collection.objects.link(obj)
+    assign_material(obj, material)
     return obj
 
 
@@ -409,6 +471,146 @@ def add_open_circular_frustum(
     mesh.from_pydata(vertices, [], faces)
     mesh.update()
     obj = bpy.data.objects.new("TemporaryOpenCircularFrustum", mesh)
+    bpy.context.scene.collection.objects.link(obj)
+    assign_material(obj, material)
+    return obj
+
+
+def add_elliptical_bowl_shell(
+    outer_bottom_radii: tuple[float, float],
+    outer_top_radii: tuple[float, float],
+    inner_top_radii: tuple[float, float],
+    inner_bottom_radii: tuple[float, float],
+    z_bottom: float,
+    z_top: float,
+    inner_z_bottom: float,
+    outer_center_y: float,
+    inner_center_y: float,
+    material: bpy.types.Material,
+    *,
+    segments: int = 20,
+) -> bpy.types.Object:
+    rings = (
+        (outer_bottom_radii, outer_center_y, z_bottom),
+        (outer_top_radii, outer_center_y, z_top),
+        (inner_top_radii, inner_center_y, z_top),
+        (inner_bottom_radii, inner_center_y, inner_z_bottom),
+    )
+    vertices = [
+        (
+            math.cos(math.tau * index / segments) * radii[0],
+            center_y + math.sin(math.tau * index / segments) * radii[1],
+            z,
+        )
+        for radii, center_y, z in rings
+        for index in range(segments)
+    ]
+    faces: list[tuple[int, int, int, int]] = []
+    for index in range(segments):
+        following = (index + 1) % segments
+        faces.extend(
+            (
+                (index, following, segments + following, segments + index),
+                (
+                    segments + index,
+                    segments + following,
+                    2 * segments + following,
+                    2 * segments + index,
+                ),
+                (
+                    2 * segments + index,
+                    2 * segments + following,
+                    3 * segments + following,
+                    3 * segments + index,
+                ),
+            )
+        )
+    mesh = bpy.data.meshes.new("TemporaryEllipticalBowlShell")
+    mesh.from_pydata(vertices, [], faces)
+    mesh.update()
+    obj = bpy.data.objects.new("TemporaryEllipticalBowlShell", mesh)
+    bpy.context.scene.collection.objects.link(obj)
+    assign_material(obj, material)
+    return obj
+
+
+def add_open_elliptical_ring(
+    outer_radii: tuple[float, float],
+    inner_radii: tuple[float, float],
+    center_y: float,
+    z_bottom: float,
+    z_top: float,
+    material: bpy.types.Material,
+    *,
+    segments: int = 20,
+) -> bpy.types.Object:
+    vertices = [
+        (
+            math.cos(math.tau * index / segments) * radii[0],
+            center_y + math.sin(math.tau * index / segments) * radii[1],
+            z,
+        )
+        for radii, z in (
+            (outer_radii, z_bottom),
+            (outer_radii, z_top),
+            (inner_radii, z_top),
+            (inner_radii, z_bottom),
+        )
+        for index in range(segments)
+    ]
+    faces: list[tuple[int, int, int, int]] = []
+    for index in range(segments):
+        following = (index + 1) % segments
+        faces.extend(
+            (
+                (index, following, segments + following, segments + index),
+                (
+                    segments + index,
+                    segments + following,
+                    2 * segments + following,
+                    2 * segments + index,
+                ),
+                (
+                    2 * segments + index,
+                    2 * segments + following,
+                    3 * segments + following,
+                    3 * segments + index,
+                ),
+            )
+        )
+    mesh = bpy.data.meshes.new("TemporaryOpenEllipticalRing")
+    mesh.from_pydata(vertices, [], faces)
+    mesh.update()
+    obj = bpy.data.objects.new("TemporaryOpenEllipticalRing", mesh)
+    bpy.context.scene.collection.objects.link(obj)
+    assign_material(obj, material)
+    return obj
+
+
+def add_elliptical_disk(
+    radii: tuple[float, float],
+    center_y: float,
+    z: float,
+    material: bpy.types.Material,
+    *,
+    segments: int = 20,
+) -> bpy.types.Object:
+    vertices = [(0.0, center_y, z)] + [
+        (
+            math.cos(math.tau * index / segments) * radii[0],
+            center_y + math.sin(math.tau * index / segments) * radii[1],
+            z,
+        )
+        for index in range(segments)
+    ]
+    faces = [
+        (0, index + 1, ((index + 1) % segments) + 1)
+        for index in range(segments)
+    ]
+    mesh = bpy.data.meshes.new("TemporaryEllipticalDisk")
+    mesh.from_pydata(vertices, [], faces)
+    mesh.update()
+    obj = bpy.data.objects.new("TemporaryEllipticalDisk", mesh)
     bpy.context.scene.collection.objects.link(obj)
     assign_material(obj, material)
     return obj
@@ -618,20 +820,65 @@ def build_stage_lectern(materials: dict[str, bpy.types.Material]) -> list[bpy.ty
 
 def build_urinal(materials: dict[str, bpy.types.Material]) -> list[bpy.types.Object]:
     return [
-        add_box((0.32, 0.08, 0.55), (0.0, 0.04, 0.0), materials["porcelain"]),
-        add_uv_sphere((0.20, 0.175, 0.26), (0.0, 0.175, -0.065), materials["porcelain"]),
-        add_box((0.20, 0.05, 0.10), (0.0, 0.325, -0.23), materials["porcelain"]),
-        add_cylinder(0.025, 0.12, (0.0, 0.08, 0.265), materials["metal_gray"], vertices=8),
+        add_box((0.40, 0.05, 0.65), (0.0, 0.025, 0.0), materials["porcelain"]),
+        add_elliptical_bowl_shell(
+            (0.11, 0.10),
+            (0.18, 0.17),
+            (0.12, 0.11),
+            (0.04, 0.04),
+            -0.22,
+            0.14,
+            -0.20,
+            0.18,
+            0.19,
+            materials["porcelain"],
+        ),
+        add_elliptical_disk((0.04, 0.04), 0.12, -0.20, materials["metal_dark"]),
+        add_cylinder(
+            0.025,
+            0.16,
+            (0.0, 0.075, 0.245),
+            materials["metal_gray"],
+            vertices=8,
+        ),
     ]
 
 
 def build_western_toilet(materials: dict[str, bpy.types.Material]) -> list[bpy.types.Object]:
     return [
-        add_box((0.36, 0.22, 0.52), (0.0, 0.24, 0.49), materials["porcelain"]),
-        add_uv_sphere((0.20, 0.27, 0.20), (0.0, -0.08, 0.37), materials["porcelain"]),
-        add_box((0.34, 0.48, 0.055), (0.0, -0.05, 0.53), materials["plastic"]),
-        add_box((0.34, 0.45, 0.04), (0.0, 0.05, 0.73), materials["porcelain"]),
-        add_box((0.28, 0.34, 0.22), (0.0, -0.08, 0.11), materials["porcelain"]),
+        add_box((0.36, 0.16, 0.25), (0.0, 0.27, 0.625), materials["porcelain"]),
+        add_box_without_faces(
+            (0.26, 0.30, 0.28),
+            (0.0, -0.06, 0.14),
+            materials["porcelain"],
+            omitted_faces=frozenset({"top"}),
+        ),
+        add_elliptical_bowl_shell(
+            (0.14, 0.18),
+            (0.20, 0.27),
+            (0.135, 0.20),
+            (0.055, 0.075),
+            0.28,
+            0.50,
+            0.34,
+            -0.08,
+            -0.08,
+            materials["porcelain"],
+        ),
+        add_open_elliptical_ring(
+            (0.195, 0.265),
+            (0.135, 0.195),
+            -0.08,
+            0.50,
+            0.54,
+            materials["plastic"],
+        ),
+        add_elliptical_disk(
+            (0.055, 0.075),
+            -0.08,
+            0.34,
+            materials["metal_dark"],
+        ),
     ]
 
 
@@ -678,26 +925,77 @@ def build_baggage_locker(materials: dict[str, bpy.types.Material]) -> list[bpy.t
 
 
 def build_grand_piano(materials: dict[str, bpy.types.Material]) -> list[bpy.types.Object]:
-    outline = (
-        (-0.775, -0.725),
-        (0.42, -0.725),
-        (0.775, -0.44),
+    body_outline = (
+        (-0.775, -0.445),
+        (0.42, -0.445),
+        (0.775, -0.16),
         (0.73, 0.28),
         (0.35, 0.725),
         (-0.775, 0.725),
     )
     parts = [
-        add_extruded_polygon(outline, 0.72, 1.00, materials["plastic"]),
-        add_box((1.18, 0.28, 0.10), (-0.18, -0.585, 0.68), materials["plastic"]),
-        add_box((1.05, 0.24, 0.035), (-0.22, -0.605, 0.73), materials["paper"]),
+        add_extruded_polygon(body_outline, 0.75, 1.00, materials["plastic"]),
+        add_box(
+            (1.195, 0.28, 0.08),
+            (-0.1775, -0.585, 0.71),
+            materials["plastic"],
+        ),
     ]
-    for x, y in ((-0.62, -0.52), (0.53, -0.40), (-0.52, 0.50)):
-        parts.append(add_box((0.07, 0.07, 0.72), (x, y, 0.36), materials["plastic"]))
+    white_key_count = 14
+    keyboard_min_x = -0.735
+    keyboard_width = 1.06
+    white_key_pitch = keyboard_width / white_key_count
+    for index in range(white_key_count):
+        key_center_x = keyboard_min_x + (index + 0.5) * white_key_pitch
+        parts.append(
+            add_box_without_faces(
+                (white_key_pitch - 0.004, 0.255, 0.03),
+                (key_center_x, -0.5725, 0.765),
+                materials["key_white"],
+                omitted_faces=frozenset({"bottom", "back"}),
+            )
+        )
+    for boundary_index in (1, 2, 4, 5, 6, 8, 9, 11, 12, 13):
+        key_center_x = keyboard_min_x + boundary_index * white_key_pitch
+        parts.append(
+            add_box_without_faces(
+                (0.035, 0.155, 0.04),
+                (key_center_x, -0.5225, 0.80),
+                materials["plastic"],
+                omitted_faces=frozenset({"bottom", "back"}),
+            )
+        )
+    for x, y in ((-0.62, -0.34), (0.53, -0.28), (-0.52, 0.50)):
+        parts.append(
+            add_box((0.07, 0.07, 0.75), (x, y, 0.375), materials["plastic"])
+        )
     parts.extend(
         [
-            add_box((0.32, 0.20, 0.035), (-0.18, -0.16, 0.20), materials["metal_dark"]),
-            add_box((0.035, 0.18, 0.025), (-0.25, -0.22, 0.12), materials["accent"]),
-            add_box((0.035, 0.18, 0.025), (-0.11, -0.22, 0.12), materials["accent"]),
+            add_box(
+                (0.32, 0.22, 0.04),
+                (-0.18, -0.20, 0.20),
+                materials["metal_dark"],
+            ),
+            add_box(
+                (0.04, 0.18, 0.025),
+                (-0.25, -0.30, 0.175),
+                materials["pedal_brass"],
+            ),
+            add_box(
+                (0.04, 0.18, 0.025),
+                (-0.11, -0.30, 0.175),
+                materials["pedal_brass"],
+            ),
+            add_box(
+                (0.035, 0.035, 0.53),
+                (-0.25, -0.16, 0.485),
+                materials["metal_dark"],
+            ),
+            add_box(
+                (0.035, 0.035, 0.53),
+                (-0.11, -0.16, 0.485),
+                materials["metal_dark"],
+            ),
         ]
     )
     return parts
@@ -1238,6 +1536,105 @@ def connected_component_bounds(
     return bounds
 
 
+def assert_no_coplanar_upward_overlap(obj: bpy.types.Object) -> None:
+    upward_surfaces = []
+    for polygon in obj.data.polygons:
+        if polygon.normal.z < 0.999999:
+            continue
+        coordinates = [obj.data.vertices[index].co for index in polygon.vertices]
+        z = coordinates[0].z
+        if any(abs(vertex.z - z) > 1.0e-7 for vertex in coordinates):
+            continue
+        upward_surfaces.append(
+            (
+                polygon.index,
+                z,
+                min(vertex.x for vertex in coordinates),
+                max(vertex.x for vertex in coordinates),
+                min(vertex.y for vertex in coordinates),
+                max(vertex.y for vertex in coordinates),
+            )
+        )
+    for first_index, first in enumerate(upward_surfaces):
+        for second in upward_surfaces[first_index + 1 :]:
+            if abs(first[1] - second[1]) > 1.0e-7:
+                continue
+            overlap_x = min(first[3], second[3]) - max(first[2], second[2])
+            overlap_y = min(first[5], second[5]) - max(first[4], second[4])
+            if overlap_x > 1.0e-7 and overlap_y > 1.0e-7:
+                raise RuntimeError(
+                    "同一高さの上向き面が重複しています: "
+                    f"{obj.name}/polygon={first[0]},{second[0]}/z={first[1]}"
+                )
+
+
+def prop_library_signature() -> str:
+    library = bpy.data.collections.get(LIBRARY_COLLECTION_NAME)
+    if library is None:
+        raise RuntimeError(f"Collectionがありません: {LIBRARY_COLLECTION_NAME}")
+    payload = {
+        "version": B06_PROP_GENERATOR_VERSION,
+        "objects": [],
+    }
+    for obj in sorted(
+        (item for item in library.all_objects if item.type == "MESH"),
+        key=lambda item: item.name,
+    ):
+        payload["objects"].append(
+            {
+                "name": obj.name,
+                "location": [round(float(value), 9) for value in obj.location],
+                "rotation": [round(float(value), 9) for value in obj.rotation_euler],
+                "scale": [round(float(value), 9) for value in obj.scale],
+                "materials": [
+                    material.name if material is not None else None
+                    for material in obj.data.materials
+                ],
+                "vertices": [
+                    [round(float(value), 9) for value in vertex.co]
+                    for vertex in obj.data.vertices
+                ],
+                "polygons": [
+                    {
+                        "vertices": list(polygon.vertices),
+                        "material": polygon.material_index,
+                        "smooth": bool(polygon.use_smooth),
+                    }
+                    for polygon in obj.data.polygons
+                ],
+            }
+        )
+    encoded = json.dumps(
+        payload,
+        ensure_ascii=False,
+        separators=(",", ":"),
+        sort_keys=True,
+    ).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest().upper()
+
+
+def validate_or_store_prop_library_signature(*, store_signature: bool) -> str:
+    actual = prop_library_signature()
+    scene = bpy.context.scene
+    if store_signature:
+        scene[B06_PROP_VERSION_PROPERTY] = B06_PROP_GENERATOR_VERSION
+        scene[B06_PROP_SIGNATURE_PROPERTY] = actual
+    else:
+        stored_version = scene.get(B06_PROP_VERSION_PROPERTY)
+        stored_signature = scene.get(B06_PROP_SIGNATURE_PROPERTY)
+        if stored_version != B06_PROP_GENERATOR_VERSION:
+            raise RuntimeError(
+                "小物ライブラリ生成版が不一致です: "
+                f"{stored_version}/{B06_PROP_GENERATOR_VERSION}"
+            )
+        if stored_signature != actual:
+            raise RuntimeError(
+                f"小物ライブラリ監査署名が不一致です: {stored_signature}/{actual}"
+            )
+    print(f"B06_PROP_SIGNATURE={actual}")
+    return actual
+
+
 def local_bounds(obj: bpy.types.Object) -> tuple[Vector, Vector]:
     coordinates = [vertex.co for vertex in obj.data.vertices]
     return (
@@ -1350,6 +1747,155 @@ def audit_library() -> dict[str, object]:
                 f"{visual_minimum}/{visual_maximum}/"
                 f"{collider_minimum}/{collider_maximum}"
             )
+
+    b06_component_counts = {
+        name: connected_component_count(bpy.data.objects[name])
+        for name in B06_PROP_COMPONENT_COUNTS
+    }
+    if b06_component_counts != B06_PROP_COMPONENT_COUNTS:
+        raise RuntimeError(
+            "B06-3小物の連結部品数が不一致です: "
+            f"{b06_component_counts}/{B06_PROP_COMPONENT_COUNTS}"
+        )
+
+    urinal = bpy.data.objects["VIS_Prop_Urinal"]
+    urinal_materials = {
+        material.name: index
+        for index, material in enumerate(urinal.data.materials)
+        if material is not None
+    }
+    for required_material in (
+        "MAT_Prop_Porcelain",
+        "MAT_Prop_MetalDark",
+        "MAT_Prop_MetalGray",
+    ):
+        if required_material not in urinal_materials:
+            raise RuntimeError(f"小便器のMaterialが不足しています: {required_material}")
+    urinal_top_annulus = [
+        polygon
+        for polygon in urinal.data.polygons
+        if polygon.material_index == urinal_materials["MAT_Prop_Porcelain"]
+        and len(polygon.vertices) == 3
+        and all(
+            abs(urinal.data.vertices[index].co.z - 0.14) <= 1.0e-7
+            for index in polygon.vertices
+        )
+    ]
+    if len(urinal_top_annulus) != 40:
+        raise RuntimeError(
+            "小便器上面が開口付きannulusではありません: "
+            f"triangles={len(urinal_top_annulus)}/40"
+        )
+
+    western_toilet = bpy.data.objects["VIS_Prop_WesternToilet"]
+    western_materials = {
+        material.name: index
+        for index, material in enumerate(western_toilet.data.materials)
+        if material is not None
+    }
+    for required_material in (
+        "MAT_Prop_Porcelain",
+        "MAT_Prop_PlasticBlack",
+        "MAT_Prop_MetalDark",
+    ):
+        if required_material not in western_materials:
+            raise RuntimeError(f"洋式便器のMaterialが不足しています: {required_material}")
+    seat_vertices = {
+        vertex_index
+        for polygon in western_toilet.data.polygons
+        if polygon.material_index == western_materials["MAT_Prop_PlasticBlack"]
+        for vertex_index in polygon.vertices
+    }
+    seat_coordinates = [
+        western_toilet.data.vertices[index].co for index in seat_vertices
+    ]
+    assert_vector_close(
+        "洋式便器の便座ring minimum",
+        tuple(min(vertex[axis] for vertex in seat_coordinates) for axis in range(3)),
+        (-0.195, -0.345, 0.50),
+        1.0e-6,
+    )
+    assert_vector_close(
+        "洋式便器の便座ring maximum",
+        tuple(max(vertex[axis] for vertex in seat_coordinates) for axis in range(3)),
+        (0.195, 0.185, 0.54),
+        1.0e-6,
+    )
+
+    grand_piano = bpy.data.objects["VIS_Prop_GrandPiano"]
+    piano_components = connected_component_bounds(grand_piano)
+    piano_white_keys = [
+        bounds
+        for bounds in piano_components
+        if abs(bounds[0].z - 0.75) <= 1.0e-6
+        and abs(bounds[1].z - 0.78) <= 1.0e-6
+        and abs((bounds[1].y - bounds[0].y) - 0.255) <= 1.0e-6
+    ]
+    piano_black_keys = [
+        bounds
+        for bounds in piano_components
+        if abs(bounds[0].z - 0.78) <= 1.0e-6
+        and abs(bounds[1].z - 0.82) <= 1.0e-6
+        and abs((bounds[1].y - bounds[0].y) - 0.155) <= 1.0e-6
+    ]
+    piano_legs = [
+        bounds
+        for bounds in piano_components
+        if abs(bounds[0].z) <= 1.0e-6
+        and abs(bounds[1].z - 0.75) <= 1.0e-6
+        and abs((bounds[1].x - bounds[0].x) - 0.07) <= 1.0e-6
+        and abs((bounds[1].y - bounds[0].y) - 0.07) <= 1.0e-6
+    ]
+    piano_support_rods = [
+        bounds
+        for bounds in piano_components
+        if abs(bounds[0].z - 0.22) <= 1.0e-6
+        and abs(bounds[1].z - 0.75) <= 1.0e-6
+        and abs((bounds[1].x - bounds[0].x) - 0.035) <= 1.0e-6
+    ]
+    if (
+        len(piano_white_keys) != 14
+        or len(piano_black_keys) != 10
+        or len(piano_legs) != 3
+        or len(piano_support_rods) != 2
+    ):
+        raise RuntimeError(
+            "グランドピアノの鍵盤・脚・支持棒が不足しています: "
+            f"white={len(piano_white_keys)}, black={len(piano_black_keys)}, "
+            f"legs={len(piano_legs)}, rods={len(piano_support_rods)}"
+        )
+    piano_materials = {
+        material.name: index
+        for index, material in enumerate(grand_piano.data.materials)
+        if material is not None
+    }
+    for required_material in (
+        "MAT_Prop_KeyWhite",
+        "MAT_Prop_PedalBrass",
+        "MAT_Prop_PlasticBlack",
+    ):
+        if required_material not in piano_materials:
+            raise RuntimeError(
+                f"グランドピアノのMaterialが不足しています: {required_material}"
+            )
+    white_key_material_index = piano_materials["MAT_Prop_KeyWhite"]
+    brass_material_index = piano_materials["MAT_Prop_PedalBrass"]
+    if sum(
+        polygon.material_index == white_key_material_index
+        for polygon in grand_piano.data.polygons
+    ) != 56:
+        raise RuntimeError("グランドピアノ白鍵14基が専用白Materialではありません")
+    if sum(
+        polygon.material_index == brass_material_index
+        for polygon in grand_piano.data.polygons
+    ) != 12:
+        raise RuntimeError("グランドピアノのペダル2基が専用真鍮Materialではありません")
+    if visual_triangles[grand_piano.name] != 320:
+        raise RuntimeError(
+            "グランドピアノの三角形数が造形契約と一致しません: "
+            f"{visual_triangles[grand_piano.name]}/320"
+        )
+    assert_no_coplanar_upward_overlap(grand_piano)
 
     for prop_type in ("Bookshelf", "BaggageLocker", "CleaningLocker"):
         assert_vector_close(
@@ -1495,8 +2041,8 @@ def audit_library() -> dict[str, object]:
             if slot.material is not None
         }
     )
-    if len(used_materials) > 10:
-        raise RuntimeError(f"Material予算超過です: {len(used_materials)}/10")
+    if len(used_materials) > 12:
+        raise RuntimeError(f"Material予算超過です: {len(used_materials)}/12")
 
     result = {
         "visualCount": len(visuals),
@@ -1510,6 +2056,11 @@ def audit_library() -> dict[str, object]:
         "trianglesByCollider": collider_triangles,
         "bookshelfBookSpines": BOOKSHELF_BOOK_SPINE_COUNT,
         "bookshelfComponents": bookshelf_components,
+        "b06PropComponents": b06_component_counts,
+        "grandPianoWhiteKeys": len(piano_white_keys),
+        "grandPianoBlackKeys": len(piano_black_keys),
+        "grandPianoLegs": len(piano_legs),
+        "grandPianoSupportRods": len(piano_support_rods),
         "cleaningLockerComponents": len(cleaning_components),
         "cleaningLockerTriangles": visual_triangles[cleaning_locker.name],
         "pcMonitorComponents": len(pc_monitor_components),
@@ -1527,6 +2078,7 @@ def audit_library() -> dict[str, object]:
 def configure_scene() -> None:
     scene = bpy.context.scene
     bpy.context.preferences.filepaths.save_version = 0
+    bpy.context.preferences.filepaths.use_file_compression = False
     scene.unit_settings.system = "METRIC"
     scene.unit_settings.scale_length = 1.0
     scene.unit_settings.length_unit = "METERS"
@@ -1574,6 +2126,7 @@ def build_library(arguments: argparse.Namespace) -> None:
         bpy.context.scene.render.filepath = ""
 
     audit_library()
+    validate_or_store_prop_library_signature(store_signature=True)
     arguments.blend_output.parent.mkdir(parents=True, exist_ok=True)
     bpy.ops.wm.save_as_mainfile(filepath=str(arguments.blend_output), check_existing=False)
     export_library(arguments.glb_output)
@@ -1589,6 +2142,7 @@ def main() -> None:
         return
     configure_scene()
     audit_library()
+    validate_or_store_prop_library_signature(store_signature=False)
     if arguments.mode == "reexport":
         export_library(arguments.glb_output)
         print(f"B03_PROP_GLB={arguments.glb_output}")
