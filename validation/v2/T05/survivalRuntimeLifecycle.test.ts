@@ -25,7 +25,8 @@ import {
   createV2PerformanceDiagnostics,
   createV2SeededRandom,
   V2_PERFORMANCE_DEFAULT_SEED,
-  type V2PerformanceDiagnostics
+  type V2PerformanceDiagnostics,
+  type V2PerformanceScenario
 } from "../../../src/v2/performanceDiagnostics";
 import type { V2PlayerController } from "../../../src/v2/playerController";
 import type { V2MissionElevatorSnapshot } from "../../../src/v2/missionRuntime";
@@ -240,7 +241,8 @@ const createRuntime = async (
   scene: Scene,
   stage: StageSpatialContext,
   getOrbVisibilityPredicate: () => (position: Vector3) => boolean,
-  performanceDiagnostics: V2PerformanceDiagnostics | null = null
+  performanceDiagnostics: V2PerformanceDiagnostics | null = null,
+  performanceWorkloadScenario: V2PerformanceScenario | null = null
 ) => {
   const playerSpawn = requireFirstFixturePlayerSpawn(stage);
   const player = createFakePlayer(playerSpawn);
@@ -282,7 +284,7 @@ const createRuntime = async (
         getOrbVisibilityPredicate,
         population: V2_PERFORMANCE_ACCEPTANCE_POPULATION,
         performanceDiagnostics,
-        performanceWorkloadScenario: null,
+        performanceWorkloadScenario,
         releaseStageTraversalForScriptedPhase: () => {},
         selectNavigationRoute: selectDistanceNavigationRoute
       }),
@@ -348,14 +350,15 @@ export const runSurvivalRuntimeLifecycleTests = async (
       })
     );
     let orbVisibilityPredicateFactoryCalls = 0;
+    const performanceWorkloadScenario = Object.freeze({
+      seed: V2_PERFORMANCE_DEFAULT_SEED,
+      view: "courtyard" as const
+    });
     const performanceDiagnostics =
       createV2PerformanceDiagnostics(
         scene.getEngine(),
         scene,
-        Object.freeze({
-          seed: V2_PERFORMANCE_DEFAULT_SEED,
-          view: "courtyard"
-        }),
+        performanceWorkloadScenario,
         V2_PERFORMANCE_ACCEPTANCE_POPULATION
       );
     const firstFixture = await createRuntime(
@@ -365,7 +368,8 @@ export const runSurvivalRuntimeLifecycleTests = async (
         orbVisibilityPredicateFactoryCalls += 1;
         return () => true;
       },
-      performanceDiagnostics
+      performanceDiagnostics,
+      performanceWorkloadScenario
     );
     firstRuntime = firstFixture.runtime;
     firstCharacterVisuals = firstFixture.characterVisuals;
@@ -527,6 +531,24 @@ export const runSurvivalRuntimeLifecycleTests = async (
     );
     const performanceReport =
       performanceDiagnostics.getReport();
+    const initialBitCount =
+      performanceReport.cold.counters["scenario.bit-count"];
+    const initialAlertInjections =
+      performanceReport.cold.counters["scenario.alert-injections"];
+    checks.push(
+      Object.freeze({
+        name: "性能シナリオ初回frameでBITとAlert workloadを成立",
+        ok:
+          initialBitCount?.sampleCount === 1 &&
+          initialBitCount.first === 50 &&
+          initialBitCount.minimum === 50 &&
+          initialAlertInjections?.sampleCount === 1 &&
+          initialAlertInjections.first === 1,
+        detail:
+          `bit=${JSON.stringify(initialBitCount)} / ` +
+          `alert=${JSON.stringify(initialAlertInjections)}`
+      })
+    );
     const npcPlayerTargets =
       performanceReport.cold.counters[
         "scenario.npc-player-targets"
@@ -620,7 +642,9 @@ export const runSurvivalRuntimeLifecycleTests = async (
     const secondFixture = await createRuntime(
       scene,
       lifecycleStage,
-      () => () => true
+      () => () => true,
+      null,
+      performanceWorkloadScenario
     );
     secondRuntime = secondFixture.runtime;
     secondCharacterVisuals = secondFixture.characterVisuals;

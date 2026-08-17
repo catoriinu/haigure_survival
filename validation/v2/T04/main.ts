@@ -27,6 +27,9 @@ import {
   type NavigationWorld
 } from "../../../src/world/navigationWorld";
 import {
+  calculateStraightPathPointOutputCapacity
+} from "../../../src/world/navigationWorldInternal";
+import {
   createDynamicStageSpatialVariants,
   type DynamicStageSpatialActiveSet
 } from "../../../src/world/dynamicStageSpatialVariants";
@@ -60,9 +63,11 @@ import {
   type StageCatalogEntry
 } from "../../../src/world/stageCatalog";
 import {
-  SCHOOL_ALL_NORMAL_ROOM_VARIANT_SELECTIONS
+  SCHOOL_ALL_NORMAL_ROOM_VARIANT_SELECTIONS,
+  createSchoolRuntimeRandom
 } from "../../../src/world/schoolRuntimeSettings";
 import {
+  createSchoolStageDynamicRuntime,
   createSchoolStageDynamicSpatialInitializer
 } from "../../../src/world/schoolStageDynamicRuntime";
 import { BLENDER_METERS_TO_WORLD_UNITS } from "../../../src/world/worldUnits";
@@ -97,6 +102,17 @@ import {
 } from "../../../src/v2/npcSystem";
 import { createDefaultV2CharacterVisualRuntime } from "../characterVisualFixture";
 import { createV2TargetNavigationAreaTracker } from "../../../src/v2/pursuitNavigation";
+import {
+  createSchoolNpcNavigationPolicy,
+  type SchoolNpcNavigationPolicy
+} from "../../../src/v2/schoolNpcNavigationPolicy";
+import {
+  createSchoolStageActorPort,
+  createSchoolStageTraversalCoordinator
+} from "../../../src/v2/schoolStageTraversalCoordinator";
+import type { V2PlayerController } from "../../../src/v2/playerController";
+import type { V2SurvivalRuntime } from "../../../src/v2/survivalRuntime";
+import type { V2NpcTraversalResult } from "../../../src/v2/npcTraversal";
 import {
   castV2BeamSegment,
   castV2SightSegment,
@@ -1380,6 +1396,19 @@ const runValidation = async () => {
       name: "Recast初期化",
       ok: true,
       detail: `recast-navigation 0.43.1 / ${initializationMs.toFixed(2)} ms`
+    });
+    const straightPathBoundaryCapacity =
+      calculateStraightPathPointOutputCapacity(2, 4096);
+    const straightPathGlobalCapacity =
+      calculateStraightPathPointOutputCapacity(4096, 4096);
+    checks.push({
+      name: "NavMesh直線経路の満杯判定用出力余白",
+      ok:
+        straightPathBoundaryCapacity === 4 &&
+        straightPathGlobalCapacity === 4096,
+      detail:
+        `2面=${straightPathBoundaryCapacity}点 / ` +
+        `全体上限=${straightPathGlobalCapacity}点`
     });
 
     const bakeStartedAt = performance.now();
@@ -3961,7 +3990,7 @@ const runValidation = async () => {
           ["3F階段", new Vector3(-11.4, 38.7, 7.2)],
           ["4F床", new Vector3(-2.0, 15.0, 10.8)],
           ["4F階段", new Vector3(-11.4, 38.7, 10.8)],
-          ["屋上", new Vector3(-5.5, 39.5, 14.4)],
+          ["屋上", new Vector3(-5.5, 33.4, 14.5)],
           ["プールサイド", new Vector3(12.0, 39.0, 15.65)],
           ["プール底", new Vector3(23.4, 39.0, 14.61)]
         ] as const;
@@ -5398,6 +5427,499 @@ const runValidation = async () => {
             )
             .join(" / ")
         });
+
+        const movingRooftopTargetVisuals =
+          await createDefaultV2CharacterVisualRuntime(
+            spatialScene,
+            Object.freeze([
+              "player",
+              ...Array.from(
+                { length: 50 },
+                (_, index) => `npc_${index}`
+              )
+            ])
+          );
+        const movingRooftopTargetRandom =
+          createSeededCountingRandom(0x243f6a88);
+        const movingRooftopTargetSpawnRandomSource =
+          createSeededCountingRandom(0x85a308d3);
+        const movingRooftopTargetSpawnRandom =
+          createAreaTargetedSpawnRandom(
+            npcSpawnSurfaceSampler,
+            npcSpawnVolume.id,
+            3,
+            movingRooftopTargetSpawnRandomSource.random
+          );
+        const movingRooftopTargetAreaTracker =
+          createV2TargetNavigationAreaTracker(
+            firstFloorNpcStage.navigationAreas
+          );
+        const movingRooftopTargetSystem = createV2NpcSystem({
+          scene: spatialScene,
+          stage: firstFloorNpcStage,
+          characterVisuals: movingRooftopTargetVisuals,
+          npcCount: 50,
+          initialBrainwashedNpcCount: 10,
+          diagnosticsEnabled: true,
+          random: movingRooftopTargetRandom.random,
+          spawnRandom: movingRooftopTargetSpawnRandom,
+          playerSpawn: firstFloorNpcStage.playerSpawns.all[0],
+          resolveTargetNavigationArea: (target) =>
+            movingRooftopTargetAreaTracker.resolve(target.id),
+          selectNavigationRoute: selectSurfaceNavigationRoute
+        });
+        const movingRooftopNpcStart =
+          movingRooftopTargetSystem.getFrameView().targets[0].footPosition;
+        const movingRooftopAlarmPosition = movingRooftopNpcStart.add(
+          new Vector3(0.5, 0, 0)
+        );
+        const movingRooftopAlarmTarget = createHumanTargetFixture(
+          "player",
+          "player",
+          movingRooftopAlarmPosition.clone(),
+          movingRooftopAlarmPosition.add(new Vector3(0, 0.3, 0))
+        );
+        movingRooftopTargetAreaTracker.beginFrame(
+          Object.freeze([movingRooftopAlarmTarget])
+        );
+        movingRooftopTargetSystem.update(
+          0,
+          movingRooftopAlarmTarget,
+          Object.freeze([
+            {
+              candidateId: "alarm-t04-moving-rooftop-target",
+              targetId: "player",
+              position: movingRooftopAlarmPosition
+            }
+          ])
+        );
+        const movingRooftopAlertNpcIds = new Set(
+          movingRooftopTargetSystem
+            .getFrameView()
+            .tracking.filter(
+              (tracking) => tracking.provenance === "alert"
+            )
+            .map((tracking) => tracking.npcId)
+        );
+        const movingRooftopDestination =
+          upperFloorNavigationResults[6].projected!;
+        const movingRooftopTargetRoute = findSurfaceNavigationPath(
+          schoolNavigation,
+          movingRooftopAlarmPosition,
+          movingRooftopDestination.position,
+          "player"
+        );
+        if (!movingRooftopTargetRoute) {
+          throw new Error(
+            "アラーム地点から屋上実地点へのPlayer経路がありません。"
+          );
+        }
+        const movingRooftopTargetPoints = getNavigationPathPoints(
+          movingRooftopTargetRoute
+        );
+        for (const point of movingRooftopTargetPoints.slice(1)) {
+          const movingTarget = createHumanTargetFixture(
+            "player",
+            "player",
+            point.clone(),
+            point.add(new Vector3(0, 0.3, 0))
+          );
+          movingRooftopTargetAreaTracker.beginFrame(
+            Object.freeze([movingTarget])
+          );
+          movingRooftopTargetSystem.update(
+            0.25,
+            movingTarget,
+            Object.freeze([])
+          );
+        }
+        const movingRooftopFinalTarget = createHumanTargetFixture(
+          "player",
+          "player",
+          movingRooftopDestination.position.clone(),
+          movingRooftopDestination.position.add(new Vector3(0, 0.3, 0))
+        );
+        const movingRooftopNpcIdsThatEnteredRoof = new Set<string>();
+        let movingRooftopUpdateCount = 0;
+        while (movingRooftopUpdateCount < 600) {
+          movingRooftopTargetAreaTracker.beginFrame(
+            Object.freeze([movingRooftopFinalTarget])
+          );
+          movingRooftopTargetSystem.update(
+            0.25,
+            movingRooftopFinalTarget,
+            Object.freeze([])
+          );
+          movingRooftopUpdateCount += 1;
+          const frame = movingRooftopTargetSystem.getFrameView();
+          const alertTargets = frame.targets.filter((target) =>
+            movingRooftopAlertNpcIds.has(target.id)
+          );
+          const alertTracking = frame.tracking.filter((tracking) =>
+            movingRooftopAlertNpcIds.has(tracking.npcId)
+          );
+          const trackingByNpcId = new Map(
+            alertTracking.map((tracking) => [tracking.npcId, tracking])
+          );
+          for (const target of alertTargets) {
+            if (
+              target.footPosition.y >= 3.6 - 1e-6 &&
+              trackingByNpcId.get(target.id)?.pursuitPhase !== "area"
+            ) {
+              movingRooftopNpcIdsThatEnteredRoof.add(target.id);
+            }
+          }
+        }
+        const movingRooftopFinalFrame =
+          movingRooftopTargetSystem.getFrameView();
+        const movingRooftopAlertNpcAreas =
+          movingRooftopFinalFrame.targets
+            .filter((target) =>
+              movingRooftopAlertNpcIds.has(target.id)
+            )
+            .map((target) => target.footPosition.y.toFixed(3));
+        const movingRooftopAlertNpcPhases =
+          movingRooftopFinalFrame.tracking
+            .filter((tracking) =>
+              movingRooftopAlertNpcIds.has(tracking.npcId)
+            )
+            .map((tracking) => tracking.pursuitPhase);
+        const movingRooftopAlertNpcDistances =
+          movingRooftopFinalFrame.targets
+            .filter((target) =>
+              movingRooftopAlertNpcIds.has(target.id)
+            )
+            .map((target) =>
+              Vector3.Distance(
+                target.footPosition,
+                movingRooftopDestination.position
+              )
+            );
+        checks.push({
+          name: "Alarm後に移動したPlayerを10 NPCが1Fから屋上まで追跡",
+          ok:
+            movingRooftopAlertNpcIds.size === 10 &&
+            movingRooftopNpcIdsThatEnteredRoof.size === 10 &&
+            movingRooftopAlertNpcDistances.every(
+              (distance) => distance <= 0.5
+            ),
+          detail:
+            `alert=${movingRooftopAlertNpcIds.size} / ` +
+            `entered=${movingRooftopNpcIdsThatEnteredRoof.size} / ` +
+            `heights=${movingRooftopAlertNpcAreas.join(",")} / ` +
+            `phases=${movingRooftopAlertNpcPhases.join(",")} / ` +
+            `distances=${movingRooftopAlertNpcDistances
+              .map((distance) => distance.toFixed(3))
+              .join(",")} / ` +
+            `updates=${movingRooftopUpdateCount}`
+        });
+        movingRooftopTargetSystem.dispose();
+        movingRooftopTargetAreaTracker.dispose();
+        movingRooftopTargetVisuals.dispose();
+
+        const actualAlarmSeed = 20_260_813;
+        const actualAlarmPlayerSpawn = schoolContext.playerSpawns.getById(
+          "player-spawn-f02-toilet-wash-side"
+        );
+        if (!actualAlarmPlayerSpawn) {
+          throw new Error(
+            "実seed Alarm屋上追跡fixtureのPlayer Spawnがありません。"
+          );
+        }
+        const actualAlarmVisuals =
+          await createDefaultV2CharacterVisualRuntime(
+            spatialScene,
+            Object.freeze([
+              "player",
+              ...Array.from(
+                { length: 10 },
+                (_, index) => `npc_${index}`
+              )
+            ])
+          );
+        const actualAlarmAreaTracker =
+          createV2TargetNavigationAreaTracker(
+            loadedSchoolContext.navigationAreas
+          );
+        let actualAlarmPolicy: SchoolNpcNavigationPolicy | null = null;
+        const actualAlarmSystem = createV2NpcSystem({
+          scene: spatialScene,
+          stage: loadedSchoolContext,
+          characterVisuals: actualAlarmVisuals,
+          npcCount: 10,
+          initialBrainwashedNpcCount: 10,
+          diagnosticsEnabled: true,
+          random: createSchoolRuntimeRandom(actualAlarmSeed, "core"),
+          spawnRandom: createSchoolRuntimeRandom(
+            actualAlarmSeed,
+            "npc-spawn"
+          ),
+          playerSpawn: actualAlarmPlayerSpawn,
+          resolveTargetNavigationArea: (target) =>
+            actualAlarmAreaTracker.resolve(target.id),
+          selectNavigationRoute: (context, candidates) => {
+            if (actualAlarmPolicy === null) {
+              throw new Error(
+                "実seed Alarm屋上追跡fixtureのNPC経路policyが未初期化です。"
+              );
+            }
+            return actualAlarmPolicy(context, candidates);
+          }
+        });
+        const actualAlarmNpcId = "npc_6";
+        const actualAlarmExpectedNpcStart = new Vector3(
+          0.108797,
+          0,
+          -0.191375
+        );
+        actualAlarmSystem.placeNpcs(
+          actualAlarmSystem.getFrameView().targets.map((target) =>
+            Object.freeze({
+              id: target.id,
+              footPosition:
+                target.id === actualAlarmNpcId
+                  ? actualAlarmExpectedNpcStart.clone()
+                  : target.footPosition.clone(),
+              formation: false
+            })
+          )
+        );
+        const actualAlarmNpcStart = actualAlarmSystem.getNpcPosition(
+          actualAlarmNpcId
+        );
+        let actualAlarmPlayerTarget = createHumanTargetFixture(
+          "player",
+          "player",
+          movingRooftopDestination.position.clone(),
+          movingRooftopDestination.position.add(new Vector3(0, 0.3, 0))
+        );
+        let actualAlarmPlayerPosition =
+          actualAlarmPlayerTarget.footPosition.clone();
+        const actualAlarmPlayer = Object.freeze({
+          getFootPosition: () => actualAlarmPlayerPosition.clone(),
+          setTransportFootPosition: (position: Vector3) => {
+            actualAlarmPlayerPosition = position.clone();
+          },
+          syncStageSpatialSnapshot: () => undefined
+        }) as unknown as V2PlayerController;
+        const actualAlarmSurvivalPort = Object.freeze({
+          getNpcPosition: (npcId: string) =>
+            actualAlarmSystem.getNpcPosition(npcId),
+          setNpcTransportPosition: (npcId: string, position: Vector3) =>
+            actualAlarmSystem.setNpcTransportPosition(npcId, position),
+          getNpcTraversalState: (npcId: string) =>
+            actualAlarmSystem.getTraversalState(npcId),
+          drainNpcTraversalRequests: () =>
+            actualAlarmSystem.drainTraversalRequests(),
+          applyNpcTraversalResults: (
+            results: readonly V2NpcTraversalResult[]
+          ) =>
+            actualAlarmSystem.applyTraversalResults(results),
+          releaseNpcTraversalForScriptedPhase: () =>
+            actualAlarmSystem.releaseTraversalForScriptedPhase(),
+          getHumanTargets: () =>
+            Object.freeze([
+              actualAlarmPlayerTarget,
+              ...actualAlarmSystem.getFrameView().targets
+            ]),
+          getBitActors: () => Object.freeze([]),
+          relocateBit: () => {
+            throw new Error(
+              "実seed Alarm屋上追跡fixtureにBIT搬送はありません。"
+            );
+          },
+          beginTargetNavigationAreaTransport: (
+            targetId: string,
+            position: Vector3
+          ) => actualAlarmAreaTracker.beginTransport(targetId, position),
+          updateTargetNavigationAreaTransportPosition: (
+            targetId: string,
+            position: Vector3
+          ) => actualAlarmAreaTracker.updateTransportPosition(targetId, position),
+          relocateTargetNavigationArea: (
+            targetId: string,
+            position: Vector3
+          ) => actualAlarmAreaTracker.relocate(targetId, position)
+        }) as unknown as V2SurvivalRuntime;
+        const actualAlarmDynamicRuntime =
+          createSchoolStageDynamicRuntime({
+            staticActiveSet: loadedSchoolContext.staticSpatialActiveSet,
+            doorAssets: loadedSchoolContext.doorAssets,
+            elevatorAssets: loadedSchoolContext.elevatorAssets,
+            dynamicVariants: loadedSchoolContext.dynamicVariants,
+            queries: loadedSchoolContext.queries,
+            actors: createSchoolStageActorPort(
+              actualAlarmPlayer,
+              actualAlarmSurvivalPort,
+              loadedSchoolContext
+            )
+          });
+        actualAlarmPolicy = createSchoolNpcNavigationPolicy({
+          seed: actualAlarmSeed,
+          elevatorAssets: loadedSchoolContext.elevatorAssets,
+          dynamicRuntime: actualAlarmDynamicRuntime,
+          queries: loadedSchoolContext.queries,
+          getHumanTargets: () =>
+            actualAlarmSurvivalPort.getHumanTargets()
+        });
+        const actualAlarmCoordinator =
+          createSchoolStageTraversalCoordinator({
+            stage: loadedSchoolContext,
+            runtime: actualAlarmDynamicRuntime,
+            survival: actualAlarmSurvivalPort,
+            player: actualAlarmPlayer,
+            doorCloseRandom: createSchoolRuntimeRandom(
+              actualAlarmSeed,
+              "door-behavior"
+            )
+          });
+        let actualAlarmReachedRoof = false;
+        let actualAlarmUpdateCount = 0;
+        let actualAlarmMaximumHeight = actualAlarmNpcStart.y;
+        const actualAlarmTraversalKinds = new Set<string>();
+        const actualAlarmEnteredRoofNpcIds = new Set<string>();
+        let actualAlarmAlertNpcIds = new Set<string>();
+        const actualAlarmMaximumHeightByNpcId = new Map<string, number>();
+        try {
+          actualAlarmAreaTracker.beginFrame(
+            Object.freeze([actualAlarmPlayerTarget])
+          );
+          actualAlarmSystem.update(
+            0,
+            actualAlarmPlayerTarget,
+            Object.freeze([
+              {
+                candidateId: "alarm-t04-actual-seed-rooftop",
+                targetId: "player",
+                position: actualAlarmPlayerTarget.footPosition.clone()
+              }
+            ])
+          );
+          actualAlarmCoordinator.update(0);
+          actualAlarmAlertNpcIds = new Set(
+            actualAlarmSystem
+              .getFrameView()
+              .tracking.filter(
+                (tracking) => tracking.provenance === "alert"
+              )
+              .map((tracking) => tracking.npcId)
+          );
+          while (actualAlarmUpdateCount < 1_200) {
+            actualAlarmAreaTracker.beginFrame(
+              Object.freeze([actualAlarmPlayerTarget])
+            );
+            actualAlarmSystem.setPlayerElevatorTraversalSnapshot(
+              actualAlarmCoordinator.getPlayerElevatorTraversalSnapshot()
+            );
+            actualAlarmSystem.update(
+              0.1,
+              actualAlarmPlayerTarget,
+              Object.freeze([])
+            );
+            actualAlarmCoordinator.update(0.1);
+            actualAlarmUpdateCount += 1;
+            const npcPosition = actualAlarmSystem.getNpcPosition(
+              actualAlarmNpcId
+            );
+            actualAlarmMaximumHeight = Math.max(
+              actualAlarmMaximumHeight,
+              npcPosition.y
+            );
+            actualAlarmTraversalKinds.add(
+              actualAlarmSystem.getTraversalState(actualAlarmNpcId).kind
+            );
+            for (const target of actualAlarmSystem.getFrameView().targets) {
+              if (actualAlarmAlertNpcIds.has(target.id)) {
+                actualAlarmMaximumHeightByNpcId.set(
+                  target.id,
+                  Math.max(
+                    actualAlarmMaximumHeightByNpcId.get(target.id) ??
+                      Number.NEGATIVE_INFINITY,
+                    target.footPosition.y
+                  )
+                );
+              }
+              if (
+                actualAlarmAlertNpcIds.has(target.id) &&
+                target.footPosition.y >= 3.6 - 1e-6
+              ) {
+                actualAlarmEnteredRoofNpcIds.add(target.id);
+              }
+            }
+            if (
+              npcPosition.y >= 3.6 - 1e-6 &&
+              Vector3.Distance(
+                npcPosition,
+                movingRooftopDestination.position
+              ) <= 0.5
+            ) {
+              actualAlarmReachedRoof = true;
+            }
+            if (
+              actualAlarmReachedRoof &&
+              actualAlarmEnteredRoofNpcIds.size ===
+                actualAlarmAlertNpcIds.size
+            ) {
+              break;
+            }
+          }
+          const actualAlarmFinalPosition =
+            actualAlarmSystem.getNpcPosition(actualAlarmNpcId);
+          const actualAlarmTracking = actualAlarmSystem
+            .getFrameView()
+            .tracking.find(
+              (tracking) => tracking.npcId === actualAlarmNpcId
+            );
+          const actualAlarmFinalFrame = actualAlarmSystem.getFrameView();
+          const actualAlarmNotEnteredDetails = Array.from(
+            actualAlarmAlertNpcIds
+          )
+            .filter(
+              (npcId) => !actualAlarmEnteredRoofNpcIds.has(npcId)
+            )
+            .map((npcId) => {
+              const target = actualAlarmFinalFrame.targets.find(
+                (candidate) => candidate.id === npcId
+              );
+              const tracking = actualAlarmFinalFrame.tracking.find(
+                (candidate) => candidate.npcId === npcId
+              );
+              return (
+                `${npcId}@${target?.footPosition.toString() ?? "missing"}` +
+                `/maxY=${actualAlarmMaximumHeightByNpcId.get(npcId)?.toFixed(3) ?? "missing"}` +
+                `/traversal=${actualAlarmSystem.getTraversalState(npcId).kind}` +
+                `/tracking=${tracking?.provenance ?? "none"}/${tracking?.pursuitPhase ?? "none"}`
+              );
+            });
+          checks.push({
+            name: "実seedのAlarm NPC全員が実Coordinator経由で屋上へ入る",
+            ok:
+              Vector3.Distance(
+              actualAlarmNpcStart,
+                actualAlarmExpectedNpcStart
+              ) <= 1e-6 &&
+              actualAlarmReachedRoof &&
+              actualAlarmAlertNpcIds.size > 0 &&
+              actualAlarmEnteredRoofNpcIds.size ===
+                actualAlarmAlertNpcIds.size,
+            detail:
+              `startError=${Vector3.Distance(actualAlarmNpcStart, actualAlarmExpectedNpcStart).toExponential(2)} / ` +
+              `reached=${actualAlarmReachedRoof} / ` +
+              `position=${actualAlarmFinalPosition.toString()} / ` +
+              `maxY=${actualAlarmMaximumHeight.toFixed(3)} / ` +
+              `traversal=${Array.from(actualAlarmTraversalKinds).join(",") || "none"} / ` +
+              `tracking=${actualAlarmTracking?.provenance ?? "none"}/${actualAlarmTracking?.pursuitPhase ?? "none"} / ` +
+              `alert=${actualAlarmAlertNpcIds.size} / entered=${actualAlarmEnteredRoofNpcIds.size} / ` +
+              `notEntered=${actualAlarmNotEnteredDetails.join(",") || "none"} / ` +
+              `updates=${actualAlarmUpdateCount}`
+          });
+        } finally {
+          actualAlarmCoordinator.dispose();
+          actualAlarmDynamicRuntime.dispose();
+          actualAlarmSystem.dispose();
+          actualAlarmAreaTracker.dispose();
+          actualAlarmVisuals.dispose();
+        }
 
         const unreachableNpcRandom = createSeededCountingRandom(0x510e527f);
         const unreachableNpcCharacterVisuals =

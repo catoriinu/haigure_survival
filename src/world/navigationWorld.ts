@@ -23,7 +23,10 @@ import {
   type StageLinkPair,
   type StageMoverKind
 } from "./stageLinks";
-import { BIT_FLIGHT_NAVIGATION_LINKS } from "./navigationWorldInternal";
+import {
+  BIT_FLIGHT_NAVIGATION_LINKS,
+  calculateStraightPathPointOutputCapacity
+} from "./navigationWorldInternal";
 import { BLENDER_METERS_TO_WORLD_UNITS } from "./worldUnits";
 
 export type NavigationLocation = Readonly<{
@@ -331,6 +334,7 @@ class RecastNavigationWorld implements NavigationWorld {
   private readonly navMeshMinimumY: number;
   private readonly surfaceTriangles: readonly NavigationSurfaceTriangle[];
   private readonly polygonComponentByRef: ReadonlyMap<number, number>;
+  private readonly polygonCountByComponent: ReadonlyMap<number, number>;
   private readonly resolvedLinks: readonly ResolvedStageLink[];
   private readonly linkEndpoints: readonly NavigationLocation[];
   private readonly linkEndpointCount: number;
@@ -355,6 +359,14 @@ class RecastNavigationWorld implements NavigationWorld {
     this.navMeshMinimumY = calculateNavMeshMinimumY(navMesh);
     this.surfaceTriangles = createNavigationSurfaceTriangles(navMesh);
     this.polygonComponentByRef = calculateNavMeshPolygonComponents(navMesh);
+    const polygonCountByComponent = new Map<number, number>();
+    for (const component of this.polygonComponentByRef.values()) {
+      polygonCountByComponent.set(
+        component,
+        (polygonCountByComponent.get(component) ?? 0) + 1
+      );
+    }
+    this.polygonCountByComponent = polygonCountByComponent;
     this.resolvedLinks = Object.freeze(
       links.map((pair) => {
         validateLinkPair(pair);
@@ -410,8 +422,7 @@ class RecastNavigationWorld implements NavigationWorld {
     this.assertActive();
     assertNavigationLocation("経路始点", start);
     assertNavigationLocation("経路終点", destination);
-    const step = this.findSurfaceStep(start, destination);
-    return step ? cloneNavigationSurfaceStep(step) : null;
+    return this.findSurfaceStep(start, destination);
   }
 
   findPath(
@@ -835,6 +846,8 @@ class RecastNavigationWorld implements NavigationWorld {
     const destinationComponent = this.polygonComponentByRef.get(
       destination.polygonRef
     );
+    let maximumPathPolygonCount = pathPolygonCapacity;
+    let maximumStraightPathPointCount = straightPathPointCapacity;
     if (
       startComponent !== undefined &&
       destinationComponent !== undefined
@@ -842,6 +855,17 @@ class RecastNavigationWorld implements NavigationWorld {
       if (startComponent !== destinationComponent) {
         return null;
       }
+      const componentPolygonCount =
+        this.polygonCountByComponent.get(startComponent)!;
+      maximumPathPolygonCount = Math.min(
+        pathPolygonCapacity,
+        componentPolygonCount
+      );
+      maximumStraightPathPointCount =
+        calculateStraightPathPointOutputCapacity(
+          maximumPathPolygonCount,
+          straightPathPointCapacity
+        );
       if (start.polygonRef === destination.polygonRef) {
         const positionsAreEquivalent =
           Vector3.DistanceSquared(
@@ -871,7 +895,7 @@ class RecastNavigationWorld implements NavigationWorld {
       destination.polygonRef,
       toRecastPosition(start.position),
       toRecastPosition(destination.position),
-      { maxPathPolys: pathPolygonCapacity }
+      { maxPathPolys: maximumPathPolygonCount }
     );
     try {
       if ((corridor.status & Detour.DT_OUT_OF_NODES) !== 0) {
@@ -893,7 +917,7 @@ class RecastNavigationWorld implements NavigationWorld {
         toRecastPosition(destination.position),
         corridor.polys,
         {
-          maxStraightPathPoints: straightPathPointCapacity,
+          maxStraightPathPoints: maximumStraightPathPointCount,
           straightPathOptions: this.straightPathOptions
         }
       );

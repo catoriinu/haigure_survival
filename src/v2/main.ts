@@ -11,6 +11,7 @@ import {
   Scene,
   Vector3
 } from "@babylonjs/core";
+import type { AbstractMesh } from "@babylonjs/core";
 
 import { SCHOOL_STAGE } from "../world/stageCatalog";
 import {
@@ -140,6 +141,25 @@ const performanceScenario =
   readV2PerformanceScenario(location.search);
 const runtimeStressScenario =
   readV2RuntimeStressScenario(location.search);
+const schoolVisualAcceptanceScenario = (() => {
+  const parameters = new URLSearchParams(location.search);
+  const requested = parameters.get("schoolVisualAcceptance");
+  if (requested === null) {
+    return null;
+  }
+  if (requested !== "B06-1") {
+    throw new Error(
+      "schoolVisualAcceptanceにはB06-1が必要です。"
+    );
+  }
+  const seed = Number(parameters.get("seed") ?? "20260812");
+  if (!Number.isSafeInteger(seed) || seed < 0) {
+    throw new Error(
+      "schoolVisualAcceptanceのseedには0以上の安全な整数が必要です。"
+    );
+  }
+  return Object.freeze({ id: requested, seed });
+})();
 const missionAcceptanceScenario = (() => {
   const requested = new URLSearchParams(location.search).get(
     "missionAcceptance"
@@ -172,9 +192,23 @@ if (
     "performance、schoolStress、missionAcceptance、rampValidationは同時に実行できません。"
   );
 }
+if (
+  schoolVisualAcceptanceScenario !== null &&
+  [
+    performanceScenario,
+    runtimeStressScenario,
+    missionAcceptanceScenario,
+    rampValidationTarget
+  ].some((scenario) => scenario !== null)
+) {
+  throw new Error(
+    "schoolVisualAcceptanceは他の受入シナリオと同時に実行できません。"
+  );
+}
 const fixedRuntimeSeed =
   performanceScenario?.seed ??
   runtimeStressScenario?.seed ??
+  schoolVisualAcceptanceScenario?.seed ??
   (missionAcceptanceScenario === null && rampValidationTarget === null
     ? null
     : 0);
@@ -369,6 +403,13 @@ const initializeRuntime = async () => {
         roomVariantSelections
       }
     );
+    if (ownedStage.worldBoundary === null) {
+      throw new Error("学校ステージのworld boundaryがありません");
+    }
+    ownedStage.worldBoundary.mesh.computeWorldMatrix(true);
+    camera.maxZ =
+      ownedStage.worldBoundary.mesh.getBoundingInfo().boundingBox.extendSizeWorld.length() *
+      2.2;
     configureV2StageTransparentRenderingOrder(
       ownedStage.resources.visualMeshes
     );
@@ -677,6 +718,7 @@ let ownedVoiceRuntime: ReturnType<
   typeof createV2VoiceRuntime
 > | null = null;
 let ownedPlayerCharacterVisual: V2PlayerCharacterVisual | null = null;
+let ownedSchoolVisualAcceptanceBridge: HTMLTextAreaElement | null = null;
 let disposed = false;
 const disposeRuntime = async () => {
   if (disposed) {
@@ -693,6 +735,7 @@ const disposeRuntime = async () => {
   ownedVolumePanel?.dispose();
   ownedGameplayAudioBridge?.dispose();
   ownedVoiceRuntime?.dispose();
+  ownedSchoolVisualAcceptanceBridge?.remove();
   const audioDisposal = ownedAudio?.dispose();
   performanceDiagnostics?.dispose();
   delete window.__v2PerformanceDiagnostics;
@@ -702,6 +745,8 @@ const disposeRuntime = async () => {
   delete document.body.dataset.v2MissionAcceptanceScenario;
   delete document.body.dataset.v2MissionAcceptancePlacement;
   delete document.body.dataset.v2MissionAcceptanceSnapshot;
+  delete document.body.dataset.v2SchoolVisualAcceptance;
+  delete window.__v2SchoolVisualAcceptance;
   if (runtimeStressScenario) {
     delete document.documentElement.dataset.validationStatus;
   }
@@ -721,6 +766,131 @@ const disposeRuntime = async () => {
 
 try {
 camera.attachControl(canvas, true);
+if (schoolVisualAcceptanceScenario !== null) {
+  const visualStageMeshes = new Set<AbstractMesh>(stage.resources.visualMeshes);
+  const buildVisualAcceptanceSnapshot = () => {
+    const footPosition = player.getFootPosition();
+    const eyePosition = player.getEyePosition();
+    const forward = camera.getForwardRay().direction;
+    const centerPick = scene.pick(
+      engine.getRenderWidth() / 2,
+      engine.getRenderHeight() / 2,
+      (mesh) => visualStageMeshes.has(mesh)
+    );
+    const pickedPoint = centerPick?.pickedPoint ?? null;
+    return Object.freeze({
+      footPosition: Object.freeze([
+        footPosition.x,
+        footPosition.y,
+        footPosition.z
+      ] as const),
+      eyePosition: Object.freeze([
+        eyePosition.x,
+        eyePosition.y,
+        eyePosition.z
+      ] as const),
+      forward: Object.freeze([
+        forward.x,
+        forward.y,
+        forward.z
+      ] as const),
+      rotation: Object.freeze([
+        camera.rotation.x,
+        camera.rotation.y,
+        camera.rotation.z
+      ] as const),
+      fov: camera.fov,
+      minZ: camera.minZ,
+      maxZ: camera.maxZ,
+      centerPick:
+        centerPick?.hit === true && centerPick.pickedMesh !== null
+          ? Object.freeze({
+              meshName: centerPick.pickedMesh.name,
+              point:
+                pickedPoint === null
+                  ? null
+                  : Object.freeze([
+                      pickedPoint.x,
+                      pickedPoint.y,
+                      pickedPoint.z
+                    ] as const)
+            })
+          : null,
+      renderSize: Object.freeze([
+        engine.getRenderWidth(),
+        engine.getRenderHeight()
+      ] as const)
+    });
+  };
+  const visualAcceptanceController = Object.freeze({
+    setPose: ({
+      footPosition,
+      lookAtPosition,
+      fov
+    }: V2SchoolVisualAcceptancePose) => {
+      const poseValues = [
+        ...footPosition,
+        ...lookAtPosition,
+        fov
+      ];
+      if (poseValues.some((value) => !Number.isFinite(value))) {
+        throw new Error(
+          "学校Visual受入の座標とFOVには有限値が必要です。"
+        );
+      }
+      if (fov <= 0 || fov >= Math.PI) {
+        throw new Error(
+          "学校Visual受入のFOVは0より大きくPI未満が必要です。"
+        );
+      }
+      const foot = Vector3.FromArray(footPosition);
+      const lookAt = Vector3.FromArray(lookAtPosition);
+      player.placeAt(foot, lookAt);
+      camera.setTarget(lookAt);
+      camera.fov = fov;
+      scene.render();
+      const snapshot = buildVisualAcceptanceSnapshot();
+      helpPanel.textContent =
+        `学校Visual受入 ${schoolVisualAcceptanceScenario.id}\n` +
+        `seed ${schoolVisualAcceptanceScenario.seed}\n` +
+        `QA座標 X ${snapshot.footPosition[0].toFixed(3)}  ` +
+        `Y ${snapshot.footPosition[1].toFixed(3)}  ` +
+        `Z ${snapshot.footPosition[2].toFixed(3)}\n` +
+        `forward ${snapshot.forward.map((value) => value.toFixed(6)).join(", ")}\n` +
+        `FOV ${snapshot.fov.toFixed(6)}`;
+      return snapshot;
+    },
+    getSnapshot: buildVisualAcceptanceSnapshot
+  });
+  window.__v2SchoolVisualAcceptance = visualAcceptanceController;
+  const bridge = document.createElement("textarea");
+  bridge.id = "v2SchoolVisualAcceptanceBridge";
+  bridge.tabIndex = -1;
+  bridge.setAttribute("aria-hidden", "true");
+  bridge.style.position = "fixed";
+  bridge.style.width = "1px";
+  bridge.style.height = "1px";
+  bridge.style.opacity = "0";
+  bridge.style.pointerEvents = "none";
+  bridge.style.inset = "0 auto auto 0";
+  eventScope.listen(bridge, "input", () => {
+    if (bridge.value.length === 0) {
+      throw new Error(
+        "学校Visual受入bridgeにはcommandが必要です。"
+      );
+    }
+    const command = JSON.parse(
+      bridge.value
+    ) as V2SchoolVisualAcceptancePose;
+    bridge.dataset.result = JSON.stringify(
+      visualAcceptanceController.setPose(command)
+    );
+  });
+  document.body.append(bridge);
+  ownedSchoolVisualAcceptanceBridge = bridge;
+  document.body.dataset.v2SchoolVisualAcceptance =
+    schoolVisualAcceptanceScenario.id;
+}
 const runtimeHud = createV2RuntimeHudController({
   host: document.body,
   canvas,
@@ -1117,7 +1287,8 @@ const updateGameplayHelp = (phase: ReturnType<typeof survival.getFrame>["phase"]
   if (
     performanceScenario !== null ||
     runtimeStressScenario !== null ||
-    rampValidationTarget !== null
+    rampValidationTarget !== null ||
+    schoolVisualAcceptanceScenario !== null
   ) {
     return;
   }
@@ -1188,6 +1359,16 @@ if (runtimeStressScenario) {
     `初期洗脳 ${runtimeStressScenario.population.initialBrainwashedNpcCount} / ` +
     `BIT ${runtimeStressScenario.population.initialBitCount}`;
   publishRuntimeStressReport("running", null);
+}
+if (schoolVisualAcceptanceScenario) {
+  started = true;
+  titleOverlay.style.display = "none";
+  statusInfo.style.display = "block";
+  helpPanel.style.display = "block";
+  helpPanel.textContent =
+    `学校Visual受入 ${schoolVisualAcceptanceScenario.id}\n` +
+    `seed ${schoolVisualAcceptanceScenario.seed}\n` +
+    "座標・向き・FOVを証拠JSONへ固定";
 }
 
 const renderScene = () => {
@@ -1686,3 +1867,35 @@ window.addEventListener(
   },
   { once: true }
 );
+
+type V2SchoolVisualAcceptancePose = Readonly<{
+  footPosition: readonly [number, number, number];
+  lookAtPosition: readonly [number, number, number];
+  fov: number;
+}>;
+
+type V2SchoolVisualAcceptanceSnapshot = Readonly<{
+  footPosition: readonly [number, number, number];
+  eyePosition: readonly [number, number, number];
+  forward: readonly [number, number, number];
+  rotation: readonly [number, number, number];
+  fov: number;
+  minZ: number;
+  maxZ: number;
+  centerPick: Readonly<{
+    meshName: string;
+    point: readonly [number, number, number] | null;
+  }> | null;
+  renderSize: readonly [number, number];
+}>;
+
+declare global {
+  interface Window {
+    __v2SchoolVisualAcceptance?: Readonly<{
+      setPose(
+        pose: V2SchoolVisualAcceptancePose
+      ): V2SchoolVisualAcceptanceSnapshot;
+      getSnapshot(): V2SchoolVisualAcceptanceSnapshot;
+    }>;
+  }
+}

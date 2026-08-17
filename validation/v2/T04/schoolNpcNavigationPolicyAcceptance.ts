@@ -1,5 +1,7 @@
 import { Vector3 } from "@babylonjs/core";
 
+import { NPC_SPRITE_CENTER_HEIGHT } from "../../../src/game/characterSprites";
+import { createNavigationAgent } from "../../../src/world/navigationAgent";
 import type {
   NavigationLocation,
   NavigationRouteCandidate,
@@ -315,6 +317,355 @@ export const runSchoolNpcNavigationPolicyAcceptance = ({
     100
   );
   const policy = createPolicy();
+  const alarmRooftopStart = stage.navigation.projectPoint(
+    new Vector3(1.346851, 0.9, -10.073972),
+    0.3
+  );
+  const alarmRooftopDestination = stage.navigation.projectPoint(
+    new Vector3(1.375, 3.625, -8.35),
+    0.3
+  );
+  if (!alarmRooftopStart || !alarmRooftopDestination) {
+    throw new Error(
+      "実学校Alarm屋上追跡fixtureのNavMesh位置がありません。"
+    );
+  }
+  targets = Object.freeze([
+    createTarget(
+      "npc_alarm_rooftop",
+      "brainwash-complete-no-gun",
+      alarmRooftopStart.position
+    ),
+    createTarget(
+      "player",
+      "normal",
+      alarmRooftopDestination.position
+    )
+  ]);
+  const alarmRooftopPolicy = createPolicy();
+  const alarmRooftopPath = stage.navigation.findPath(
+    alarmRooftopStart,
+    alarmRooftopDestination,
+    "npc",
+    Object.freeze({
+      selectRoute: (candidates) =>
+        alarmRooftopPolicy(
+          createContext(
+            "npc_alarm_rooftop",
+            alarmRooftopStart.position,
+            {
+              behavior: "pursue",
+              characterState: "brainwash-complete-no-gun",
+              brainwashed: true,
+              targetId: "player",
+              targetProvenance: "alert"
+            }
+          ),
+          candidates
+        )
+    })
+  );
+  const alarmRooftopTransitions =
+    alarmRooftopPath?.steps.filter(
+      (step): step is NavigationTransitionStep =>
+        step.kind === "transition"
+    ) ?? [];
+  add(
+    "実seedのAlarm NPCは屋上追跡で到達経路を選択する",
+    alarmRooftopPath !== null,
+    `kind=${alarmRooftopTransitions.length > 0 ? "link" : "surface"} / ` +
+      `links=${alarmRooftopTransitions.map((step) => step.link.id).join(",") || "none"} / ` +
+      `distance=${alarmRooftopPath?.distance.toFixed(3) ?? "null"}`
+  );
+  const alarmRooftopInitialPositions = Object.freeze([
+    new Vector3(1.346851, 0.9, -10.073972),
+    new Vector3(-13.874734, 0, 1.601717),
+    new Vector3(1.081556, 0.9, -10.501089),
+    new Vector3(-14.232798, 0, -1.463871),
+    new Vector3(-14.513766, 0, -3.779106),
+    new Vector3(3.663434, -0.075, -4.809523),
+    new Vector3(0.108797, 0, -0.191375),
+    new Vector3(-5.647262, 0.9, -9.574805),
+    new Vector3(-3.362051, 0.9, -10.447022),
+    new Vector3(2.156412, 3.625, -3.708231)
+  ]);
+  const alarmRooftopSeedRoutes = alarmRooftopInitialPositions.map(
+    (position, index) => {
+      const npcId = `npc_${index}`;
+      const start = stage.navigation.projectPoint(position, 0.3);
+      if (!start) {
+        throw new Error(
+          `実seedのAlarm NPC開始位置にNavMesh面がありません: ${npcId}`
+        );
+      }
+      targets = Object.freeze([
+        createTarget(
+          npcId,
+          "brainwash-complete-no-gun",
+          start.position
+        ),
+        createTarget(
+          "player",
+          "normal",
+          alarmRooftopDestination.position
+        )
+      ]);
+      const seedPolicy = createPolicy();
+      const path = stage.navigation.findPath(
+        start,
+        alarmRooftopDestination,
+        "npc",
+        Object.freeze({
+          selectRoute: (candidates) =>
+            seedPolicy(
+              createContext(npcId, start.position, {
+                behavior: "pursue",
+                characterState: "brainwash-complete-no-gun",
+                brainwashed: true,
+                targetId: "player",
+                targetProvenance: "alert"
+              }),
+              candidates
+            )
+        })
+      );
+      const transitions =
+        path?.steps.filter(
+          (step): step is NavigationTransitionStep =>
+            step.kind === "transition"
+        ) ?? [];
+      return Object.freeze({
+        npcId,
+        path,
+        kind: transitions.length > 0 ? "link" : "surface"
+      });
+    }
+  );
+  add(
+    "実seedの初期洗脳済み10 NPCは全員が屋上追跡経路を選択する",
+    alarmRooftopSeedRoutes.every((route) => route.path !== null),
+    alarmRooftopSeedRoutes
+      .map(
+        (route) =>
+          `${route.npcId}:${route.kind}/${route.path?.distance.toFixed(3) ?? "null"}`
+      )
+      .join(",")
+  );
+  const northwestStairNpcId = "npc_5";
+  const northwestStairNpcStart = stage.navigation.projectPoint(
+    alarmRooftopInitialPositions[5],
+    0.3
+  );
+  if (!northwestStairNpcStart) {
+    throw new Error(
+      `実seedの北西階段利用NPC開始位置にNavMesh面がありません: ${northwestStairNpcId}`
+    );
+  }
+  targets = Object.freeze([
+    createTarget(
+      northwestStairNpcId,
+      "brainwash-complete-no-gun",
+      northwestStairNpcStart.position
+    ),
+    createTarget(
+      "player",
+      "normal",
+      alarmRooftopDestination.position
+    )
+  ]);
+  let northwestStairNpcLocation = northwestStairNpcStart;
+  const northwestStairNpcPolicy = createPolicy();
+  const northwestStairNpcAgent = createNavigationAgent(
+    stage.navigation,
+    "npc",
+    Object.freeze({
+      selectRoute: (candidates) =>
+        northwestStairNpcPolicy(
+          createContext(
+            northwestStairNpcId,
+            northwestStairNpcLocation.position,
+            {
+              behavior: "pursue",
+              characterState: "brainwash-complete-no-gun",
+              brainwashed: true,
+              targetId: "player",
+              targetProvenance: "alert"
+            }
+          ),
+          candidates
+        )
+    }),
+    Object.freeze({
+      projectionMaxDistance: 0.75,
+      waypointTolerance: 0.02,
+      stuckDistanceThreshold: 0.005,
+      stuckDurationSeconds: 1
+    })
+  );
+  let northwestStairNpcState = "moving";
+  let northwestStairNpcUpdateCount = 0;
+  let northwestStairNpcCollision: string | null = null;
+  let northwestStairNpcCollisionPosition: Vector3 | null = null;
+  try {
+    while (
+      northwestStairNpcState === "moving" &&
+      northwestStairNpcUpdateCount < 2_000
+    ) {
+      const previousPosition = northwestStairNpcLocation.position;
+      const result = northwestStairNpcAgent.update(
+        northwestStairNpcLocation,
+        alarmRooftopDestination.position,
+        0,
+        0.3,
+        0.1,
+        true
+      );
+      const movementHit = stage.queries.castMovementSegment(
+        "npc",
+        previousPosition.add(
+          new Vector3(0, NPC_SPRITE_CENTER_HEIGHT, 0)
+        ),
+        result.location.position.add(
+          new Vector3(0, NPC_SPRITE_CENTER_HEIGHT, 0)
+        )
+      );
+      if (movementHit) {
+        northwestStairNpcCollision = movementHit.mesh.name;
+        northwestStairNpcCollisionPosition = result.location.position.clone();
+        break;
+      }
+      northwestStairNpcLocation = result.location;
+      northwestStairNpcState = result.state;
+      northwestStairNpcUpdateCount += 1;
+    }
+  } finally {
+    northwestStairNpcAgent.clear();
+  }
+  add(
+    "実seedの北西階段利用Alarm NPCは屋上まで衝突せず到達する",
+    northwestStairNpcState === "arrived" &&
+      northwestStairNpcCollision === null,
+    `state=${northwestStairNpcState} / updates=${northwestStairNpcUpdateCount} / ` +
+      `position=${northwestStairNpcLocation.position.toString()} / ` +
+      `collision=${northwestStairNpcCollision ?? "none"} / ` +
+      `collisionPosition=${northwestStairNpcCollisionPosition?.toString() ?? "none"}`
+  );
+  const elevatorNpcId = "npc_6";
+  const elevatorNpcStart = stage.navigation.projectPoint(
+    alarmRooftopInitialPositions[6],
+    0.3
+  );
+  if (!elevatorNpcStart) {
+    throw new Error(
+      `実seedのエレベーター利用NPC開始位置にNavMesh面がありません: ${elevatorNpcId}`
+    );
+  }
+  targets = Object.freeze([
+    createTarget(
+      elevatorNpcId,
+      "brainwash-complete-no-gun",
+      elevatorNpcStart.position
+    ),
+    createTarget(
+      "player",
+      "normal",
+      alarmRooftopDestination.position
+    )
+  ]);
+  let elevatorNpcLocation = elevatorNpcStart;
+  const elevatorNpcPolicy = createPolicy();
+  const elevatorNpcAgent = createNavigationAgent(
+    stage.navigation,
+    "npc",
+    Object.freeze({
+      selectRoute: (candidates) =>
+        elevatorNpcPolicy(
+          createContext(elevatorNpcId, elevatorNpcLocation.position, {
+            behavior: "pursue",
+            characterState: "brainwash-complete-no-gun",
+            brainwashed: true,
+            targetId: "player",
+            targetProvenance: "alert"
+          }),
+          candidates
+        )
+    }),
+    Object.freeze({
+      projectionMaxDistance: 0.75,
+      waypointTolerance: 0.02,
+      stuckDistanceThreshold: 0.005,
+      stuckDurationSeconds: 1
+    })
+  );
+  let elevatorNpcState = "moving";
+  let elevatorNpcUpdateCount = 0;
+  let elevatorNpcTransitionCount = 0;
+  let elevatorNpcSurfaceCollision: string | null = null;
+  try {
+    while (
+      elevatorNpcState === "moving" &&
+      elevatorNpcUpdateCount < 2_000
+    ) {
+      const previousPosition = elevatorNpcLocation.position;
+      const result = elevatorNpcAgent.update(
+        elevatorNpcLocation,
+        alarmRooftopDestination.position,
+        0,
+        0.3,
+        0.1,
+        true
+      );
+      if (result.state === "transition-required") {
+        if (!result.transition) {
+          throw new Error(
+            `実seedのエレベーター利用NPCに遷移情報がありません: ${elevatorNpcId}`
+          );
+        }
+        elevatorNpcAgent.completeTransition(result.transition.exit);
+        elevatorNpcLocation = result.transition.exit;
+        elevatorNpcTransitionCount += 1;
+        elevatorNpcUpdateCount += 1;
+        continue;
+      }
+      if (elevatorNpcTransitionCount > 0) {
+        const movementHit = stage.queries.castMovementSegment(
+          "npc",
+          previousPosition.add(
+            new Vector3(0, NPC_SPRITE_CENTER_HEIGHT, 0)
+          ),
+          result.location.position.add(
+            new Vector3(0, NPC_SPRITE_CENTER_HEIGHT, 0)
+          )
+        );
+        if (movementHit) {
+          elevatorNpcSurfaceCollision = movementHit.mesh.name;
+          break;
+        }
+      }
+      elevatorNpcLocation = result.location;
+      elevatorNpcState = result.state;
+      elevatorNpcUpdateCount += 1;
+    }
+  } finally {
+    elevatorNpcAgent.clear();
+  }
+  const elevatorNpcEndpointError = Vector3.Distance(
+    elevatorNpcLocation.position,
+    alarmRooftopDestination.position
+  );
+  add(
+    "実seedのエレベーター利用Alarm NPCは降車後に屋上まで到達する",
+    elevatorNpcState === "arrived" &&
+      elevatorNpcTransitionCount === 1 &&
+      elevatorNpcSurfaceCollision === null &&
+      elevatorNpcEndpointError <= 0.02 + 1e-6,
+    `state=${elevatorNpcState} / transitions=${elevatorNpcTransitionCount} / ` +
+      `updates=${elevatorNpcUpdateCount} / collision=${elevatorNpcSurfaceCollision ?? "none"} / ` +
+      `error=${elevatorNpcEndpointError.toFixed(6)}`
+  );
+  targets = Object.freeze([
+    createTarget("npc_policy", "normal", firstStopCenter)
+  ]);
   const fastSelection = policy(
     createContext("npc_policy", firstStopCenter),
     Object.freeze([

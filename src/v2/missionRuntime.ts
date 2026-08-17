@@ -1932,7 +1932,7 @@ export const createV2MissionRuntime = ({
         if (
           actorId !== transition.npcId ||
           mission.kind !== "player-first-follower-brainwash" ||
-          transition.currentState !== "brainwash-in-progress"
+          transition.currentState !== "hit-a"
         ) {
           continue;
         }

@@ -5665,7 +5665,17 @@ class SchoolV2NpcSystem implements V2NpcSystem {
         this.requestNavigationReplan(npc, replanPriority);
       }
     }
-    if (npc.pursuitPhase === "coarse") {
+    if (npc.pursuitPhase === "area") {
+      npc.pursuitCoarseRefreshRemainingSeconds -= deltaSeconds;
+      if (npc.pursuitCoarseRefreshRemainingSeconds <= 0) {
+        npc.pursuitCoarseRefreshRemainingSeconds +=
+          V2_NPC_COARSE_REFRESH_SECONDS;
+        if (!npc.pursuitAnchor.equals(target.footPosition)) {
+          npc.pursuitAnchor.copyFrom(target.footPosition);
+          this.requestNavigationReplan(npc, replanPriority);
+        }
+      }
+    } else if (npc.pursuitPhase === "coarse") {
       npc.pursuitCoarseRefreshRemainingSeconds -= deltaSeconds;
       if (npc.pursuitCoarseRefreshRemainingSeconds <= 0) {
         npc.pursuitCoarseRefreshRemainingSeconds +=
