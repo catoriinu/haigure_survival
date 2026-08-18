@@ -197,7 +197,7 @@ const findAdjacentFloorBoundary = (
       }
       const position = new Vector3(
         (overlapMinimumX + overlapMaximumX) / 2,
-        lowerBounds.maximumWorld.y,
+        upperBounds.minimumWorld.y,
         (overlapMinimumZ + overlapMaximumZ) / 2
       );
       return Object.freeze({ position });
@@ -642,11 +642,13 @@ export const runV2MinimapTests = ({
   const boundaryCases = Object.freeze([
     Object.freeze({
       lowerAreaId: "area-common-f02",
-      upperAreaId: "area-common-f03"
+      upperAreaId: "area-common-f03",
+      rawExpectation: "ambiguous" as const
     }),
     Object.freeze({
       lowerAreaId: "area-stair-ne-f01-f02",
-      upperAreaId: "area-stair-ne-f02-f03"
+      upperAreaId: "area-stair-ne-f02-f03",
+      rawExpectation: "upper-owned" as const
     })
   ]);
   const boundaryResults = boundaryCases.map((boundaryCase, index) => {
@@ -656,15 +658,23 @@ export const runV2MinimapTests = ({
       boundaryCase.upperAreaId
     );
     let rawBoundaryRejected = false;
+    let rawBoundaryAreaIds: readonly string[] = Object.freeze([]);
+    let rawBoundaryAreaId: string | null = null;
     try {
-      locationAssets.findArea(boundary.position);
+      rawBoundaryAreaId =
+        locationAssets.findArea(boundary.position)?.area.id ?? null;
     } catch (error) {
-      rawBoundaryRejected =
-        error instanceof StageLocationAreaAmbiguityError &&
-        error.areaIds.length === 2 &&
-        error.areaIds.includes(boundaryCase.lowerAreaId) &&
-        error.areaIds.includes(boundaryCase.upperAreaId);
+      if (error instanceof StageLocationAreaAmbiguityError) {
+        rawBoundaryAreaIds = error.areaIds;
+        rawBoundaryRejected =
+          error.areaIds.includes(boundaryCase.lowerAreaId) &&
+          error.areaIds.includes(boundaryCase.upperAreaId);
+      }
     }
+    const rawBoundaryContractSatisfied =
+      boundaryCase.rawExpectation === "ambiguous"
+        ? rawBoundaryRejected
+        : rawBoundaryAreaId === boundaryCase.upperAreaId;
     const markerId = `npc-floor-boundary-${index}`;
     const boundaryFrame = controller.update(
       createUpdate(
@@ -679,7 +689,10 @@ export const runV2MinimapTests = ({
       )
     );
     return Object.freeze({
+      rawBoundaryContractSatisfied,
       rawBoundaryRejected,
+      rawBoundaryAreaIds,
+      rawBoundaryAreaId,
       floorId: boundaryFrame?.floorId ?? null,
       markerResolved:
         boundaryFrame?.actorMarkers.some(
@@ -747,6 +760,7 @@ export const runV2MinimapTests = ({
       V2_MINIMAP_AREA_SAMPLE_HEIGHT_METERS === 0.05 &&
         boundaryResults.every(
           (result) =>
+            result.rawBoundaryContractSatisfied &&
             result.floorId !== null &&
             result.markerResolved
         ) &&
@@ -762,7 +776,10 @@ export const runV2MinimapTests = ({
       boundaryResults
         .map(
           (result) =>
-            `raw=${result.rawBoundaryRejected}/floor=${result.floorId ?? "なし"}/actor=${result.markerResolved}`
+            `raw=${result.rawBoundaryRejected}` +
+            `[${result.rawBoundaryAreaIds.join(",")}]` +
+            `/area=${result.rawBoundaryAreaId ?? "なし"}` +
+            `/floor=${result.floorId ?? "なし"}/actor=${result.markerResolved}`
         )
         .join(" | ") +
         ` | f03-f04-raw=${commonF03F04RawBoundaryRejected}` +

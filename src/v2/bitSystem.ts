@@ -462,6 +462,7 @@ type RuntimeBit = {
   activeTransition: BitFlightTransitionTraversal | null;
   bobPhase: number;
   mode: V2BitMode;
+  renderedMuzzleColorMode: V2BitMode | null;
   targetSelectionPersonality: V2TargetSelectionPersonality;
   targetId: string | null;
   targetProvenance: V2TargetProvenance | null;
@@ -1778,10 +1779,17 @@ export const createV2BitSystem = (
   };
 
   const syncBitMuzzleColor = (bit: RuntimeBit) => {
+    const renderedMode = config.modeMuzzleColorEnabled
+      ? bit.mode
+      : "search";
+    if (bit.renderedMuzzleColorMode === renderedMode) {
+      return;
+    }
     bit.muzzle.instancedBuffers.color = resolveV2BitMuzzleColor(
-      bit.mode,
+      renderedMode,
       config.modeMuzzleColorEnabled
     );
+    bit.renderedMuzzleColorMode = renderedMode;
   };
 
   const isBitReadyForAi = (bit: RuntimeBit) =>
@@ -1906,6 +1914,7 @@ export const createV2BitSystem = (
         activeTransition: null,
         bobPhase: nextRandom() * Math.PI * 2,
         mode,
+        renderedMuzzleColorMode: null,
         targetSelectionPersonality:
           selectV2TargetSelectionPersonality("bit", id),
         targetId: null,

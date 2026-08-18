@@ -62,6 +62,12 @@
 
 前者は当初から実装指示として十分であり、承認待ちとした判断は誤りだった。明示承認も得たため、体育館西・東階段は既存の高さ2.55m・踊り場端Y=-10.20の階切替線を正本とし、線より1F側の下段歩行面をf01、線より2F側の上段歩行面をf02へ左右対称に分割する。NavMesh形状や表示階段Meshから推測せず、作者定義floor_mapとlocation_areaの双方を同じ境界へ一致させる。
 
+2026-08-19 Pull Request #76 インラインコメント対応指示:
+
+> Pull Requestをコードレビューしたので、コメントを確認してください。妥当であれば修正してください。そして、インラインコメントに返信してください。
+
+未解決2件を最新HEAD `e807cd9`で確認した。1件目は、`update()`末尾が全BITについて毎フレーム`Color4.clone()`とinstance buffer代入を行い、通常Runtimeのモード別色OFFでも短命オブジェクトとGPU buffer更新を発生させるという指摘である。2件目は、T06-3の全階接面fixtureが`rawBoundaryRejected`をdetailへ出すだけで合否条件から外し、既知の接面契約を弱めているという指摘である。両方を妥当と判断した。前者は前回の実効表示モードを保持して色変化時だけ同期する。後者は通常階境界で型付き曖昧例外と対象2 Area IDの包含を必須とし、B06-1で一意所有へ変更済みの連続階段境界では上階側Areaへの一意解決を必須にする。`areaIds`は3件以上を含み得るため、曖昧例外の件数は2へ固定しない。
+
 ## 目的
 
 B06-4の作者定義`floor_map`／`map_barrier`／`map_passage`をそのまま描画し、家具投影と別階混入を廃止する。同時にBIT先端球の通常色と既定OFFのモード別デバッグ色を確定する。人間受入で判明した作者定義形状の不整合は、Runtime座標特例を追加せず、生成正本、`.blend`、GLB、カタログhashを同期して修正する。
@@ -172,6 +178,11 @@ export type StageMinimapPassage = Readonly<{
 - [x] 作者定義floor_map／Barrierを左右同じ境界へ更新し、既存location_areaとの一致を監査して`.blend`、GLB、カタログhashを同期する
 - [x] 資産監査、決定性、対象build、通常Web／Electronでギャラリー階段を検証する
 - [x] 最新結果と中央ロードマップを更新し、ギャラリー階段差分だけをcommitする
+- [x] PR #76の最新base/headと未解決reviewThreadsを取得し、2件の妥当性を判定する
+- [x] 毎フレームのBIT色再代入と接面拒否条件欠落を検出する失敗fixtureを追加する
+- [x] BIT色を実効表示モード変化時だけ同期し、接面の型付き例外・対象Area包含を合否条件へ戻す
+- [x] T05／T06-3、typecheck、通常Web／Electronで関連回帰を検証する
+- [x] 個別計画・中央ロードマップを更新し、修正をcommit／pushして2スレッドへ返信する
 
 ## 結果
 
@@ -214,3 +225,13 @@ Location監査へ失敗fixtureを先行追加し、変更前資産で`2F体育�
 建築監査、保護契約比較、Location監査、Room Variant NavMesh `--check`、`audit:v2:dependencies`、`typecheck:v2`、`build:b05`、`build:t06-3`、`build:t06-4`、`build:electron`に合格した。B05は1F／2Fの西・東階段、左右2件のLocation Area境界、高さ2.55m、床・側壁・階切替線を検査し、全体signatureは`A04DAF60E0EC802D93424482B763D469B2853BF33609D497E4B9B18087E9FEF3`となった。1920×1080のT06-3実ブラウザfixtureは16/16で、console warning／error・Babylon Logger異常0件だった。通常Webは新規タブで学校3D空間とミニマップ描画を確認し、Electron normal／haigureはPointer Lockとconsole／renderer／load／process診断0件で合格した。通常buildはrenderer生成と学校GLBカタログ整合まで成功し、既知のOFL／THIRD_PARTY_NOTICESのCRLF bytes／hash差だけで失敗した。
 
 個別計画と中央ロードマップを更新し、ギャラリー階段の追加受入差分だけを`fix: 体育館ギャラリー階段の階表示を分ける`でローカルcommitした。push、Pull Request更新、レビュー、mergeは実施していない。
+
+2026-08-19、Pull Request #76の未解決インラインコメント2件を最新HEAD `e807cd9`で確認し、双方を妥当と判定した。BIT色の失敗fixtureは修正前にT05を319/320へ落とし、同じモードの連続更新でinstance bufferの`Color4`参照が毎回変わることを再現した。接面fixtureは`rawBoundaryRejected`を合否条件へ戻すとT06-3が15/16となり、既知の接面回帰がそれまで隠れていたことを再現した。
+
+BIT Runtimeへ最後に描画した実効モードを保持し、通常のモード別色OFFでは`search=黒`を一度だけ設定し、デバッグONでもモード変化時だけ`Color4`生成とinstance buffer代入を行うようにした。毎フレーム末尾の全BIT走査は軽量なモード比較だけとなり、通常BIT、赤BIT、carpet-followerを含む既存のモード遷移・fade色同期は維持した。
+
+接面fixtureは、単に全ケースへ曖昧例外を要求せず正本契約を分けた。通常の2F／3F共用Area接面は`StageLocationAreaAmbiguityError`と対象2 Area IDの包含を必須とし、B06-1で共有階床を次Areaへ一意所有させた北東階段接面は`area-stair-ne-f02-f03`への一意解決を必須とした。境界点は上側Areaの下端から取得し、例外Area件数を2へ固定していない。
+
+修正後の実ブラウザfixtureはT05 320/320、T06-3 16/16で、console warning／errorは0件だった。`audit:v2:dependencies`、`typecheck:v2`、`build:t05`、`build:t06-3`に合格し、Electron normal／haigureはPointer Lockとconsole／renderer／load／process診断0件で合格した。学校`.blend`、GLB、NavMesh、生成器、カタログhashは変更していない。
+
+レビュー対応差分を`fix: BIT色同期と接面fixtureの回帰を直す`でcommitし、`codex/v2-minimap-bit-polish`へpushする。元の2インラインスレッドには、修正内容、失敗再現、修正後のfixture・build・Electron結果を返信する。スレッドのresolve、Ready化、mergeは実施しない。

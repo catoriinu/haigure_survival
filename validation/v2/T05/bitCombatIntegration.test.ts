@@ -5837,6 +5837,23 @@ const runBitMuzzleColorContractCheck = (): BitCombatIntegrationCheck => {
         ) &&
         colorsApproximatelyEqual(V2_BIT_MUZZLE_COLOR_BY_MODE[mode], expected[mode])
     );
+    disabled.system.update({
+      deltaSeconds: 0,
+      elapsedSeconds: 0,
+      targets: Object.freeze([]),
+      externalAlerts: EMPTY_ALERTS
+    });
+    enabled.system.update({
+      deltaSeconds: 0,
+      elapsedSeconds: 0,
+      targets: Object.freeze([]),
+      externalAlerts: EMPTY_ALERTS
+    });
+    const colorReferencesStable =
+      disabledMuzzle instanceof InstancedMesh &&
+      enabledMuzzle instanceof InstancedMesh &&
+      disabledMuzzle.instancedBuffers.color === disabledColor &&
+      enabledMuzzle.instancedBuffers.color === enabledColor;
     return Object.freeze({
       name: "BIT先端球は通常黒・デバッグON時だけ9モード固定色",
       ok:
@@ -5845,10 +5862,12 @@ const runBitMuzzleColorContractCheck = (): BitCombatIntegrationCheck => {
         colorsApproximatelyEqual(disabledColor, black) &&
         colorsApproximatelyEqual(enabledColor, black) &&
         disabledContract &&
-        enabledContract,
+        enabledContract &&
+        colorReferencesStable,
       detail:
         `instance=${disabledColor instanceof Color4}/${enabledColor instanceof Color4} / ` +
-        `disabled=${disabledContract} / enabled=${enabledContract}`
+        `disabled=${disabledContract} / enabled=${enabledContract} / ` +
+        `stable=${colorReferencesStable}`
     });
   } finally {
     disabled.dispose();
