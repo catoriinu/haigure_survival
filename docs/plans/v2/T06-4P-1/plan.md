@@ -44,6 +44,16 @@
 
 承認された案1では、北西・北東・南西の学校内U字階段を、歩行面は階色、中央吹き抜けは黒、側壁・手すりは黒、Areaの階切替位置は薄線で表示する。階段アイコンは全廃し、階切替線は作者定義の踊り場・階段形状から明示生成してNavMeshから推測しない。体育館西・東階段も階切替線とアイコン撤去を統一するが、中央吹き抜けのない形状には黒領域を追加しない。屋上階段室の外壁・出入口は屋上だけに残し、4Fへ投影されていた屋上階段室南壁と屋上用出入口は削除する。
 
+2026-08-19 外周門・1F室間壁追加指示:
+
+> 通用口や南門について、ここは出入口ではないので、薄い線はマップに引かないでください。
+>
+> 職員室とパソコン室の間の壁が描画されていません。修正してください。
+>
+> 図書室の間に壁があります。この壁はなくしてください。
+
+外周の通用口と南門は、移動可能性を示すNavMesh境界や部屋の出入口ではないため、外周Barrierの開口は維持するがPassageを描画しない。1F職員室・パソコン室間は実際の連続壁をBarrierで黒く表示し、この室間壁には扉・開口がないためPassageを追加しない。1F図書室はY=12.65～32.35の連続した一室であるため、中央Y=22.35～22.65の誤ったBarrierを削除し、外周壁と廊下側の実扉2か所だけを維持する。前回提案した体育館ギャラリー階段の1F／2F分割は承認待ちとして本追加修正に含めない。
+
 ## 目的
 
 B06-4の作者定義`floor_map`／`map_barrier`／`map_passage`をそのまま描画し、家具投影と別階混入を廃止する。同時にBIT先端球の通常色と既定OFFのモード別デバッグ色を確定する。人間受入で判明した作者定義形状の不整合は、Runtime座標特例を追加せず、生成正本、`.blend`、GLB、カタログhashを同期して修正する。
@@ -112,6 +122,9 @@ export type StageMinimapPassage = Readonly<{
 - 北西・北東・南西の学校内U字階段は中央吹き抜けを黒で示し、すべての学校内階段と体育館階段は実際に表示階が切り替わる踊り場境界を薄線で示す。
 - 階段アイコンは描画せず、エレベーターアイコンは稼働・停止階情報を示すため維持する。
 - 4Fには4F階段・壁・吹き抜け・階切替線だけを表示し、屋上階段室の南壁と屋上出入口を投影しない。屋上には階段室外壁と実出入口を維持する。
+- 1F外周の通用口と南門は、外周Barrierの切れ目を維持するが薄いPassage線を表示しない。
+- 1F職員室とパソコン室の間は、X=23.25～23.55、Y=36.35～45.65の実壁全長を黒いBarrierで示し、薄いPassage線を置かない。
+- 1F図書室中央のY=22.35～22.65にはBarrierもPassageも置かず、一室の連続床として表示する。
 
 ## 検証
 
@@ -140,6 +153,11 @@ export type StageMinimapPassage = Readonly<{
 - [x] `.blend`／GLBを決定的に再生成し、資産契約とNavMesh不変を監査する
 - [x] scoped fixture、typecheck、build、通常Web／Electronで階段表示を検証する
 - [x] 最新結果と中央ロードマップを更新し、階段受入差分だけをcommitする
+- [x] 外周門と職員室／パソコン室間壁の画像・表示正本・作者定義を照合する
+- [x] 通用口・南門のPassage禁止、職員室／パソコン室間壁Barrier、図書室中央Barrier禁止の失敗fixtureを追加する
+- [x] 作者定義Barrier／Passage、`.blend`、GLB、カタログhashを同期する
+- [x] 資産監査、決定性、対象build、通常Web／Electronで追加受入を検証する
+- [x] 最新結果と中央ロードマップを更新し、追加受入差分だけをcommitする
 
 ## 結果
 
@@ -164,3 +182,11 @@ T05は320/320、T06-3は16/16、T06-4は36/36でPASSした。`audit:v2:dependenc
 Location監査へ失敗fixtureを先行追加し、変更前資産で`f01学校内3階段の中央吹き抜けBarrierが揃っていません`を再現した。生成バージョンを`t06-4p-1-minimap-stairs-v5`へ更新し、`.blend`とGLBを2回決定的に再生成した。GLBは22,473,548 bytes、SHA-256 `ECEB105E57A58BCF9550C91FE0649DD32FF751B908D0B591B7EC094AE1551F4E`となり、カタログを同期した。Human／Room Variant／BIT NavMeshのSHA-256は変更前後で一致した。表示mesh面は変更せず、作者定義Map Volumeだけを更新したため、重複描画面やZ-fighting回避用offsetは追加していない。
 
 建築監査、保護契約比較、Location監査、Room Variant NavMesh `--check`、`audit:v2:dependencies`、`typecheck:v2`、`build:b05`、`build:t06-3`、`build:t06-4`、`build:electron`に合格した。T06-3実ブラウザfixtureは16/16で、階段方向metadata 3種の維持、17踊り場すべてのアイコン非描画、console／Babylon異常0件を確認した。1920×1080の通常Webでは新規タブでタイトルから学校3D空間へ遷移し、ミニマップとHUDを確認した。Electron normal／haigureと総合acceptanceは、Viteをclean再起動した最終実行でPointer Lockを含め合格し、console／renderer／load／process診断は0件だった。通常buildは学校GLBのカタログ整合まで成功し、既知のOFL／THIRD_PARTY_NOTICESのCRLF bytes／hash差だけで失敗した。動作確認用の通常Vite serverは専用worktreeから`127.0.0.1:5175`で継続起動する。
+
+2026-08-19、追加の人間受入に合わせ、1F外周の通用口と南門からPassageを除去した。外周Barrierの切れ目は門の実態として維持するが、部屋の出入口または階切替位置ではないため薄線を描画しない。1F職員室とパソコン室の間には実壁全長のBarrierを追加し、1F図書室中央にあった実在しないDivider Barrierを削除した。未承認の体育館ギャラリー階段の階扱い変更は今回の差分へ含めていない。
+
+Location監査へ失敗fixtureを先行追加し、変更前資産で通用口・南門のPassage残存を再現した。生成バージョンを`t06-4p-1-minimap-acceptance-v6`へ更新し、`.blend`とGLBを2回決定的に再生成した。GLBは22,472,828 bytes、SHA-256 `C633E71728A0F5B1085779CEE25CE23277D8714DEEA612DE5B67AC09926EEE0D`となり、カタログを同期した。Human／Room Variant／BIT NavMeshのSHA-256は変更前後で一致した。表示mesh面は変更せず、作者定義Map Volumeだけを更新したため、重複表示面やZ-fighting回避用offsetは追加していない。
+
+建築監査、保護契約比較、Location監査、Room Variant NavMesh `--check`、`audit:v2:dependencies`、`typecheck:v2`、`build:b05`、`build:t06-3`、`build:t06-4`、`build:electron`に合格した。B05は1F Barrier 47件、Passage 23件、全体signature `249CD3D633A7B29B850B2647F2C5F7F6192EB052A85D6052E4BE3CA572AA64A0`となった。1920×1080のT06-3実ブラウザfixtureは16/16で、console warning／error・Babylon Logger異常0件だった。通常Webは新規タブと再読込の双方で学校3D空間へ遷移し、ゲーム開始後のミニマップとHUDを確認した。インアプリブラウザ固有のPointer Lock `WrongDocumentError`は実装異常と分離し、Electron normal／haigureでPointer Lockとconsole／renderer／load／process診断0件を確認した。通常buildはrenderer生成と学校GLBカタログ整合まで成功し、既知のOFL／THIRD_PARTY_NOTICESのCRLF bytes／hash差だけで失敗した。
+
+中央ロードマップを更新し、追加受入差分だけを`fix: ミニマップの室内壁と外周門表示を直す`でローカルcommitする。push、Pull Request更新、レビュー、mergeは実施しない。

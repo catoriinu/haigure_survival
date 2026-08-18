@@ -84,7 +84,7 @@ BIT_FLIGHT_BLOCKER_HALF_HEIGHT_METERS = (
 BIT_FLIGHT_PROJECTION_DISTANCE_METERS = 3.0
 BIT_FLIGHT_NAV_PROFILE = "bit-flight-body-0.44-margin-0.10-v1"
 HUMAN_NAV_PROFILE = "school-humanoid-room-variants-v2"
-GENERATOR_VERSION = "t06-4p-1-minimap-stairs-v5"
+GENERATOR_VERSION = "t06-4p-1-minimap-acceptance-v6"
 GENERATOR_VERSION_PROPERTY = "b03_architecture_generator_version"
 GENERATOR_SIGNATURE_PROPERTY = "b03_architecture_generator_signature"
 T04_CORRECTION_VERSION_PROPERTY = "t04_2b_nav_connectivity_version"
@@ -127,7 +127,6 @@ PERIMETER_WALL_SPECS = (
     ("VIS_Perimeter_West", "Y", -14.5, 51.5, -18.8, -18.4),
 )
 PERIMETER_WALL_Z = (-0.3, 1.7)
-PERIMETER_WALL_THICKNESS = 0.4
 PERIMETER_BLOCK_WIDTH = 0.8
 PERIMETER_BLOCK_HEIGHT = 0.4
 PERIMETER_JOINT_WIDTH = 0.02
@@ -472,24 +471,6 @@ def perimeter_wall_map_boxes_xy() -> tuple[
     )
 
 
-def gate_passage_map_boxes_xy() -> tuple[
-    tuple[tuple[float, float], tuple[float, float]], ...
-]:
-    half_thickness = PERIMETER_WALL_THICKNESS / 2.0
-    return tuple(
-        (
-            (primary_minimum, fixed - half_thickness),
-            (primary_maximum, fixed + half_thickness),
-        )
-        if axis == "X"
-        else (
-            (fixed - half_thickness, primary_minimum),
-            (fixed + half_thickness, primary_maximum),
-        )
-        for _, axis, primary_minimum, primary_maximum, fixed in GATE_VISUAL_SPECS
-    )
-
-
 def horizontal_barrier_map_boxes_xy(
     fixed_y: float,
     minimum_x: float,
@@ -597,8 +578,8 @@ B06_MAP_BARRIER_BOXES_XY_BY_FLOOR = {
         *B06_NORTH_WING_BARRIER_BOXES_XY,
         *B06_TOILET_BARRIER_BOXES_XY,
         *B06_SCHOOL_STAIR_VOID_BARRIER_BOXES_XY.values(),
-        # 敷地外周は表示塀の作者定義区間を共用する。正門と通用門には
-        # Barrierを敷かず、実際の開口区間をPassage側で所有する。
+        # 敷地外周は表示塀の作者定義区間を共用する。南門と通用口は
+        # Barrierを敷かないが、部屋の出入口ではないためPassageにも含めない。
         *perimeter_wall_map_boxes_xy(),
         # 校舎外壁と中庭側外壁。
         ((-12.75, -7.15), (0.15, -6.85)),
@@ -611,9 +592,11 @@ B06_MAP_BARRIER_BOXES_XY_BY_FLOOR = {
         ((-3.65, 2.35), (-3.35, 32.65)),
         ((-12.75, 2.35), (-3.35, 2.65)),
         ((-12.75, 12.35), (-3.35, 12.65)),
-        ((-12.75, 22.35), (-3.35, 22.65)),
+        # 1F図書室はY=12.65～32.35の一室であり、中央仕切りを持たない。
         ((-12.75, 32.35), (-3.35, 32.65)),
         ((5.25, 36.35), (5.55, 45.65)),
+        # 職員室とパソコン室の間は開口のない連続壁。
+        ((23.25, 36.35), (23.55, 45.65)),
         ((41.25, 36.35), (41.55, 45.65)),
         # 体育館外壁、舞台仕切り、体育倉庫壁。
         ((33.25, -11.65), (59.55, -11.35)),
@@ -720,8 +703,6 @@ B06_MAP_BARRIER_BOXES_XY_BY_FLOOR = {
 
 B06_MAP_PASSAGE_BOXES_XY_BY_FLOOR = {
     "f01": (
-        # 敷地正門・通用門は表示門と同じ作者定義開口を共用する。
-        *gate_passage_map_boxes_xy(),
         # 校舎出入口、各室扉、階段接続。
         ((2.4, 45.1), (5.4, 45.9)),
         ((0.0, 32.1), (5.4, 32.9)),

@@ -147,10 +147,12 @@ F01_PERIMETER_BARRIER_BOUNDS_XY = (
     ((-18.6, -14.7), (19.4, -14.3)),
     ((-18.8, -14.5), (-18.4, 51.5)),
 )
-F01_GATE_PASSAGE_BOUNDS_XY = (
+F01_NON_PASSAGE_GATE_BOUNDS_XY = (
     ((19.4, -14.7), (25.4, -14.3)),
     ((63.2, 44.5), (63.6, 50.5)),
 )
+F01_STAFF_PC_DIVIDER_BOUNDS_XY = ((23.25, 36.35), (23.55, 45.65))
+F01_LIBRARY_FALSE_DIVIDER_BOUNDS_XY = ((-12.75, 22.35), (-3.35, 22.65))
 SCHOOL_STAIR_VOID_BOUNDS_XY = {
     "nw": ((-10.2, 38.9), (-9.0, 43.1)),
     "ne": ((43.8, 38.9), (45.0, 43.1)),
@@ -629,11 +631,35 @@ def audit_minimap_layers(
                     for bounds in audit_axis_aligned_boxes(obj)
                 }
                 require(
-                    set(F01_GATE_PASSAGE_BOUNDS_XY) <= actual_bounds_xy,
-                    "1F門Passageが実門開口と一致しません: "
-                    f"{sorted(actual_bounds_xy)}",
+                    set(F01_NON_PASSAGE_GATE_BOUNDS_XY).isdisjoint(
+                        actual_bounds_xy
+                    ),
+                    "1F通用口・南門をPassageとして描画しています: "
+                    f"{sorted(set(F01_NON_PASSAGE_GATE_BOUNDS_XY) & actual_bounds_xy)}",
                 )
         result[role] = component_counts
+
+    first_floor_barrier_bounds_xy = xy_bounds_set(
+        bounds_by_layer[("map_barrier", "f01")]
+    )
+    require(
+        F01_STAFF_PC_DIVIDER_BOUNDS_XY in first_floor_barrier_bounds_xy,
+        "1F職員室・パソコン室間の連続壁Barrierがありません",
+    )
+    first_floor_passage_bounds = bounds_by_layer[("map_passage", "f01")]
+    require(
+        not covers_xy(first_floor_passage_bounds, (23.4, 41.0)),
+        "1F職員室・パソコン室間の連続壁へPassageがあります",
+    )
+    require(
+        F01_LIBRARY_FALSE_DIVIDER_BOUNDS_XY
+        not in first_floor_barrier_bounds_xy,
+        "1F図書室中央に存在しないBarrierがあります",
+    )
+    require(
+        not covers_xy(first_floor_passage_bounds, (-8.05, 22.5)),
+        "1F図書室中央に存在しないPassageがあります",
+    )
 
     for floor_id in ("f01", "f02", "f03", "f04"):
         barrier_bounds = bounds_by_layer[("map_barrier", floor_id)]
