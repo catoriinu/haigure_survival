@@ -934,3 +934,5 @@ HAIGURE SURVIVAL v2は、大規模な一括実装を行わず、1タスク＝1�
 - GitHub障害中の明示指示により、cleanな`codex/v2-minimap-location-assets=56a6ca2`を直接起点とし、`develop`のpull／mergeを行わず実装した。
 - ミニマップを5階分の作者定義Barrier／Passage cacheへ切り替え、床、黒い恒久仕切り、明色開口の順に描画する。BIT先端球は通常全モード黒、専用fixtureでだけ9モードの固定色を使い、carpet-followerのfadeでもInstance色と共有Materialを維持する。
 - T05 320/320、T06-3 16/16、T06-4 36/36、1920×1080の5階Web表示、Electron normal／haigure診断0件を確認した。学校`.blend`、GLB、NavMesh、生成器、カタログhashは変更せず、指定メッセージでローカルcommitまで完了した。
+- 人間受入で判明した作者定義形状の不整合を追加修正した。薄線は「歩行床が恒久壁・柵の固定開口を横断する位置」だけへ統一し、1F～3F体育館接続は各階とも両端へ残した。全階トイレ、エレベーター、1F舞台・体育倉庫、2Fギャラリー、3F体育館屋上を実壁・柵・床へ一致させ、NavMesh境界、床継ぎ目、舞台中央、旧トイレ共通通路の薄線を除去した。
+- GLBは22,464,416 bytes／SHA-256 `84160507C68D30B23BEA9E68FEF3DF204B475FEF144DCCF6AFDFDA6ADA3D2DDA`へ同期し、生成版更新後の通常生成2回でhash一致を確認した。3種NavMeshは不変で、建築・保護・Location監査、T06-3 16/16、対象typecheck／build、Electron normal／haigure診断0件に合格した。通常buildは生成と学校GLB整合まで成功し、既知のOFL／THIRD_PARTY_NOTICES改行差監査だけが失敗した。

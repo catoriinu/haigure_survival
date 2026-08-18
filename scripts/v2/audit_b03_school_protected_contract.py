@@ -55,6 +55,7 @@ T05_GENERATOR_VERSION_PROPERTY = "b03_architecture_generator_version"
 T05_GENERATOR_VERSION = "b03-3c-interactive-assets-v10"
 T06_GENERATOR_VERSION = "t06-2-npc-spawn-bias-v2"
 B06_GENERATOR_VERSION = "b06-3-school-props-signage-v1"
+CURRENT_GENERATOR_VERSION = "t06-4p-1-minimap-acceptance-v4"
 T04_ALLOWED_MISSING_EXACT_NAMES = {
     "COL_B03_Prop_Locker_Changing_F_01",
     "COL_B03_Prop_Locker_Changing_F_02",
@@ -498,15 +499,20 @@ def compare_baseline() -> None:
     correction_version = bpy.context.scene.get(T04_CORRECTION_VERSION_PROPERTY)
     generator_version = bpy.context.scene.get(T05_GENERATOR_VERSION_PROPERTY)
     t04_enabled = correction_version == T04_CORRECTION_VERSION
-    b06_enabled = generator_version == B06_GENERATOR_VERSION
+    b06_enabled = generator_version in {
+        B06_GENERATOR_VERSION,
+        CURRENT_GENERATOR_VERSION,
+    }
     t06_enabled = generator_version in {
         T06_GENERATOR_VERSION,
         B06_GENERATOR_VERSION,
+        CURRENT_GENERATOR_VERSION,
     }
     t05_enabled = generator_version in {
         T05_GENERATOR_VERSION,
         T06_GENERATOR_VERSION,
         B06_GENERATOR_VERSION,
+        CURRENT_GENERATOR_VERSION,
     }
     baseline_aperture_endpoints = {
         name

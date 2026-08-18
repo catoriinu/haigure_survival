@@ -104,7 +104,7 @@ EXPECTED_CONSOLIDATED_MATERIAL_NAMES = {
 LINK_PATTERN = re.compile(r"^LNK_(.+)_([AB])$")
 TOLERANCE = 1e-5
 DOOR_OPENING_MARGIN = 0.01
-EXPECTED_GENERATOR_VERSION = "b06-4-minimap-location-assets-v3"
+EXPECTED_GENERATOR_VERSION = "t06-4p-1-minimap-acceptance-v4"
 EXPECTED_T04_CORRECTION_VERSION = "t04-2b-nav-connectivity-v11"
 EXPECTED_SCHEMA_VERSION = 3
 EXPECTED_STAGE_ID = "school"
@@ -8735,7 +8735,7 @@ def main() -> None:
     require(
         bpy.context.scene.get("b03_architecture_generator_version")
         == EXPECTED_GENERATOR_VERSION,
-        "建築生成版がB06-3小物・表札版ではありません",
+        "建築生成版がT06-4P-1ミニマップ受入版ではありません",
     )
     require(
         bpy.context.scene.get("t04_2b_nav_connectivity_version")

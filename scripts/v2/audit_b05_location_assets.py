@@ -405,6 +405,18 @@ def positive_volume_overlap(left: Bounds, right: Bounds) -> bool:
     )
 
 
+def covers_xy(bounds: list[Bounds], point: tuple[float, float]) -> bool:
+    return any(
+        candidate.minimum[0] - TOLERANCE
+        <= point[0]
+        <= candidate.maximum[0] + TOLERANCE
+        and candidate.minimum[1] - TOLERANCE
+        <= point[1]
+        <= candidate.maximum[1] + TOLERANCE
+        for candidate in bounds
+    )
+
+
 def require_global_object(reference_id: str, role: str) -> bpy.types.Object:
     matches = [obj for obj in bpy.data.objects if obj.get("hs_id") == reference_id]
     require(
@@ -486,7 +498,26 @@ def audit_floor_maps(objects: list[bpy.types.Object]) -> dict[str, int]:
                 "hs_order": order,
             },
         )
-        component_counts[floor_id] = len(audit_axis_aligned_boxes(obj))
+        bounds = audit_axis_aligned_boxes(obj)
+        component_counts[floor_id] = len(bounds)
+        if floor_id == "f02":
+            for point in ((34.2, 10.0), (58.6, 10.0), (41.4, 29.5)):
+                require(
+                    covers_xy(bounds, point),
+                    f"2F体育館ギャラリー・渡り廊下の歩行床が欠落しています: {point}",
+                )
+        if floor_id == "f03":
+            require(
+                covers_xy(bounds, (33.4, 0.0))
+                and covers_xy(bounds, (59.4, 0.0)),
+                "3F体育館屋上の実床端がfloor_mapにありません",
+            )
+            require(
+                not covers_xy(bounds, (33.2, 0.0))
+                and not covers_xy(bounds, (59.5, 0.0))
+                and not covers_xy(bounds, (46.4, -11.6)),
+                "3F体育館屋上floor_mapが実床・柵の外側へはみ出しています",
+            )
     return component_counts
 
 
@@ -495,6 +526,7 @@ def audit_minimap_layers(
     passages: list[bpy.types.Object],
 ) -> dict[str, dict[str, int]]:
     result: dict[str, dict[str, int]] = {}
+    bounds_by_layer: dict[tuple[str, str], list[Bounds]] = {}
     for role, objects, name_prefix, id_prefix in (
         ("map_barrier", barriers, "MAP_Barrier_", "minimap-barrier-"),
         ("map_passage", passages, "MAP_Passage_", "minimap-passage-"),
@@ -526,7 +558,9 @@ def audit_minimap_layers(
                     "hs_floor_id": floor_id,
                 },
             )
-            component_counts[floor_id] = len(audit_axis_aligned_boxes(obj))
+            layer_bounds = audit_axis_aligned_boxes(obj)
+            bounds_by_layer[(role, floor_id)] = layer_bounds
+            component_counts[floor_id] = len(layer_bounds)
             require(
                 component_counts[floor_id] > 0,
                 f"{role}の階別形状がありません: {floor_id}",
@@ -576,6 +610,74 @@ def audit_minimap_layers(
                     f"{sorted(actual_bounds_xy)}",
                 )
         result[role] = component_counts
+
+    for floor_id in ("f01", "f02", "f03", "f04"):
+        barrier_bounds = bounds_by_layer[("map_barrier", floor_id)]
+        passage_bounds = bounds_by_layer[("map_passage", floor_id)]
+        for point in ((-6.0, 38.5), (-3.0, 38.5), (-1.5, 38.5), (1.0, 38.5)):
+            require(
+                covers_xy(barrier_bounds, point),
+                f"{floor_id}トイレ前壁Barrierが実壁位置にありません: {point}",
+            )
+        for point in ((-2.1, 42.0), (2.4, 42.0)):
+            require(
+                covers_xy(barrier_bounds, point),
+                f"{floor_id}トイレ側壁Barrierが実壁位置にありません: {point}",
+            )
+        for point in ((-4.8, 38.5), (-0.3, 38.5)):
+            require(
+                covers_xy(passage_bounds, point),
+                f"{floor_id}トイレPassageが実出入口にありません: {point}",
+            )
+        require(
+            not covers_xy(passage_bounds, (-5.0, 36.5)),
+            f"{floor_id}トイレ共通通路をPassageとして描いています",
+        )
+
+        require(
+            covers_xy(barrier_bounds, (-10.0, -5.2)),
+            f"{floor_id}エレベーターシャフトが黒い非歩行領域ではありません",
+        )
+        require(
+            covers_xy(passage_bounds, (-8.8, -5.2)),
+            f"{floor_id}エレベーター扉Passageがありません",
+        )
+
+    second_floor_barriers = bounds_by_layer[("map_barrier", "f02")]
+    for point in ((34.84, 10.0), (57.96, 10.0), (40.0, 25.0), (50.0, 25.0)):
+        require(
+            covers_xy(second_floor_barriers, point),
+            f"2F体育館ギャラリーの外壁・内側手すりBarrierがありません: {point}",
+        )
+    for point in ((34.2, 10.0), (58.6, 10.0), (36.5, 25.8), (49.0, 25.8)):
+        require(
+            not covers_xy(second_floor_barriers, point),
+            f"2F体育館ギャラリーの歩行床をBarrierが覆っています: {point}",
+        )
+
+    first_floor_barriers = bounds_by_layer[("map_barrier", "f01")]
+    for point in ((35.0, -2.0), (39.8, -2.0), (52.8, -2.0), (57.0, -2.0)):
+        require(
+            covers_xy(first_floor_barriers, point),
+            f"体育館舞台仕切りBarrierが実壁位置にありません: {point}",
+        )
+    require(
+        not covers_xy(bounds_by_layer[("map_passage", "f01")], (46.4, -2.0)),
+        "体育館舞台中央開口へ不要なPassageがあります",
+    )
+    for point in ((51.4, 28.5), (57.4, 28.5)):
+        require(
+            covers_xy(first_floor_barriers, point),
+            f"体育倉庫側壁Barrierがありません: {point}",
+        )
+
+    for floor_id in ("f01", "f02", "f03"):
+        passage_bounds = bounds_by_layer[("map_passage", floor_id)]
+        for point in ((41.4, 26.5), (41.4, 32.5)):
+            require(
+                covers_xy(passage_bounds, point),
+                f"{floor_id}体育館接続の固定開放出入口Passageがありません: {point}",
+            )
     return result
 
 
