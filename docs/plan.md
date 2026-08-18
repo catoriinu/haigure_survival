@@ -937,5 +937,7 @@ HAIGURE SURVIVAL v2は、大規模な一括実装を行わず、1タスク＝1�
 - T05 320/320、T06-3 16/16、T06-4 36/36、1920×1080の5階Web表示、Electron normal／haigure診断0件を確認した。学校`.blend`、GLB、NavMesh、生成器、カタログhashは変更せず、指定メッセージでローカルcommitまで完了した。
 - 人間受入で判明した作者定義形状の不整合を追加修正した。薄線は「歩行床が恒久壁・柵の固定開口を横断する位置」だけへ統一し、1F～3F体育館接続は各階とも両端へ残した。全階トイレ、エレベーター、1F舞台・体育倉庫、2Fギャラリー、3F体育館屋上を実壁・柵・床へ一致させ、NavMesh境界、床継ぎ目、舞台中央、旧トイレ共通通路の薄線を除去した。
 - GLBは22,464,416 bytes／SHA-256 `84160507C68D30B23BEA9E68FEF3DF204B475FEF144DCCF6AFDFDA6ADA3D2DDA`へ同期し、生成版更新後の通常生成2回でhash一致を確認した。3種NavMeshは不変で、建築・保護・Location監査、T06-3 16/16、対象typecheck／build、Electron normal／haigure診断0件に合格した。通常buildは生成と学校GLB整合まで成功し、既知のOFL／THIRD_PARTY_NOTICES改行差監査だけが失敗した。
-- 追加の人間受入で、1F通用口・南門は外周Barrierの切れ目を維持しつつPassageを除去し、職員室／パソコン室間の実壁Barrierを追加し、図書室中央の実在しないBarrierを削除した。体育館ギャラリー階段の階扱い変更は未承認のため含めていない。
+- 追加の人間受入で、1F通用口・南門は外周Barrierの切れ目を維持しつつPassageを除去し、職員室／パソコン室間の実壁Barrierを追加し、図書室中央の実在しないBarrierを削除した。
 - 生成版`t06-4p-1-minimap-acceptance-v6`のGLBは22,472,828 bytes／SHA-256 `C633E71728A0F5B1085779CEE25CE23277D8714DEEA612DE5B67AC09926EEE0D`となった。2回生成の決定性、3種NavMesh不変、建築・保護・Location監査、T06-3実ブラウザ16/16、対象typecheck／build、Electron normal／haigureのPointer Lock・診断0件に合格した。通常buildは既知のOFL／THIRD_PARTY_NOTICES改行差監査だけが失敗した。
+- 体育館ギャラリー階段は、西・東とも黄色い階切替線より下の下段・折返し踊り場を1F、線より上の上段を2Fへ統一した。既存Location Areaの高さ2.55m境界を正本とし、2F floor_mapへの下段混入と下段側壁Barrierの階混在を解消した。左右で床、側壁、薄い階切替線を同じ規則にしている。
+- 生成版`t06-4p-1-minimap-gallery-stairs-v7`のGLBは22,477,080 bytes／SHA-256 `504563028C92B3F524FD2B72B0030B68109997BF3906FC7138BF997C7914C008`となった。2回生成の決定性、3種NavMesh不変、建築・保護・Location監査、T06-3実ブラウザ16/16、対象typecheck／build、Electron normal／haigureのPointer Lock・診断0件に合格した。通常buildは既知のOFL／THIRD_PARTY_NOTICES改行差監査だけが失敗した。

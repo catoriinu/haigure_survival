@@ -84,7 +84,7 @@ BIT_FLIGHT_BLOCKER_HALF_HEIGHT_METERS = (
 BIT_FLIGHT_PROJECTION_DISTANCE_METERS = 3.0
 BIT_FLIGHT_NAV_PROFILE = "bit-flight-body-0.44-margin-0.10-v1"
 HUMAN_NAV_PROFILE = "school-humanoid-room-variants-v2"
-GENERATOR_VERSION = "t06-4p-1-minimap-acceptance-v6"
+GENERATOR_VERSION = "t06-4p-1-minimap-gallery-stairs-v7"
 GENERATOR_VERSION_PROPERTY = "b03_architecture_generator_version"
 GENERATOR_SIGNATURE_PROPERTY = "b03_architecture_generator_signature"
 T04_CORRECTION_VERSION_PROPERTY = "t04_2b_nav_connectivity_version"
@@ -548,9 +548,13 @@ B06_GYM_GALLERY_BARRIER_BOXES_XY = (
     ((34.84, 24.85), (35.8, 25.15)),
     ((39.1, 24.85), (43.7, 25.15)),
     ((47.0, 24.85), (57.96, 25.15)),
+)
+B06_GYM_STAIR_SHARED_BARRIER_BOXES_XY = (
     ((34.61, -10.2), (34.91, -2.0)),
-    ((35.89, -11.3), (36.19, -3.8)),
     ((57.89, -10.2), (58.19, -2.0)),
+)
+B06_GYM_STAIR_F01_ONLY_BARRIER_BOXES_XY = (
+    ((35.89, -11.3), (36.19, -3.8)),
     ((56.61, -11.3), (56.91, -3.8)),
 )
 B06_SCHOOL_STAIR_VOID_BARRIER_BOXES_XY = {
@@ -607,6 +611,10 @@ B06_MAP_BARRIER_BOXES_XY_BY_FLOOR = {
         ((51.25, 26.35), (51.55, 30.65)),
         ((57.25, 26.35), (57.55, 30.65)),
         *B06_GYM_STAGE_BARRIER_BOXES_XY,
+        # 体育館ギャラリー階段の下段側壁は1F、同じ平面位置を共有する
+        # 中央側壁は1F／2Fの双方へ描画する。
+        *B06_GYM_STAIR_SHARED_BARRIER_BOXES_XY,
+        *B06_GYM_STAIR_F01_ONLY_BARRIER_BOXES_XY,
     ),
     "f02": (
         *B06_ELEVATOR_BARRIER_BOXES_XY,
@@ -628,8 +636,9 @@ B06_MAP_BARRIER_BOXES_XY_BY_FLOOR = {
         ((14.25, 36.35), (14.55, 45.65)),
         ((23.25, 36.35), (23.55, 45.65)),
         ((41.25, 36.35), (41.55, 45.65)),
-        # 体育館ギャラリーの歩行床を空け、外壁・手すりだけを描く。
+        # 体育館ギャラリーと上段階段の外壁・手すりだけを描く。
         *B06_GYM_GALLERY_BARRIER_BOXES_XY,
+        *B06_GYM_STAIR_SHARED_BARRIER_BOXES_XY,
         ((39.25, 26.35), (39.55, 32.65)),
         ((43.25, 26.35), (43.55, 32.65)),
     ),
@@ -4305,8 +4314,10 @@ def build_b05_location_assets(
             ((-12.6, -7.0), (0.0, 45.5)),
             ((0.0, 32.5), (47.4, 45.5)),
             ((39.3, 26.6), (43.5, 32.65)),
-            ((33.6, -11.35), (36.6, -2.0)),
-            ((56.2, -11.35), (59.2, -2.0)),
+            # 体育館西・東階段はY=-10.20の階切替線より上段側だけを2Fとする。
+            # 下段と折返し踊り場は1F体育館床が所有する。
+            ((33.6, -10.2), (34.8, -2.0)),
+            ((58.0, -10.2), (59.2, -2.0)),
             ((33.6, -2.0), (34.8, 26.4)),
             ((58.0, -2.0), (59.2, 26.4)),
             ((34.8, 25.0), (58.0, 26.6)),

@@ -167,6 +167,24 @@ GYM_STAIR_SWITCH_BOUNDS_XY = {
     "west": ((34.8, -10.35), (36.0, -10.05)),
     "east": ((56.8, -10.35), (58.0, -10.05)),
 }
+GYM_STAIR_F01_SIDE_POINTS_XY = (
+    (35.4, -6.0),
+    (57.4, -6.0),
+    (35.4, -10.8),
+    (57.4, -10.8),
+)
+GYM_STAIR_F02_SIDE_POINTS_XY = (
+    (34.2, -6.0),
+    (58.6, -6.0),
+)
+GYM_STAIR_F01_ONLY_BARRIER_POINTS_XY = (
+    (36.04, -6.0),
+    (56.76, -6.0),
+)
+GYM_STAIR_SHARED_BARRIER_POINTS_XY = (
+    (34.76, -6.0),
+    (58.04, -6.0),
+)
 
 
 @dataclass(frozen=True)
@@ -526,11 +544,27 @@ def audit_floor_maps(objects: list[bpy.types.Object]) -> dict[str, int]:
         )
         bounds = audit_axis_aligned_boxes(obj)
         component_counts[floor_id] = len(bounds)
+        if floor_id == "f01":
+            for point in GYM_STAIR_F01_SIDE_POINTS_XY:
+                require(
+                    covers_xy(bounds, point),
+                    f"1F体育館ギャラリー階段の下段歩行床が欠落しています: {point}",
+                )
         if floor_id == "f02":
             for point in ((34.2, 10.0), (58.6, 10.0), (41.4, 29.5)):
                 require(
                     covers_xy(bounds, point),
                     f"2F体育館ギャラリー・渡り廊下の歩行床が欠落しています: {point}",
+                )
+            for point in GYM_STAIR_F02_SIDE_POINTS_XY:
+                require(
+                    covers_xy(bounds, point),
+                    f"2F体育館ギャラリー階段の上段歩行床が欠落しています: {point}",
+                )
+            for point in GYM_STAIR_F01_SIDE_POINTS_XY:
+                require(
+                    not covers_xy(bounds, point),
+                    f"2F体育館ギャラリー階段へ1F側の下段歩行床が混入しています: {point}",
                 )
         if floor_id == "f03":
             require(
@@ -759,6 +793,24 @@ def audit_minimap_layers(
             f"{floor_id}体育館西・東階段の階切替Passageが揃っていません",
         )
 
+    first_floor_gym_barriers = bounds_by_layer[("map_barrier", "f01")]
+    second_floor_gym_barriers = bounds_by_layer[("map_barrier", "f02")]
+    for point in GYM_STAIR_F01_ONLY_BARRIER_POINTS_XY:
+        require(
+            covers_xy(first_floor_gym_barriers, point),
+            f"1F体育館ギャラリー階段の下段側壁Barrierがありません: {point}",
+        )
+        require(
+            not covers_xy(second_floor_gym_barriers, point),
+            f"2F体育館ギャラリー階段へ1F側の下段側壁Barrierが混入しています: {point}",
+        )
+    for point in GYM_STAIR_SHARED_BARRIER_POINTS_XY:
+        require(
+            covers_xy(first_floor_gym_barriers, point)
+            and covers_xy(second_floor_gym_barriers, point),
+            f"体育館ギャラリー階段の共有側壁Barrierが両階にありません: {point}",
+        )
+
     fourth_floor_barriers = bounds_by_layer[("map_barrier", "f04")]
     fourth_floor_passages = bounds_by_layer[("map_passage", "f04")]
     require(
@@ -951,6 +1003,36 @@ def audit_school_stair_area_boundaries(
         "boundary_samples": sample_checks,
         "terminal_boundaries": terminal_checks,
     }
+
+
+def audit_gym_stair_area_boundaries(
+    area_pieces: list[AreaPiece],
+) -> dict[str, int]:
+    pieces_by_area: dict[str, list[AreaPiece]] = defaultdict(list)
+    for piece in area_pieces:
+        pieces_by_area[piece.area_id].append(piece)
+
+    checked_sides = 0
+    for side in ("west", "east"):
+        area_id = f"area-stair-gym-{side}-f01-f02"
+        pieces = pieces_by_area[area_id]
+        lower = next(piece for piece in pieces if piece.floor_id == "f01")
+        upper = next(piece for piece in pieces if piece.floor_id == "f02")
+        require(
+            close(lower.bounds.maximum[2], 2.55)
+            and close(upper.bounds.minimum[2], 2.55),
+            f"{area_id}の階切替高さが2.55mに一致しません",
+        )
+        require(
+            all(
+                close(lower.bounds.minimum[axis], upper.bounds.minimum[axis])
+                and close(lower.bounds.maximum[axis], upper.bounds.maximum[axis])
+                for axis in (0, 1)
+            ),
+            f"{area_id}の1F／2F Area平面範囲が一致しません",
+        )
+        checked_sides += 1
+    return {"sides": checked_sides, "switch_height_meters": 2.55}
 
 
 def audit_missions(
@@ -1257,6 +1339,7 @@ def main() -> None:
     )
     area_pieces = audit_areas(by_role["location_area"])
     stair_area_boundary_result = audit_school_stair_area_boundaries(area_pieces)
+    gym_stair_area_boundary_result = audit_gym_stair_area_boundaries(area_pieces)
     mission_result = audit_missions(
         by_role["mission_location"],
         by_role["mission_anchor"],
@@ -1298,6 +1381,7 @@ def main() -> None:
         },
         "same_priority_positive_volume_overlaps": 0,
         "school_stair_area_boundaries": stair_area_boundary_result,
+        "gym_stair_area_boundaries": gym_stair_area_boundary_result,
         "mission_references": mission_result["references"],
         "elevator": elevator_result,
         "broadcast": broadcast_result,

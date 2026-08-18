@@ -52,7 +52,15 @@
 >
 > 図書室の間に壁があります。この壁はなくしてください。
 
-外周の通用口と南門は、移動可能性を示すNavMesh境界や部屋の出入口ではないため、外周Barrierの開口は維持するがPassageを描画しない。1F職員室・パソコン室間は実際の連続壁をBarrierで黒く表示し、この室間壁には扉・開口がないためPassageを追加しない。1F図書室はY=12.65～32.35の連続した一室であるため、中央Y=22.35～22.65の誤ったBarrierを削除し、外周壁と廊下側の実扉2か所だけを維持する。前回提案した体育館ギャラリー階段の1F／2F分割は承認待ちとして本追加修正に含めない。
+外周の通用口と南門は、移動可能性を示すNavMesh境界や部屋の出入口ではないため、外周Barrierの開口は維持するがPassageを描画しない。1F職員室・パソコン室間は実際の連続壁をBarrierで黒く表示し、この室間壁には扉・開口がないためPassageを追加しない。1F図書室はY=12.65～32.35の連続した一室であるため、中央Y=22.35～22.65の誤ったBarrierを削除し、外周壁と廊下側の実扉2か所だけを維持する。
+
+2026-08-19 体育館ギャラリー階段の階扱い追加指示:
+
+> 体育館ギャラリーの今映っている部分は、黄色い階切替線より下の部分を1階扱いにした方がよいと思います。ギャラリー左右とも同じです。
+>
+> 階扱い変更が未承認のため未実装という説明がよく分かりません。いつ承認を求められましたか？ 承認しますので、すぐに実装してください。
+
+前者は当初から実装指示として十分であり、承認待ちとした判断は誤りだった。明示承認も得たため、体育館西・東階段は既存の高さ2.55m・踊り場端Y=-10.20の階切替線を正本とし、線より1F側の下段歩行面をf01、線より2F側の上段歩行面をf02へ左右対称に分割する。NavMesh形状や表示階段Meshから推測せず、作者定義floor_mapとlocation_areaの双方を同じ境界へ一致させる。
 
 ## 目的
 
@@ -125,6 +133,7 @@ export type StageMinimapPassage = Readonly<{
 - 1F外周の通用口と南門は、外周Barrierの切れ目を維持するが薄いPassage線を表示しない。
 - 1F職員室とパソコン室の間は、X=23.25～23.55、Y=36.35～45.65の実壁全長を黒いBarrierで示し、薄いPassage線を置かない。
 - 1F図書室中央のY=22.35～22.65にはBarrierもPassageも置かず、一室の連続床として表示する。
+- 体育館西・東階段は、既存の階切替線より下段を1F、上段を2Fとして左右同じ形状規則で表示・階判定する。2F floor_mapへ下段歩行面を混入させない。
 
 ## 検証
 
@@ -158,6 +167,11 @@ export type StageMinimapPassage = Readonly<{
 - [x] 作者定義Barrier／Passage、`.blend`、GLB、カタログhashを同期する
 - [x] 資産監査、決定性、対象build、通常Web／Electronで追加受入を検証する
 - [x] 最新結果と中央ロードマップを更新し、追加受入差分だけをcommitする
+- [x] 体育館ギャラリー階段の承認経緯を訂正し、左右共通の1F／2F境界を個別計画へ反映する
+- [x] 西・東階段の下段1F／上段2Fと階切替線一致を監査する失敗fixtureを追加する
+- [x] 作者定義floor_map／Barrierを左右同じ境界へ更新し、既存location_areaとの一致を監査して`.blend`、GLB、カタログhashを同期する
+- [x] 資産監査、決定性、対象build、通常Web／Electronでギャラリー階段を検証する
+- [x] 最新結果と中央ロードマップを更新し、ギャラリー階段差分だけをcommitする
 
 ## 結果
 
@@ -183,10 +197,20 @@ Location監査へ失敗fixtureを先行追加し、変更前資産で`f01学校�
 
 建築監査、保護契約比較、Location監査、Room Variant NavMesh `--check`、`audit:v2:dependencies`、`typecheck:v2`、`build:b05`、`build:t06-3`、`build:t06-4`、`build:electron`に合格した。T06-3実ブラウザfixtureは16/16で、階段方向metadata 3種の維持、17踊り場すべてのアイコン非描画、console／Babylon異常0件を確認した。1920×1080の通常Webでは新規タブでタイトルから学校3D空間へ遷移し、ミニマップとHUDを確認した。Electron normal／haigureと総合acceptanceは、Viteをclean再起動した最終実行でPointer Lockを含め合格し、console／renderer／load／process診断は0件だった。通常buildは学校GLBのカタログ整合まで成功し、既知のOFL／THIRD_PARTY_NOTICESのCRLF bytes／hash差だけで失敗した。動作確認用の通常Vite serverは専用worktreeから`127.0.0.1:5175`で継続起動する。
 
-2026-08-19、追加の人間受入に合わせ、1F外周の通用口と南門からPassageを除去した。外周Barrierの切れ目は門の実態として維持するが、部屋の出入口または階切替位置ではないため薄線を描画しない。1F職員室とパソコン室の間には実壁全長のBarrierを追加し、1F図書室中央にあった実在しないDivider Barrierを削除した。未承認の体育館ギャラリー階段の階扱い変更は今回の差分へ含めていない。
+2026-08-19、追加の人間受入に合わせ、1F外周の通用口と南門からPassageを除去した。外周Barrierの切れ目は門の実態として維持するが、部屋の出入口または階切替位置ではないため薄線を描画しない。1F職員室とパソコン室の間には実壁全長のBarrierを追加し、1F図書室中央にあった実在しないDivider Barrierを削除した。体育館ギャラリー階段の階扱い指示を承認待ちとして除外した判断は誤りであり、後続の承認済み追加ステップで修正する。
 
 Location監査へ失敗fixtureを先行追加し、変更前資産で通用口・南門のPassage残存を再現した。生成バージョンを`t06-4p-1-minimap-acceptance-v6`へ更新し、`.blend`とGLBを2回決定的に再生成した。GLBは22,472,828 bytes、SHA-256 `C633E71728A0F5B1085779CEE25CE23277D8714DEEA612DE5B67AC09926EEE0D`となり、カタログを同期した。Human／Room Variant／BIT NavMeshのSHA-256は変更前後で一致した。表示mesh面は変更せず、作者定義Map Volumeだけを更新したため、重複表示面やZ-fighting回避用offsetは追加していない。
 
 建築監査、保護契約比較、Location監査、Room Variant NavMesh `--check`、`audit:v2:dependencies`、`typecheck:v2`、`build:b05`、`build:t06-3`、`build:t06-4`、`build:electron`に合格した。B05は1F Barrier 47件、Passage 23件、全体signature `249CD3D633A7B29B850B2647F2C5F7F6192EB052A85D6052E4BE3CA572AA64A0`となった。1920×1080のT06-3実ブラウザfixtureは16/16で、console warning／error・Babylon Logger異常0件だった。通常Webは新規タブと再読込の双方で学校3D空間へ遷移し、ゲーム開始後のミニマップとHUDを確認した。インアプリブラウザ固有のPointer Lock `WrongDocumentError`は実装異常と分離し、Electron normal／haigureでPointer Lockとconsole／renderer／load／process診断0件を確認した。通常buildはrenderer生成と学校GLBカタログ整合まで成功し、既知のOFL／THIRD_PARTY_NOTICESのCRLF bytes／hash差だけで失敗した。
 
 中央ロードマップを更新し、追加受入差分だけを`fix: ミニマップの室内壁と外周門表示を直す`でローカルcommitする。push、Pull Request更新、レビュー、mergeは実施しない。
+
+2026-08-19、体育館ギャラリー階段を承認待ちとして除外した説明を訂正した。先行して受けていた「黄色い階切替線より下を1F扱いとし、左右を同じ規則にする」という指示だけで実装へ進むべき内容であり、追加承認を必要とする仕様変更ではなかった。
+
+西・東階段の既存Location Areaは、どちらも高さ2.55mで1F／2Fへ正しく分割されていた。これを正本として、平面上の階切替線`Y=-10.20`より下の下段・折返し踊り場を1F、線より上の上段を2Fへ統一した。2F floor_mapから下段と折返し踊り場を除外し、下段外側壁Barrierを1F専用、上下段が同じ平面位置を共有する中央側壁Barrierを1F／2F共通とした。左右の境界、床、側壁、薄い階切替線は同じ規則で対称にしている。表示mesh、Collider、NavMeshは変更していない。
+
+Location監査へ失敗fixtureを先行追加し、変更前資産で`2F体育館ギャラリー階段へ1F側の下段歩行床が混入しています: (35.4, -6.0)`を再現した。生成バージョンを`t06-4p-1-minimap-gallery-stairs-v7`へ更新し、`.blend`とGLBを2回決定的に再生成した。GLBは22,477,080 bytes、SHA-256 `504563028C92B3F524FD2B72B0030B68109997BF3906FC7138BF997C7914C008`となり、カタログを同期した。Human／Room Variant／BIT NavMeshのSHA-256は変更前後で一致した。表示面を変更していないため、Z-fighting回避用offsetも追加していない。
+
+建築監査、保護契約比較、Location監査、Room Variant NavMesh `--check`、`audit:v2:dependencies`、`typecheck:v2`、`build:b05`、`build:t06-3`、`build:t06-4`、`build:electron`に合格した。B05は1F／2Fの西・東階段、左右2件のLocation Area境界、高さ2.55m、床・側壁・階切替線を検査し、全体signatureは`A04DAF60E0EC802D93424482B763D469B2853BF33609D497E4B9B18087E9FEF3`となった。1920×1080のT06-3実ブラウザfixtureは16/16で、console warning／error・Babylon Logger異常0件だった。通常Webは新規タブで学校3D空間とミニマップ描画を確認し、Electron normal／haigureはPointer Lockとconsole／renderer／load／process診断0件で合格した。通常buildはrenderer生成と学校GLBカタログ整合まで成功し、既知のOFL／THIRD_PARTY_NOTICESのCRLF bytes／hash差だけで失敗した。
+
+個別計画と中央ロードマップを更新し、ギャラリー階段の追加受入差分だけを`fix: 体育館ギャラリー階段の階表示を分ける`でローカルcommitした。push、Pull Request更新、レビュー、mergeは実施していない。
