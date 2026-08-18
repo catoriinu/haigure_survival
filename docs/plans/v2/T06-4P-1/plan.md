@@ -1,6 +1,6 @@
 # HAIGURE SURVIVAL v2 T06-4P-1 ミニマップ・BIT表示 計画
 
-更新日: 2026-08-18
+更新日: 2026-08-19
 
 ## プロンプト
 
@@ -35,6 +35,14 @@
 > わかりました。では、この方針でお願いします。
 
 承認された統一規則は、薄線を「歩行可能床が、黒線で表す恒久的な壁・柵の開口を横断する位置」だけに描くことである。NavMesh境界、床Meshの継ぎ目、Area境界だけでは描かない。1F、2F、3Fの校舎・体育館側接続は、各階とも実壁または柵の固定開放出入口として薄線を残し、周囲の黒線と対応させる。
+
+2026-08-19 階段ミニマップ追加指示:
+
+> 階段の表現がちょっと微妙だなと思っています。階段の吹き抜け部分って黒く塗れませんか？ 階が切り替わる位置、ミニマップ上の階が切り替わる位置に薄い線を引くことはできませんか？ そうすると、今階段にアイコンを置いていますが、アイコンはいらなくなるのではないかと思っています。どうでしょう。屋上の階段から屋上に出てくる部分の小屋は、出入口がある構成や壁の黒い線が通っているのはよいと思いますが、4階にもその小屋の黒い線がありませんでしたか？ それは変だと思うのでやめてほしいです。北西階段だけではなく、南西階段と北東階段も全部同じことを言っているので、統一してください。
+>
+> YES
+
+承認された案1では、北西・北東・南西の学校内U字階段を、歩行面は階色、中央吹き抜けは黒、側壁・手すりは黒、Areaの階切替位置は薄線で表示する。階段アイコンは全廃し、階切替線は作者定義の踊り場・階段形状から明示生成してNavMeshから推測しない。体育館西・東階段も階切替線とアイコン撤去を統一するが、中央吹き抜けのない形状には黒領域を追加しない。屋上階段室の外壁・出入口は屋上だけに残し、4Fへ投影されていた屋上階段室南壁と屋上用出入口は削除する。
 
 ## 目的
 
@@ -101,6 +109,9 @@ export type StageMinimapPassage = Readonly<{
 - 体育館舞台仕切りと体育倉庫側壁は実壁位置へ黒線を持ち、舞台開口へ薄線を置かない。
 - 3F体育館屋上床は柵外へ赤くはみ出さない。
 - 階段は歩行床を階色、側壁・手すりを黒、階段口を薄線で示し、エレベーターはシャフトを黒、実扉だけを薄線で示す。
+- 北西・北東・南西の学校内U字階段は中央吹き抜けを黒で示し、すべての学校内階段と体育館階段は実際に表示階が切り替わる踊り場境界を薄線で示す。
+- 階段アイコンは描画せず、エレベーターアイコンは稼働・停止階情報を示すため維持する。
+- 4Fには4F階段・壁・吹き抜け・階切替線だけを表示し、屋上階段室の南壁と屋上出入口を投影しない。屋上には階段室外壁と実出入口を維持する。
 
 ## 検証
 
@@ -123,6 +134,12 @@ export type StageMinimapPassage = Readonly<{
 - [x] 作者定義floor／Barrier／Passageを実壁・柵・歩行床へ一致させ、生成正本、`.blend`、GLB、カタログhashを同期する
 - [x] 資産監査、決定性、対象fixture、typecheck、build、通常Web／Electronで受入項目を検証する
 - [x] 人間受入結果と中央ロードマップを更新し、受入修正差分だけをcommitする
+- [x] 階段ミニマップ案1の承認内容、対象範囲、作者定義規則を個別計画へ反映する
+- [x] 学校内3階段の吹き抜け、学校・体育館階段の階切替線、階段アイコン撤去、4F屋上階段室誤投影の失敗fixtureを追加する
+- [x] 作者定義Barrier／PassageとミニマップRuntimeを案1へ更新する
+- [x] `.blend`／GLBを決定的に再生成し、資産契約とNavMesh不変を監査する
+- [x] scoped fixture、typecheck、build、通常Web／Electronで階段表示を検証する
+- [x] 最新結果と中央ロードマップを更新し、階段受入差分だけをcommitする
 
 ## 結果
 
@@ -141,3 +158,9 @@ T05は320/320、T06-3は16/16、T06-4は36/36でPASSした。`audit:v2:dependenc
 建築監査、保護契約比較、Location監査、Room Variant NavMesh `--check`に合格し、Human／Room Variant／BIT NavMesh hashは開始時から不変だった。`audit:v2:dependencies`、`typecheck:v2`、`build:b05`、`build:t06-3`、`build:t06-4`、`build:electron`はPASSし、T06-3実ブラウザfixtureは16/16、console／Babylon異常0件だった。通常Webは1920×1080の新規Chromeタブでタイトルから学校3D空間へ遷移し、ミニマップとHUD描画を確認した。Electron normal／haigureはPointer Lock、Mission配線、console／renderer／load診断0件でPASSした。通常buildは学校GLBのカタログ整合まで成功し、既知のOFL／THIRD_PARTY_NOTICESのCRLF bytes／hash差だけで失敗した。Chrome自動操作のPointer Lock `WrongDocumentError`と、今回変更していない旧`rampValidation=gym`のNavigation Area Portal例外は実装受入から分離した。
 
 人間受入結果と中央ロードマップを更新し、受入修正差分だけを`fix: ミニマップ意味資産を実態に合わせる`でローカルcommitした。push、Pull Request更新、レビュー、mergeは実施していない。
+
+2026-08-19、承認された階段ミニマップ案1を、北西・北東・南西の学校内U字階段へ統一適用した。歩行床は階色のままとし、中央吹き抜けを作者定義Barrierで黒く表示し、実際に表示階が切り替わる踊り場境界へ作者定義Passageの薄線を置いた。体育館西・東階段も同じ階切替線規則を1F・2Fへ適用したが、構造上存在しない中央吹き抜けは追加していない。階段アイコンは全階で廃止し、方向metadataはregistryに維持した。4Fからは屋上階段室の南壁と屋上出入口の誤投影を除き、屋上には階段室外壁と実出入口を維持した。
+
+Location監査へ失敗fixtureを先行追加し、変更前資産で`f01学校内3階段の中央吹き抜けBarrierが揃っていません`を再現した。生成バージョンを`t06-4p-1-minimap-stairs-v5`へ更新し、`.blend`とGLBを2回決定的に再生成した。GLBは22,473,548 bytes、SHA-256 `ECEB105E57A58BCF9550C91FE0649DD32FF751B908D0B591B7EC094AE1551F4E`となり、カタログを同期した。Human／Room Variant／BIT NavMeshのSHA-256は変更前後で一致した。表示mesh面は変更せず、作者定義Map Volumeだけを更新したため、重複描画面やZ-fighting回避用offsetは追加していない。
+
+建築監査、保護契約比較、Location監査、Room Variant NavMesh `--check`、`audit:v2:dependencies`、`typecheck:v2`、`build:b05`、`build:t06-3`、`build:t06-4`、`build:electron`に合格した。T06-3実ブラウザfixtureは16/16で、階段方向metadata 3種の維持、17踊り場すべてのアイコン非描画、console／Babylon異常0件を確認した。1920×1080の通常Webでは新規タブでタイトルから学校3D空間へ遷移し、ミニマップとHUDを確認した。Electron normal／haigureと総合acceptanceは、Viteをclean再起動した最終実行でPointer Lockを含め合格し、console／renderer／load／process診断は0件だった。通常buildは学校GLBのカタログ整合まで成功し、既知のOFL／THIRD_PARTY_NOTICESのCRLF bytes／hash差だけで失敗した。動作確認用の通常Vite serverは専用worktreeから`127.0.0.1:5175`で継続起動する。

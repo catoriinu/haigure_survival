@@ -25,8 +25,7 @@ import {
   StageLocationAreaAmbiguityError,
   STAGE_LOCATION_FLOOR_IDS,
   type StageLocationAssetRegistry,
-  type StageLocationFloorId,
-  type StageStairLandingDirection
+  type StageLocationFloorId
 } from "../../../src/world/stageLocationAssets";
 import type { StageSpatialContext } from "../../../src/world/stageSpatialContext";
 import type { StageSpatialQueries } from "../../../src/world/stageSpatialQueries";
@@ -772,37 +771,31 @@ export const runV2MinimapTests = ({
     )
   );
 
-  const stairDirections = new Set<StageStairLandingDirection>();
-  let stairMarkersResolved = 0;
+  const stairDirections = new Set(
+    locationAssets.stairLandings.map((landing) => landing.direction)
+  );
+  let framesWithoutStairMarkers = 0;
   for (const landing of locationAssets.stairLandings) {
-    if (stairDirections.has(landing.direction)) {
-      continue;
-    }
-    stairDirections.add(landing.direction);
     const position = getNodePosition(landing.node);
     const frame = controller.update(
       createUpdate(
         camera,
         position,
         north,
-        3 + stairDirections.size * 0.2,
+        3 + framesWithoutStairMarkers * 0.2,
         elevatorSnapshots
       )
     );
-    if (
-      frame?.stairMarkers.some(
-        (marker) =>
-          marker.id === landing.id && marker.direction === landing.direction
-      )
-    ) {
-      stairMarkersResolved += 1;
+    if (frame !== null && !("stairMarkers" in frame)) {
+      framesWithoutStairMarkers += 1;
     }
   }
   checks.push(
     createT063Check(
-      "階段の上り・下り・双方向",
-      stairDirections.size === 3 && stairMarkersResolved === 3,
-      `directions=${[...stairDirections].join(",")} / markers=${stairMarkersResolved}`
+      "階段方向metadataを維持してアイコンを描画しない",
+      stairDirections.size === 3 &&
+        framesWithoutStairMarkers === locationAssets.stairLandings.length,
+      `directions=${[...stairDirections].join(",")} / markerless=${framesWithoutStairMarkers}/${locationAssets.stairLandings.length}`
     )
   );
 

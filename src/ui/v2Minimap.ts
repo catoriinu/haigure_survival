@@ -13,8 +13,7 @@ import {
   type StageFloorMap,
   type StageLocationAreaHit,
   type StageLocationAssetRegistry,
-  type StageLocationFloorId,
-  type StageStairLandingDirection
+  type StageLocationFloorId
 } from "../world/stageLocationAssets";
 import type { StageSpatialQueries } from "../world/stageSpatialQueries";
 import { BLENDER_METERS_TO_WORLD_UNITS } from "../world/worldUnits";
@@ -64,7 +63,6 @@ const FOLLOWER_COLOR = "#66e8ff";
 const MISSION_COLOR = "#ff68d4";
 const ELEVATOR_AVAILABLE_COLOR = "#7fe38d";
 const ELEVATOR_UNAVAILABLE_COLOR = "#666666";
-const STAIR_COLOR = "#f5f5f5";
 
 export type V2MinimapActorMarkerKind =
   | "npc"
@@ -80,12 +78,6 @@ export type V2MinimapActorMarker = Readonly<{
 
 export type V2MinimapMissionLocationMarker = Readonly<{
   id: string;
-  position: Vector3;
-}>;
-
-export type V2MinimapStairMarker = Readonly<{
-  id: string;
-  direction: StageStairLandingDirection;
   position: Vector3;
 }>;
 
@@ -105,7 +97,6 @@ export type V2MinimapFrame = Readonly<{
   forward: Vector3;
   actorMarkers: readonly V2MinimapActorMarker[];
   missionLocationMarkers: readonly V2MinimapMissionLocationMarker[];
-  stairMarkers: readonly V2MinimapStairMarker[];
   elevatorMarkers: readonly V2MinimapElevatorMarker[];
 }>;
 
@@ -447,7 +438,6 @@ const freezeFrame = (frame: V2MinimapFrame): V2MinimapFrame =>
     forward: frame.forward.clone(),
     actorMarkers: Object.freeze(frame.actorMarkers),
     missionLocationMarkers: Object.freeze(frame.missionLocationMarkers),
-    stairMarkers: Object.freeze(frame.stairMarkers),
     elevatorMarkers: Object.freeze(frame.elevatorMarkers)
   });
 
@@ -503,34 +493,6 @@ const drawDiamondMarker = (
   context.lineWidth = 1.5;
   context.strokeStyle = "#111111";
   context.stroke();
-};
-
-const drawStairMarker = (
-  context: CanvasRenderingContext2D,
-  marker: V2MinimapStairMarker,
-  playerPosition: Vector3,
-  forward: Vector3
-): void => {
-  const point = projectV2MinimapPoint(marker.position, playerPosition, forward);
-  context.save();
-  context.translate(point.x, point.y);
-  context.strokeStyle = STAIR_COLOR;
-  context.fillStyle = MAP_BACKGROUND_COLOR;
-  context.lineWidth = 1.5;
-  context.strokeRect(-5, -5, 10, 10);
-  context.beginPath();
-  if (marker.direction === "up" || marker.direction === "both") {
-    context.moveTo(-2, 2);
-    context.lineTo(0, -2);
-    context.lineTo(2, 2);
-  }
-  if (marker.direction === "down" || marker.direction === "both") {
-    context.moveTo(-2, -2);
-    context.lineTo(0, 2);
-    context.lineTo(2, -2);
-  }
-  context.stroke();
-  context.restore();
 };
 
 const drawElevatorMarker = (
@@ -616,9 +578,6 @@ const renderFrame = (
   context.fillStyle = "rgba(255, 255, 255, 0.14)";
   context.fill();
 
-  for (const marker of frame.stairMarkers) {
-    drawStairMarker(context, marker, frame.playerPosition, frame.forward);
-  }
   for (const marker of frame.elevatorMarkers) {
     drawElevatorMarker(context, marker, frame.playerPosition, frame.forward);
   }
@@ -938,29 +897,6 @@ export const createV2MinimapController = ({
           .sort((left, right) => left.id.localeCompare(right.id))
       );
 
-      const stairMarkers = Object.freeze(
-        locationAssets.stairLandings
-          .filter((landing) => landing.floorId === floorId)
-          .map((landing): V2MinimapStairMarker | null => {
-            landing.node.computeWorldMatrix(true);
-            const position = landing.node.getAbsolutePosition().clone();
-            return horizontalDistanceSquared(
-              position,
-              update.playerFootPosition
-            ) <= rangeSquared
-              ? Object.freeze({
-                  id: landing.id,
-                  direction: landing.direction,
-                  position
-                })
-              : null;
-          })
-          .filter(
-            (marker): marker is V2MinimapStairMarker => marker !== null
-          )
-          .sort((left, right) => left.id.localeCompare(right.id))
-      );
-
       const elevatorMarkers = Object.freeze(
         locationAssets.elevatorLandings
           .filter((landing) => landing.floorId === floorId)
@@ -998,7 +934,6 @@ export const createV2MinimapController = ({
         forward,
         actorMarkers,
         missionLocationMarkers,
-        stairMarkers,
         elevatorMarkers
       });
       canvas.style.display = "block";

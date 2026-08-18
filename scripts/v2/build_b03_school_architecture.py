@@ -84,7 +84,7 @@ BIT_FLIGHT_BLOCKER_HALF_HEIGHT_METERS = (
 BIT_FLIGHT_PROJECTION_DISTANCE_METERS = 3.0
 BIT_FLIGHT_NAV_PROFILE = "bit-flight-body-0.44-margin-0.10-v1"
 HUMAN_NAV_PROFILE = "school-humanoid-room-variants-v2"
-GENERATOR_VERSION = "t06-4p-1-minimap-acceptance-v4"
+GENERATOR_VERSION = "t06-4p-1-minimap-stairs-v5"
 GENERATOR_VERSION_PROPERTY = "b03_architecture_generator_version"
 GENERATOR_SIGNATURE_PROPERTY = "b03_architecture_generator_signature"
 T04_CORRECTION_VERSION_PROPERTY = "t04_2b_nav_connectivity_version"
@@ -572,6 +572,20 @@ B06_GYM_GALLERY_BARRIER_BOXES_XY = (
     ((57.89, -10.2), (58.19, -2.0)),
     ((56.61, -11.3), (56.91, -3.8)),
 )
+B06_SCHOOL_STAIR_VOID_BARRIER_BOXES_XY = {
+    "nw": ((-10.2, 38.9), (-9.0, 43.1)),
+    "ne": ((43.8, 38.9), (45.0, 43.1)),
+    "sw": ((-10.2, -1.1), (-6.0, 0.1)),
+}
+B06_SCHOOL_STAIR_SWITCH_PASSAGE_BOXES_XY = {
+    "nw": ((-12.6, 42.95), (-10.2, 43.25)),
+    "ne": ((41.4, 42.95), (43.8, 43.25)),
+    "sw": ((-10.35, -3.5), (-10.05, -1.1)),
+}
+B06_GYM_STAIR_SWITCH_PASSAGE_BOXES_XY = (
+    ((34.8, -10.35), (36.0, -10.05)),
+    ((56.8, -10.35), (58.0, -10.05)),
+)
 
 
 # B06-4のミニマップ形状は、表示Object、Collider、NAV_*から探索せず、
@@ -582,6 +596,7 @@ B06_MAP_BARRIER_BOXES_XY_BY_FLOOR = {
         *B06_ELEVATOR_BARRIER_BOXES_XY,
         *B06_NORTH_WING_BARRIER_BOXES_XY,
         *B06_TOILET_BARRIER_BOXES_XY,
+        *B06_SCHOOL_STAIR_VOID_BARRIER_BOXES_XY.values(),
         # 敷地外周は表示塀の作者定義区間を共用する。正門と通用門には
         # Barrierを敷かず、実際の開口区間をPassage側で所有する。
         *perimeter_wall_map_boxes_xy(),
@@ -614,6 +629,7 @@ B06_MAP_BARRIER_BOXES_XY_BY_FLOOR = {
         *B06_ELEVATOR_BARRIER_BOXES_XY,
         *B06_NORTH_WING_BARRIER_BOXES_XY,
         *B06_TOILET_BARRIER_BOXES_XY,
+        *B06_SCHOOL_STAIR_VOID_BARRIER_BOXES_XY.values(),
         ((-12.75, -7.15), (0.15, -6.85)),
         ((-12.75, 45.35), (47.55, 45.65)),
         ((-12.75, -7.15), (-12.45, 45.65)),
@@ -638,6 +654,7 @@ B06_MAP_BARRIER_BOXES_XY_BY_FLOOR = {
         *B06_ELEVATOR_BARRIER_BOXES_XY,
         *B06_NORTH_WING_BARRIER_BOXES_XY,
         *B06_TOILET_BARRIER_BOXES_XY,
+        *B06_SCHOOL_STAIR_VOID_BARRIER_BOXES_XY.values(),
         ((-12.75, -7.15), (0.15, -6.85)),
         ((-12.75, 45.35), (47.55, 45.65)),
         ((-12.75, -7.15), (-12.45, 45.65)),
@@ -664,6 +681,7 @@ B06_MAP_BARRIER_BOXES_XY_BY_FLOOR = {
         *B06_ELEVATOR_BARRIER_BOXES_XY,
         *B06_NORTH_WING_BARRIER_BOXES_XY,
         *B06_TOILET_BARRIER_BOXES_XY,
+        *B06_SCHOOL_STAIR_VOID_BARRIER_BOXES_XY.values(),
         ((-12.75, -7.15), (0.15, -6.85)),
         ((-12.75, 45.35), (47.55, 45.65)),
         ((-12.75, -7.15), (-12.45, 45.65)),
@@ -678,11 +696,9 @@ B06_MAP_BARRIER_BOXES_XY_BY_FLOOR = {
         ((5.25, 36.35), (5.55, 45.65)),
         ((23.25, 36.35), (23.55, 45.65)),
         ((41.25, 36.35), (41.55, 45.65)),
-        # 北西屋上階段室の恒久外壁。
-        ((-12.75, 38.35), (-9.0, 38.65)),
-        ((-6.75, 38.35), (-6.45, 45.65)),
     ),
     "roof": (
+        B06_SCHOOL_STAIR_VOID_BARRIER_BOXES_XY["nw"],
         # 校舎屋上固有の外周柵。
         ((-0.25, -7.05), (0.05, 32.75)),
         ((-0.25, 32.45), (47.45, 32.75)),
@@ -721,6 +737,8 @@ B06_MAP_PASSAGE_BOXES_XY_BY_FLOOR = {
             for minimum, maximum in NORTH_CLASSROOM_DOOR_OPENINGS
         ),
         *B06_TOILET_PASSAGE_BOXES_XY,
+        *B06_SCHOOL_STAIR_SWITCH_PASSAGE_BOXES_XY.values(),
+        *B06_GYM_STAIR_SWITCH_PASSAGE_BOXES_XY,
         # 体育館西・北出入口と校舎接続口。
         ((33.0, 5.0), (33.8, 8.0)),
         ((53.65, 26.1), (55.15, 26.9)),
@@ -737,6 +755,8 @@ B06_MAP_PASSAGE_BOXES_XY_BY_FLOOR = {
         ),
         *B06_TOILET_PASSAGE_BOXES_XY,
         *B06_GYM_CONNECTION_PASSAGE_BOXES_XY,
+        *B06_SCHOOL_STAIR_SWITCH_PASSAGE_BOXES_XY.values(),
+        *B06_GYM_STAIR_SWITCH_PASSAGE_BOXES_XY,
     ),
     "f03": (
         *B06_ELEVATOR_PASSAGE_BOXES_XY,
@@ -749,6 +769,7 @@ B06_MAP_PASSAGE_BOXES_XY_BY_FLOOR = {
             for minimum, maximum in NORTH_CLASSROOM_DOOR_OPENINGS
         ),
         *B06_TOILET_PASSAGE_BOXES_XY,
+        *B06_SCHOOL_STAIR_SWITCH_PASSAGE_BOXES_XY.values(),
         # 体育館屋上Ramp接続。
         *B06_GYM_CONNECTION_PASSAGE_BOXES_XY,
     ),
@@ -763,9 +784,10 @@ B06_MAP_PASSAGE_BOXES_XY_BY_FLOOR = {
             for minimum, maximum in NORTH_CLASSROOM_DOOR_OPENINGS
         ),
         *B06_TOILET_PASSAGE_BOXES_XY,
-        ((-9.0, 38.1), (-6.75, 39.0)),
+        *B06_SCHOOL_STAIR_SWITCH_PASSAGE_BOXES_XY.values(),
     ),
     "roof": (
+        B06_SCHOOL_STAIR_SWITCH_PASSAGE_BOXES_XY["nw"],
         # 屋上階段室・男女更衣室の出入口。
         ((-9.0, 38.1), (-6.75, 39.0)),
         ((-5.4, 38.1), (-4.2, 39.0)),

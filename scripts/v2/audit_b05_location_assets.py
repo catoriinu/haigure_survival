@@ -151,6 +151,20 @@ F01_GATE_PASSAGE_BOUNDS_XY = (
     ((19.4, -14.7), (25.4, -14.3)),
     ((63.2, 44.5), (63.6, 50.5)),
 )
+SCHOOL_STAIR_VOID_BOUNDS_XY = {
+    "nw": ((-10.2, 38.9), (-9.0, 43.1)),
+    "ne": ((43.8, 38.9), (45.0, 43.1)),
+    "sw": ((-10.2, -1.1), (-6.0, 0.1)),
+}
+SCHOOL_STAIR_SWITCH_BOUNDS_XY = {
+    "nw": ((-12.6, 42.95), (-10.2, 43.25)),
+    "ne": ((41.4, 42.95), (43.8, 43.25)),
+    "sw": ((-10.35, -3.5), (-10.05, -1.1)),
+}
+GYM_STAIR_SWITCH_BOUNDS_XY = {
+    "west": ((34.8, -10.35), (36.0, -10.05)),
+    "east": ((56.8, -10.35), (58.0, -10.05)),
+}
 
 
 @dataclass(frozen=True)
@@ -417,6 +431,16 @@ def covers_xy(bounds: list[Bounds], point: tuple[float, float]) -> bool:
     )
 
 
+def xy_bounds_set(bounds: list[Bounds]) -> set[tuple[tuple[float, float], tuple[float, float]]]:
+    return {
+        (
+            (round(candidate.minimum[0], 5), round(candidate.minimum[1], 5)),
+            (round(candidate.maximum[0], 5), round(candidate.maximum[1], 5)),
+        )
+        for candidate in bounds
+    }
+
+
 def require_global_object(reference_id: str, role: str) -> bpy.types.Object:
     matches = [obj for obj in bpy.data.objects if obj.get("hs_id") == reference_id]
     require(
@@ -678,6 +702,52 @@ def audit_minimap_layers(
                 covers_xy(passage_bounds, point),
                 f"{floor_id}体育館接続の固定開放出入口Passageがありません: {point}",
             )
+
+    for floor_id in ("f01", "f02", "f03", "f04"):
+        barrier_bounds_xy = xy_bounds_set(bounds_by_layer[("map_barrier", floor_id)])
+        passage_bounds_xy = xy_bounds_set(bounds_by_layer[("map_passage", floor_id)])
+        require(
+            set(SCHOOL_STAIR_VOID_BOUNDS_XY.values()) <= barrier_bounds_xy,
+            f"{floor_id}学校内3階段の中央吹き抜けBarrierが揃っていません",
+        )
+        require(
+            set(SCHOOL_STAIR_SWITCH_BOUNDS_XY.values()) <= passage_bounds_xy,
+            f"{floor_id}学校内3階段の階切替Passageが揃っていません",
+        )
+
+    roof_barrier_bounds_xy = xy_bounds_set(bounds_by_layer[("map_barrier", "roof")])
+    roof_passage_bounds_xy = xy_bounds_set(bounds_by_layer[("map_passage", "roof")])
+    require(
+        SCHOOL_STAIR_VOID_BOUNDS_XY["nw"] in roof_barrier_bounds_xy,
+        "屋上の北西階段中央吹き抜けBarrierがありません",
+    )
+    require(
+        SCHOOL_STAIR_SWITCH_BOUNDS_XY["nw"] in roof_passage_bounds_xy,
+        "屋上の北西階段階切替Passageがありません",
+    )
+
+    for floor_id in ("f01", "f02"):
+        passage_bounds_xy = xy_bounds_set(bounds_by_layer[("map_passage", floor_id)])
+        require(
+            set(GYM_STAIR_SWITCH_BOUNDS_XY.values()) <= passage_bounds_xy,
+            f"{floor_id}体育館西・東階段の階切替Passageが揃っていません",
+        )
+
+    fourth_floor_barriers = bounds_by_layer[("map_barrier", "f04")]
+    fourth_floor_passages = bounds_by_layer[("map_passage", "f04")]
+    require(
+        not covers_xy(fourth_floor_barriers, (-10.8, 38.5)),
+        "4Fへ屋上階段室の南壁Barrierが投影されています",
+    )
+    require(
+        not covers_xy(fourth_floor_passages, (-8.0, 38.5)),
+        "4Fへ屋上階段室の出入口Passageが投影されています",
+    )
+    require(
+        covers_xy(bounds_by_layer[("map_barrier", "roof")], (-10.8, 38.5))
+        and covers_xy(bounds_by_layer[("map_passage", "roof")], (-8.0, 38.5)),
+        "屋上の階段室外壁または実出入口が欠落しています",
+    )
     return result
 
 
