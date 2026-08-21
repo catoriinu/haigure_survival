@@ -13,11 +13,9 @@ import {
   type StageFloorMap,
   type StageLocationAreaHit,
   type StageLocationAssetRegistry,
-  type StageLocationFloorId,
-  type StageStairLandingDirection
+  type StageLocationFloorId
 } from "../world/stageLocationAssets";
 import type { StageSpatialQueries } from "../world/stageSpatialQueries";
-import type { StageHumanNavigationSource } from "../world/stageSpatialContext";
 import { BLENDER_METERS_TO_WORLD_UNITS } from "../world/worldUnits";
 import type { V2MinimapActorSnapshot } from "../v2/survivalRuntime";
 
@@ -50,6 +48,7 @@ const HORIZONTAL_EPSILON = 1.0e-8;
 
 const MAP_BACKGROUND_COLOR = "#1b1b1b";
 const MAP_BLOCKED_COLOR = "#050505";
+export const V2_MINIMAP_PASSAGE_COLOR = "#f4e6ad";
 export const V2_MINIMAP_FLOOR_COLORS = Object.freeze({
   f01: "#d5b83f",
   f02: "#4fa968",
@@ -64,7 +63,6 @@ const FOLLOWER_COLOR = "#66e8ff";
 const MISSION_COLOR = "#ff68d4";
 const ELEVATOR_AVAILABLE_COLOR = "#7fe38d";
 const ELEVATOR_UNAVAILABLE_COLOR = "#666666";
-const STAIR_COLOR = "#f5f5f5";
 
 export type V2MinimapActorMarkerKind =
   | "npc"
@@ -80,12 +78,6 @@ export type V2MinimapActorMarker = Readonly<{
 
 export type V2MinimapMissionLocationMarker = Readonly<{
   id: string;
-  position: Vector3;
-}>;
-
-export type V2MinimapStairMarker = Readonly<{
-  id: string;
-  direction: StageStairLandingDirection;
   position: Vector3;
 }>;
 
@@ -105,7 +97,6 @@ export type V2MinimapFrame = Readonly<{
   forward: Vector3;
   actorMarkers: readonly V2MinimapActorMarker[];
   missionLocationMarkers: readonly V2MinimapMissionLocationMarker[];
-  stairMarkers: readonly V2MinimapStairMarker[];
   elevatorMarkers: readonly V2MinimapElevatorMarker[];
 }>;
 
@@ -135,7 +126,6 @@ export type V2MinimapControllerOptions = Readonly<{
   readout: HTMLElement;
   camera: Camera;
   locationAssets: StageLocationAssetRegistry;
-  structuralBlockers: readonly Mesh[];
   queries: StageSpatialQueries;
 }>;
 
@@ -150,7 +140,8 @@ export interface V2MinimapController {
 type FloorMapPath = Readonly<{
   floorId: StageLocationFloorId;
   mapPath: Path2D;
-  structuralBlockerPath: Path2D;
+  barrierPath: Path2D;
+  passagePath: Path2D;
 }>;
 
 type ResolvedActor = Readonly<{
@@ -261,24 +252,15 @@ const requireCanvasContext = (
   return context;
 };
 
-export const selectV2MinimapStructuralBlockers = (
-  navigationSources: readonly StageHumanNavigationSource[]
-): readonly Mesh[] =>
-  Object.freeze(
-    navigationSources
-      .filter((source) => source.role !== "walkable")
-      .map((source) => source.mesh)
-  );
-
 const appendProjectedMeshGeometry = (path: Path2D, mesh: Mesh): void => {
   const positions = mesh.getVerticesData(VertexBuffer.PositionKind);
   const indices = mesh.getIndices();
   if (!positions || positions.length === 0 || !indices || indices.length === 0) {
-    throw new Error(`構造コライダーのgeometryがありません: ${mesh.name}`);
+    throw new Error(`ミニマップ資産のgeometryがありません: ${mesh.name}`);
   }
   if (indices.length % 3 !== 0) {
     throw new Error(
-      `構造コライダーのindex数が三角形単位ではありません: ${mesh.name}`
+      `ミニマップ資産のindex数が三角形単位ではありません: ${mesh.name}`
     );
   }
   const world = mesh.computeWorldMatrix(true);
@@ -288,6 +270,16 @@ const appendProjectedMeshGeometry = (path: Path2D, mesh: Mesh): void => {
       Vector3.TransformCoordinates(Vector3.FromArray(positions, index), world)
     );
   }
+  const projectedTriangles: Array<
+    Readonly<{
+      first: Vector3;
+      second: Vector3;
+      third: Vector3;
+      projectedArea: number;
+    }>
+  > = [];
+  let positiveProjectedArea = 0;
+  let negativeProjectedArea = 0;
   for (let index = 0; index < indices.length; index += 3) {
     const first = worldPositions[indices[index]];
     const second = worldPositions[indices[index + 1]];
@@ -295,9 +287,28 @@ const appendProjectedMeshGeometry = (path: Path2D, mesh: Mesh): void => {
     const projectedArea =
       (second.x - first.x) * (third.z - first.z) -
       (second.z - first.z) * (third.x - first.x);
-    if (projectedArea >= -HORIZONTAL_EPSILON) {
+    if (Math.abs(projectedArea) <= HORIZONTAL_EPSILON) {
       continue;
     }
+    if (projectedArea > 0) {
+      positiveProjectedArea += projectedArea;
+    } else {
+      negativeProjectedArea -= projectedArea;
+    }
+    projectedTriangles.push(
+      Object.freeze({ first, second, third, projectedArea })
+    );
+  }
+  if (projectedTriangles.length === 0) {
+    throw new Error(`ミニマップ資産に水平投影面がありません: ${mesh.name}`);
+  }
+  const usePositiveWinding =
+    positiveProjectedArea > negativeProjectedArea;
+  for (const triangle of projectedTriangles) {
+    if ((triangle.projectedArea > 0) !== usePositiveWinding) {
+      continue;
+    }
+    const { first, second, third } = triangle;
     path.moveTo(first.x, first.z);
     path.lineTo(second.x, second.z);
     path.lineTo(third.x, third.z);
@@ -307,7 +318,7 @@ const appendProjectedMeshGeometry = (path: Path2D, mesh: Mesh): void => {
 
 const createFloorMapPath = (
   floorMap: StageFloorMap,
-  structuralBlockers: readonly Mesh[]
+  locationAssets: StageLocationAssetRegistry
 ): FloorMapPath => {
   const positions = floorMap.mesh.getVerticesData(VertexBuffer.PositionKind);
   const indices = floorMap.mesh.getIndices();
@@ -348,26 +359,19 @@ const createFloorMapPath = (
     mapPath.lineTo(third.x, third.z);
     mapPath.closePath();
   }
-  const structuralBlockerPath = new Path2D();
-  const floorSurfaceY =
-    floorMap.mesh.getBoundingInfo().boundingBox.maximumWorld.y;
-  const bodyHeightProbeY =
-    floorSurfaceY + 1 * BLENDER_METERS_TO_WORLD_UNITS;
-  for (const blocker of structuralBlockers) {
-    blocker.computeWorldMatrix(true);
-    const bounds = blocker.getBoundingInfo().boundingBox;
-    if (
-      bodyHeightProbeY < bounds.minimumWorld.y ||
-      bodyHeightProbeY > bounds.maximumWorld.y
-    ) {
-      continue;
-    }
-    appendProjectedMeshGeometry(structuralBlockerPath, blocker);
+  const barrierPath = new Path2D();
+  for (const barrier of locationAssets.getMinimapBarriers(floorMap.floorId)) {
+    appendProjectedMeshGeometry(barrierPath, barrier.mesh);
+  }
+  const passagePath = new Path2D();
+  for (const passage of locationAssets.getMinimapPassages(floorMap.floorId)) {
+    appendProjectedMeshGeometry(passagePath, passage.mesh);
   }
   return Object.freeze({
     floorId: floorMap.floorId,
     mapPath,
-    structuralBlockerPath
+    barrierPath,
+    passagePath
   });
 };
 
@@ -434,7 +438,6 @@ const freezeFrame = (frame: V2MinimapFrame): V2MinimapFrame =>
     forward: frame.forward.clone(),
     actorMarkers: Object.freeze(frame.actorMarkers),
     missionLocationMarkers: Object.freeze(frame.missionLocationMarkers),
-    stairMarkers: Object.freeze(frame.stairMarkers),
     elevatorMarkers: Object.freeze(frame.elevatorMarkers)
   });
 
@@ -490,34 +493,6 @@ const drawDiamondMarker = (
   context.lineWidth = 1.5;
   context.strokeStyle = "#111111";
   context.stroke();
-};
-
-const drawStairMarker = (
-  context: CanvasRenderingContext2D,
-  marker: V2MinimapStairMarker,
-  playerPosition: Vector3,
-  forward: Vector3
-): void => {
-  const point = projectV2MinimapPoint(marker.position, playerPosition, forward);
-  context.save();
-  context.translate(point.x, point.y);
-  context.strokeStyle = STAIR_COLOR;
-  context.fillStyle = MAP_BACKGROUND_COLOR;
-  context.lineWidth = 1.5;
-  context.strokeRect(-5, -5, 10, 10);
-  context.beginPath();
-  if (marker.direction === "up" || marker.direction === "both") {
-    context.moveTo(-2, 2);
-    context.lineTo(0, -2);
-    context.lineTo(2, 2);
-  }
-  if (marker.direction === "down" || marker.direction === "both") {
-    context.moveTo(-2, -2);
-    context.lineTo(0, 2);
-    context.lineTo(2, -2);
-  }
-  context.stroke();
-  context.restore();
 };
 
 const drawElevatorMarker = (
@@ -585,7 +560,9 @@ const renderFrame = (
   context.fill(floorPaths.mapPath);
   context.fillStyle = MAP_BLOCKED_COLOR;
   context.globalAlpha = 1;
-  context.fill(floorPaths.structuralBlockerPath);
+  context.fill(floorPaths.barrierPath);
+  context.fillStyle = V2_MINIMAP_PASSAGE_COLOR;
+  context.fill(floorPaths.passagePath);
   context.restore();
 
   context.beginPath();
@@ -601,9 +578,6 @@ const renderFrame = (
   context.fillStyle = "rgba(255, 255, 255, 0.14)";
   context.fill();
 
-  for (const marker of frame.stairMarkers) {
-    drawStairMarker(context, marker, frame.playerPosition, frame.forward);
-  }
   for (const marker of frame.elevatorMarkers) {
     drawElevatorMarker(context, marker, frame.playerPosition, frame.forward);
   }
@@ -680,13 +654,12 @@ export const createV2MinimapController = ({
   readout,
   camera,
   locationAssets,
-  structuralBlockers,
   queries
 }: V2MinimapControllerOptions): V2MinimapController => {
   const context = requireCanvasContext(canvas);
   const mapPaths = Object.freeze(
     locationAssets.floorMaps.map((floorMap) =>
-      createFloorMapPath(floorMap, structuralBlockers)
+      createFloorMapPath(floorMap, locationAssets)
     )
   );
   if (mapPaths.length !== 5) {
@@ -924,29 +897,6 @@ export const createV2MinimapController = ({
           .sort((left, right) => left.id.localeCompare(right.id))
       );
 
-      const stairMarkers = Object.freeze(
-        locationAssets.stairLandings
-          .filter((landing) => landing.floorId === floorId)
-          .map((landing): V2MinimapStairMarker | null => {
-            landing.node.computeWorldMatrix(true);
-            const position = landing.node.getAbsolutePosition().clone();
-            return horizontalDistanceSquared(
-              position,
-              update.playerFootPosition
-            ) <= rangeSquared
-              ? Object.freeze({
-                  id: landing.id,
-                  direction: landing.direction,
-                  position
-                })
-              : null;
-          })
-          .filter(
-            (marker): marker is V2MinimapStairMarker => marker !== null
-          )
-          .sort((left, right) => left.id.localeCompare(right.id))
-      );
-
       const elevatorMarkers = Object.freeze(
         locationAssets.elevatorLandings
           .filter((landing) => landing.floorId === floorId)
@@ -984,7 +934,6 @@ export const createV2MinimapController = ({
         forward,
         actorMarkers,
         missionLocationMarkers,
-        stairMarkers,
         elevatorMarkers
       });
       canvas.style.display = "block";

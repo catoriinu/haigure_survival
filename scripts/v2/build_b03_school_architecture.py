@@ -84,7 +84,7 @@ BIT_FLIGHT_BLOCKER_HALF_HEIGHT_METERS = (
 BIT_FLIGHT_PROJECTION_DISTANCE_METERS = 3.0
 BIT_FLIGHT_NAV_PROFILE = "bit-flight-body-0.44-margin-0.10-v1"
 HUMAN_NAV_PROFILE = "school-humanoid-room-variants-v2"
-GENERATOR_VERSION = "b06-4-minimap-location-assets-v3"
+GENERATOR_VERSION = "t06-4p-1-minimap-gallery-stairs-v7"
 GENERATOR_VERSION_PROPERTY = "b03_architecture_generator_version"
 GENERATOR_SIGNATURE_PROPERTY = "b03_architecture_generator_signature"
 T04_CORRECTION_VERSION_PROPERTY = "t04_2b_nav_connectivity_version"
@@ -127,7 +127,6 @@ PERIMETER_WALL_SPECS = (
     ("VIS_Perimeter_West", "Y", -14.5, 51.5, -18.8, -18.4),
 )
 PERIMETER_WALL_Z = (-0.3, 1.7)
-PERIMETER_WALL_THICKNESS = 0.4
 PERIMETER_BLOCK_WIDTH = 0.8
 PERIMETER_BLOCK_HEIGHT = 0.4
 PERIMETER_JOINT_WIDTH = 0.02
@@ -472,30 +471,119 @@ def perimeter_wall_map_boxes_xy() -> tuple[
     )
 
 
-def gate_passage_map_boxes_xy() -> tuple[
-    tuple[tuple[float, float], tuple[float, float]], ...
-]:
-    half_thickness = PERIMETER_WALL_THICKNESS / 2.0
-    return tuple(
+def horizontal_barrier_map_boxes_xy(
+    fixed_y: float,
+    minimum_x: float,
+    maximum_x: float,
+    openings: tuple[tuple[float, float], ...],
+) -> tuple[tuple[tuple[float, float], tuple[float, float]], ...]:
+    half_thickness = 0.15
+    cursor = minimum_x
+    result = []
+    for opening_minimum, opening_maximum in sorted(openings):
+        if cursor < opening_minimum:
+            result.append(
+                (
+                    (cursor, fixed_y - half_thickness),
+                    (opening_minimum, fixed_y + half_thickness),
+                )
+            )
+        cursor = opening_maximum
+    if cursor < maximum_x:
+        result.append(
+            (
+                (cursor, fixed_y - half_thickness),
+                (maximum_x, fixed_y + half_thickness),
+            )
+        )
+    return tuple(result)
+
+
+B06_NORTH_WING_BARRIER_BOXES_XY = horizontal_barrier_map_boxes_xy(
+    36.5,
+    -6.6,
+    41.4,
+    (TOILET_COMMON_OPENING, *NORTH_CLASSROOM_DOOR_OPENINGS),
+)
+B06_TOILET_BARRIER_BOXES_XY = (
+    *tuple(
         (
-            (primary_minimum, fixed - half_thickness),
-            (primary_maximum, fixed + half_thickness),
+            (minimum_x, TOILET_FRONT_WALL_Y - TOILET_FRONT_WALL_DEPTH / 2.0),
+            (maximum_x, TOILET_FRONT_WALL_Y + TOILET_FRONT_WALL_DEPTH / 2.0),
         )
-        if axis == "X"
-        else (
-            (fixed - half_thickness, primary_minimum),
-            (fixed + half_thickness, primary_maximum),
-        )
-        for _, axis, primary_minimum, primary_maximum, fixed in GATE_VISUAL_SPECS
-    )
+        for minimum_x, maximum_x in TOILET_FRONT_WALL_SPANS
+    ),
+    ((-6.75, 38.35), (-6.45, 45.65)),
+    ((-2.25, 38.35), (-1.95, 45.65)),
+    ((2.25, 38.35), (2.55, 45.65)),
+)
+B06_TOILET_PASSAGE_BOXES_XY = tuple(
+    ((minimum_x, 38.1), (maximum_x, 38.9))
+    for minimum_x, maximum_x in TOILET_FRONT_DOOR_OPENINGS
+)
+B06_ELEVATOR_BARRIER_BOXES_XY = (
+    ((-11.8, -6.85), (ELEVATOR_FRONT_X, -3.5)),
+)
+B06_ELEVATOR_PASSAGE_BOXES_XY = (
+    ((-9.1, ELEVATOR_OPENING_Y[0]), (-8.45, ELEVATOR_OPENING_Y[1])),
+)
+B06_GYM_CONNECTION_PASSAGE_BOXES_XY = (
+    ((39.1, 26.1), (43.7, 26.9)),
+    ((39.1, 32.1), (43.7, 32.9)),
+)
+B06_GYM_STAGE_BARRIER_BOXES_XY = (
+    ((33.4, -2.15), (36.8, -1.85)),
+    ((39.2, -2.15), (40.6, -1.85)),
+    ((52.2, -2.15), (53.6, -1.85)),
+    ((56.0, -2.15), (59.4, -1.85)),
+)
+B06_GYM_GALLERY_BARRIER_BOXES_XY = (
+    ((33.25, -11.65), (33.55, 26.65)),
+    ((59.25, -11.65), (59.55, 26.65)),
+    ((33.25, -11.65), (59.55, -11.35)),
+    ((33.25, 26.35), (39.4, 26.65)),
+    ((43.4, 26.35), (59.55, 26.65)),
+    ((34.69, -2.0), (34.99, 25.15)),
+    ((57.81, -2.0), (58.11, 25.15)),
+    ((34.84, 24.85), (35.8, 25.15)),
+    ((39.1, 24.85), (43.7, 25.15)),
+    ((47.0, 24.85), (57.96, 25.15)),
+)
+B06_GYM_STAIR_SHARED_BARRIER_BOXES_XY = (
+    ((34.61, -10.2), (34.91, -2.0)),
+    ((57.89, -10.2), (58.19, -2.0)),
+)
+B06_GYM_STAIR_F01_ONLY_BARRIER_BOXES_XY = (
+    ((35.89, -11.3), (36.19, -3.8)),
+    ((56.61, -11.3), (56.91, -3.8)),
+)
+B06_SCHOOL_STAIR_VOID_BARRIER_BOXES_XY = {
+    "nw": ((-10.2, 38.9), (-9.0, 43.1)),
+    "ne": ((43.8, 38.9), (45.0, 43.1)),
+    "sw": ((-10.2, -1.1), (-6.0, 0.1)),
+}
+B06_SCHOOL_STAIR_SWITCH_PASSAGE_BOXES_XY = {
+    "nw": ((-12.6, 42.95), (-10.2, 43.25)),
+    "ne": ((41.4, 42.95), (43.8, 43.25)),
+    "sw": ((-10.35, -3.5), (-10.05, -1.1)),
+}
+B06_GYM_STAIR_SWITCH_PASSAGE_BOXES_XY = (
+    ((34.8, -10.35), (36.0, -10.05)),
+    ((56.8, -10.35), (58.0, -10.05)),
+)
+
 
 # B06-4のミニマップ形状は、表示Object、Collider、NAV_*から探索せず、
 # この一覧を作者定義の正本として生成する。Barrierは恒久仕切りの平面占有、
 # Passageはその仕切りを横断できる開口を表す。家具・小物・動的扉パネルは含めない。
 B06_MAP_BARRIER_BOXES_XY_BY_FLOOR = {
     "f01": (
-        # 敷地外周は表示塀の作者定義区間を共用する。正門と通用門には
-        # Barrierを敷かず、実際の開口区間をPassage側で所有する。
+        *B06_ELEVATOR_BARRIER_BOXES_XY,
+        *B06_NORTH_WING_BARRIER_BOXES_XY,
+        *B06_TOILET_BARRIER_BOXES_XY,
+        *B06_SCHOOL_STAIR_VOID_BARRIER_BOXES_XY.values(),
+        # 敷地外周は表示塀の作者定義区間を共用する。南門と通用口は
+        # Barrierを敷かないが、部屋の出入口ではないためPassageにも含めない。
         *perimeter_wall_map_boxes_xy(),
         # 校舎外壁と中庭側外壁。
         ((-12.75, -7.15), (0.15, -6.85)),
@@ -508,20 +596,31 @@ B06_MAP_BARRIER_BOXES_XY_BY_FLOOR = {
         ((-3.65, 2.35), (-3.35, 32.65)),
         ((-12.75, 2.35), (-3.35, 2.65)),
         ((-12.75, 12.35), (-3.35, 12.65)),
-        ((-12.75, 22.35), (-3.35, 22.65)),
+        # 1F図書室はY=12.65～32.35の一室であり、中央仕切りを持たない。
         ((-12.75, 32.35), (-3.35, 32.65)),
-        ((-6.75, 36.35), (41.55, 36.65)),
-        ((-6.75, 38.35), (5.55, 38.65)),
         ((5.25, 36.35), (5.55, 45.65)),
+        # 職員室とパソコン室の間は開口のない連続壁。
+        ((23.25, 36.35), (23.55, 45.65)),
         ((41.25, 36.35), (41.55, 45.65)),
-        # 体育館外壁・倉庫北壁。
+        # 体育館外壁、舞台仕切り、体育倉庫壁。
         ((33.25, -11.65), (59.55, -11.35)),
         ((33.25, 26.35), (59.55, 26.65)),
         ((33.25, -11.65), (33.55, 26.65)),
         ((59.25, -11.65), (59.55, 26.65)),
         ((51.25, 30.35), (57.55, 30.65)),
+        ((51.25, 26.35), (51.55, 30.65)),
+        ((57.25, 26.35), (57.55, 30.65)),
+        *B06_GYM_STAGE_BARRIER_BOXES_XY,
+        # 体育館ギャラリー階段の下段側壁は1F、同じ平面位置を共有する
+        # 中央側壁は1F／2Fの双方へ描画する。
+        *B06_GYM_STAIR_SHARED_BARRIER_BOXES_XY,
+        *B06_GYM_STAIR_F01_ONLY_BARRIER_BOXES_XY,
     ),
     "f02": (
+        *B06_ELEVATOR_BARRIER_BOXES_XY,
+        *B06_NORTH_WING_BARRIER_BOXES_XY,
+        *B06_TOILET_BARRIER_BOXES_XY,
+        *B06_SCHOOL_STAIR_VOID_BARRIER_BOXES_XY.values(),
         ((-12.75, -7.15), (0.15, -6.85)),
         ((-12.75, 45.35), (47.55, 45.65)),
         ((-12.75, -7.15), (-12.45, 45.65)),
@@ -533,20 +632,21 @@ B06_MAP_BARRIER_BOXES_XY_BY_FLOOR = {
         ((-12.75, 12.35), (-3.35, 12.65)),
         ((-12.75, 22.35), (-3.35, 22.65)),
         ((-12.75, 32.35), (-3.35, 32.65)),
-        ((-6.75, 36.35), (41.55, 36.65)),
-        ((-6.75, 38.35), (5.55, 38.65)),
         ((5.25, 36.35), (5.55, 45.65)),
         ((14.25, 36.35), (14.55, 45.65)),
         ((23.25, 36.35), (23.55, 45.65)),
         ((41.25, 36.35), (41.55, 45.65)),
-        # 体育館ギャラリーの外縁柵と屋上Ramp接続部。
-        ((33.45, -11.5), (34.95, 26.65)),
-        ((57.85, -11.5), (59.35, 26.65)),
-        ((34.8, 24.85), (58.0, 26.65)),
+        # 体育館ギャラリーと上段階段の外壁・手すりだけを描く。
+        *B06_GYM_GALLERY_BARRIER_BOXES_XY,
+        *B06_GYM_STAIR_SHARED_BARRIER_BOXES_XY,
         ((39.25, 26.35), (39.55, 32.65)),
         ((43.25, 26.35), (43.55, 32.65)),
     ),
     "f03": (
+        *B06_ELEVATOR_BARRIER_BOXES_XY,
+        *B06_NORTH_WING_BARRIER_BOXES_XY,
+        *B06_TOILET_BARRIER_BOXES_XY,
+        *B06_SCHOOL_STAIR_VOID_BARRIER_BOXES_XY.values(),
         ((-12.75, -7.15), (0.15, -6.85)),
         ((-12.75, 45.35), (47.55, 45.65)),
         ((-12.75, -7.15), (-12.45, 45.65)),
@@ -558,8 +658,6 @@ B06_MAP_BARRIER_BOXES_XY_BY_FLOOR = {
         ((-12.75, 12.35), (-3.35, 12.65)),
         ((-12.75, 22.35), (-3.35, 22.65)),
         ((-12.75, 32.35), (-3.35, 32.65)),
-        ((-6.75, 36.35), (41.55, 36.65)),
-        ((-6.75, 38.35), (5.55, 38.65)),
         ((5.25, 36.35), (5.55, 45.65)),
         ((23.25, 36.35), (23.55, 45.65)),
         ((41.25, 36.35), (41.55, 45.65)),
@@ -572,6 +670,10 @@ B06_MAP_BARRIER_BOXES_XY_BY_FLOOR = {
         ((43.25, 26.35), (43.55, 32.65)),
     ),
     "f04": (
+        *B06_ELEVATOR_BARRIER_BOXES_XY,
+        *B06_NORTH_WING_BARRIER_BOXES_XY,
+        *B06_TOILET_BARRIER_BOXES_XY,
+        *B06_SCHOOL_STAIR_VOID_BARRIER_BOXES_XY.values(),
         ((-12.75, -7.15), (0.15, -6.85)),
         ((-12.75, 45.35), (47.55, 45.65)),
         ((-12.75, -7.15), (-12.45, 45.65)),
@@ -583,16 +685,12 @@ B06_MAP_BARRIER_BOXES_XY_BY_FLOOR = {
         ((-12.75, 12.35), (-3.35, 12.65)),
         ((-12.75, 22.35), (-3.35, 22.65)),
         ((-12.75, 32.35), (-3.35, 32.65)),
-        ((-6.75, 36.35), (41.55, 36.65)),
-        ((-6.75, 38.35), (5.55, 38.65)),
         ((5.25, 36.35), (5.55, 45.65)),
         ((23.25, 36.35), (23.55, 45.65)),
         ((41.25, 36.35), (41.55, 45.65)),
-        # 北西屋上階段室の恒久外壁。
-        ((-12.75, 38.35), (2.55, 38.65)),
-        ((-6.75, 38.35), (-6.45, 45.65)),
     ),
     "roof": (
+        B06_SCHOOL_STAIR_VOID_BARRIER_BOXES_XY["nw"],
         # 校舎屋上固有の外周柵。
         ((-0.25, -7.05), (0.05, 32.75)),
         ((-0.25, 32.45), (47.45, 32.75)),
@@ -614,13 +712,12 @@ B06_MAP_BARRIER_BOXES_XY_BY_FLOOR = {
 
 B06_MAP_PASSAGE_BOXES_XY_BY_FLOOR = {
     "f01": (
-        # 敷地正門・通用門は表示門と同じ作者定義開口を共用する。
-        *gate_passage_map_boxes_xy(),
         # 校舎出入口、各室扉、階段接続。
         ((2.4, 45.1), (5.4, 45.9)),
         ((0.0, 32.1), (5.4, 32.9)),
-        ((39.4, 32.1), (43.4, 32.9)),
+        *B06_GYM_CONNECTION_PASSAGE_BOXES_XY,
         ((-0.4, -2.5), (0.4, 2.5)),
+        *B06_ELEVATOR_PASSAGE_BOXES_XY,
         *tuple(
             ((-3.9, minimum), (-3.1, maximum))
             for minimum, maximum in FIRST_FLOOR_WEST_DOOR_OPENINGS
@@ -629,13 +726,15 @@ B06_MAP_PASSAGE_BOXES_XY_BY_FLOOR = {
             ((minimum, 36.1), (maximum, 36.9))
             for minimum, maximum in NORTH_CLASSROOM_DOOR_OPENINGS
         ),
-        ((TOILET_COMMON_OPENING[0], 36.1), (TOILET_COMMON_OPENING[1], 36.9)),
+        *B06_TOILET_PASSAGE_BOXES_XY,
+        *B06_SCHOOL_STAIR_SWITCH_PASSAGE_BOXES_XY.values(),
+        *B06_GYM_STAIR_SWITCH_PASSAGE_BOXES_XY,
         # 体育館西・北出入口と校舎接続口。
         ((33.0, 5.0), (33.8, 8.0)),
-        ((39.4, 26.1), (43.4, 26.9)),
         ((53.65, 26.1), (55.15, 26.9)),
     ),
     "f02": (
+        *B06_ELEVATOR_PASSAGE_BOXES_XY,
         *tuple(
             ((-3.9, minimum), (-3.1, maximum))
             for minimum, maximum in UPPER_WEST_CLASSROOM_DOOR_OPENINGS
@@ -644,11 +743,13 @@ B06_MAP_PASSAGE_BOXES_XY_BY_FLOOR = {
             ((minimum, 36.1), (maximum, 36.9))
             for minimum, maximum in NORTH_CLASSROOM_DOOR_OPENINGS
         ),
-        ((TOILET_COMMON_OPENING[0], 36.1), (TOILET_COMMON_OPENING[1], 36.9)),
-        ((39.1, 26.1), (43.7, 26.9)),
-        ((39.1, 32.1), (43.7, 32.9)),
+        *B06_TOILET_PASSAGE_BOXES_XY,
+        *B06_GYM_CONNECTION_PASSAGE_BOXES_XY,
+        *B06_SCHOOL_STAIR_SWITCH_PASSAGE_BOXES_XY.values(),
+        *B06_GYM_STAIR_SWITCH_PASSAGE_BOXES_XY,
     ),
     "f03": (
+        *B06_ELEVATOR_PASSAGE_BOXES_XY,
         *tuple(
             ((-3.9, minimum), (-3.1, maximum))
             for minimum, maximum in UPPER_WEST_CLASSROOM_DOOR_OPENINGS
@@ -657,12 +758,13 @@ B06_MAP_PASSAGE_BOXES_XY_BY_FLOOR = {
             ((minimum, 36.1), (maximum, 36.9))
             for minimum, maximum in NORTH_CLASSROOM_DOOR_OPENINGS
         ),
-        ((TOILET_COMMON_OPENING[0], 36.1), (TOILET_COMMON_OPENING[1], 36.9)),
+        *B06_TOILET_PASSAGE_BOXES_XY,
+        *B06_SCHOOL_STAIR_SWITCH_PASSAGE_BOXES_XY.values(),
         # 体育館屋上Ramp接続。
-        ((39.1, 26.1), (43.7, 26.9)),
-        ((39.1, 32.1), (43.7, 32.9)),
+        *B06_GYM_CONNECTION_PASSAGE_BOXES_XY,
     ),
     "f04": (
+        *B06_ELEVATOR_PASSAGE_BOXES_XY,
         *tuple(
             ((-3.9, minimum), (-3.1, maximum))
             for minimum, maximum in UPPER_WEST_CLASSROOM_DOOR_OPENINGS
@@ -671,10 +773,11 @@ B06_MAP_PASSAGE_BOXES_XY_BY_FLOOR = {
             ((minimum, 36.1), (maximum, 36.9))
             for minimum, maximum in NORTH_CLASSROOM_DOOR_OPENINGS
         ),
-        ((TOILET_COMMON_OPENING[0], 36.1), (TOILET_COMMON_OPENING[1], 36.9)),
-        ((-9.0, 38.1), (-6.75, 39.0)),
+        *B06_TOILET_PASSAGE_BOXES_XY,
+        *B06_SCHOOL_STAIR_SWITCH_PASSAGE_BOXES_XY.values(),
     ),
     "roof": (
+        B06_SCHOOL_STAIR_SWITCH_PASSAGE_BOXES_XY["nw"],
         # 屋上階段室・男女更衣室の出入口。
         ((-9.0, 38.1), (-6.75, 39.0)),
         ((-5.4, 38.1), (-4.2, 39.0)),
@@ -4211,8 +4314,10 @@ def build_b05_location_assets(
             ((-12.6, -7.0), (0.0, 45.5)),
             ((0.0, 32.5), (47.4, 45.5)),
             ((39.3, 26.6), (43.5, 32.65)),
-            ((33.6, -11.35), (36.6, -2.0)),
-            ((56.2, -11.35), (59.2, -2.0)),
+            # 体育館西・東階段はY=-10.20の階切替線より上段側だけを2Fとする。
+            # 下段と折返し踊り場は1F体育館床が所有する。
+            ((33.6, -10.2), (34.8, -2.0)),
+            ((58.0, -10.2), (59.2, -2.0)),
             ((33.6, -2.0), (34.8, 26.4)),
             ((58.0, -2.0), (59.2, 26.4)),
             ((34.8, 25.0), (58.0, 26.6)),
@@ -4220,7 +4325,7 @@ def build_b05_location_assets(
         "f03": (
             ((-12.6, -7.0), (0.0, 45.5)),
             ((0.0, 32.5), (47.4, 45.5)),
-            ((33.0, -11.7), (59.6, 26.5)),
+            ((33.4, -11.5), (59.4, 26.5)),
             ((39.4, 26.5), (43.4, 32.5)),
         ),
         "f04": (

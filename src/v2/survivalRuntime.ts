@@ -590,6 +590,7 @@ export const createV2SurvivalRuntime = ({
       spawnMaxAttempts: 512,
       spawnProjectionMaxDistance: 0.75,
       combatEnabled: true,
+      modeMuzzleColorEnabled: false,
       random,
       spawnRandom: bitSpawnRandom,
       playerSpawn,

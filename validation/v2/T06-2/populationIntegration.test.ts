@@ -95,6 +95,7 @@ const createBitSystem = (
     spawnMaxAttempts: input.spawnMaxAttempts ?? 512,
     spawnProjectionMaxDistance: 0.75,
     combatEnabled: input.combatEnabled,
+    modeMuzzleColorEnabled: false,
     random: input.random,
     spawnRandom: input.spawnRandom ?? createSeededRandom(0x0620_2b17),
     playerSpawn: fixture.selectedPlayerSpawn,

@@ -6170,6 +6170,7 @@ const runValidation = async () => {
           bitMovementBlocking.stage,
           {
             combatEnabled: false,
+            modeMuzzleColorEnabled: false,
             initialBitCount: 2,
             reinforcementIntervalSeconds: 10,
             maximumBitCount: 2,
@@ -6425,6 +6426,7 @@ const runValidation = async () => {
             bitFailureStage,
             {
               combatEnabled: false,
+              modeMuzzleColorEnabled: false,
               initialBitCount: 2,
               reinforcementIntervalSeconds: 10,
               maximumBitCount: 2,
@@ -6459,6 +6461,7 @@ const runValidation = async () => {
           schoolContext,
           {
             combatEnabled: false,
+            modeMuzzleColorEnabled: false,
             initialBitCount: 1,
             reinforcementIntervalSeconds: 10,
             maximumBitCount: 1,
@@ -6511,6 +6514,7 @@ const runValidation = async () => {
           schoolContext,
           {
             combatEnabled: false,
+            modeMuzzleColorEnabled: false,
             initialBitCount: 1,
             reinforcementIntervalSeconds: 10,
             maximumBitCount: 1,

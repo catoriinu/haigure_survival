@@ -1,4 +1,5 @@
 import {
+  Color4,
   InstancedMesh,
   Mesh,
   MeshBuilder,
@@ -29,8 +30,10 @@ import {
 import type { StageSpatialContext } from "../../../src/world/stageSpatialContext";
 import type { StageVolume } from "../../../src/world/stageSpatialQueries";
 import {
+  V2_BIT_MUZZLE_COLOR_BY_MODE,
   V2_BIT_ROUTE_SAFETY_CACHE_MAX_ENTRIES,
   createV2BitSystem,
+  resolveV2BitMuzzleColor,
   type V2BitFlightState,
   type V2BitMode,
   type V2BitSystem
@@ -85,6 +88,14 @@ type CombatHarness = Readonly<{
   random: QueuedRandom;
   dispose(systemAlreadyDisposed?: boolean): void;
 }>;
+
+const bitMuzzleAuditConfigBySystem = new WeakMap<
+  V2BitSystem,
+  Readonly<{
+    scene: Scene;
+    modeMuzzleColorEnabled: boolean;
+  }>
+>();
 
 const BAND_CENTER_HEIGHT = 1.4;
 const BASE_SEARCH_SPEED = 0.25;
@@ -520,7 +531,8 @@ const createHarness = (
     from: Vector3,
     to: Vector3
   ) => boolean = () => false,
-  navigationOverride: BitFlightNavigationWorld | null = null
+  navigationOverride: BitFlightNavigationWorld | null = null,
+  modeMuzzleColorEnabled = false
 ): CombatHarness => {
   const engine = new NullEngine();
   const scene = new Scene(engine);
@@ -590,6 +602,7 @@ const createHarness = (
   );
   const system = createV2BitSystem(scene, spatial, {
     combatEnabled: true,
+    modeMuzzleColorEnabled,
     initialBitCount,
     reinforcementIntervalSeconds: 1_000_000,
     maximumBitCount: initialBitCount + 1,
@@ -610,6 +623,10 @@ const createHarness = (
         anchor: target.footPosition.clone()
       })
   });
+  bitMuzzleAuditConfigBySystem.set(
+    system,
+    Object.freeze({ scene, modeMuzzleColorEnabled })
+  );
   system.prepareForScriptedPhase();
   system.placeBits(
     system.getFrameView().actorSpheres.map((actor, index) =>
@@ -630,6 +647,7 @@ const createHarness = (
     system,
     random,
     dispose: (systemAlreadyDisposed = false) => {
+      bitMuzzleAuditConfigBySystem.delete(system);
       if (!systemAlreadyDisposed) {
         system.dispose();
       }
@@ -1771,6 +1789,7 @@ const runRedTransitionSpeedCheck = (
   );
   const system = createV2BitSystem(fixture.scene, spatial, {
     combatEnabled: true,
+    modeMuzzleColorEnabled: false,
     initialBitCount: 1,
     reinforcementIntervalSeconds: 10,
     maximumBitCount: 1,
@@ -1879,6 +1898,31 @@ const createTarget = (
     brainwashed: false
   });
 
+const auditBitMuzzleInstanceColors = (system: V2BitSystem): void => {
+  const auditConfig = bitMuzzleAuditConfigBySystem.get(system);
+  if (!auditConfig) {
+    return;
+  }
+  for (const state of system.getFrameView().targetStates) {
+    const muzzle = auditConfig.scene.getMeshByName(
+      `${state.bitId}_muzzle`
+    );
+    if (!(muzzle instanceof InstancedMesh)) {
+      throw new Error(`BIT先端球Instanceがありません: ${state.bitId}`);
+    }
+    const actual = muzzle.instancedBuffers.color;
+    const expected = resolveV2BitMuzzleColor(
+      state.mode,
+      auditConfig.modeMuzzleColorEnabled
+    );
+    if (!(actual instanceof Color4) || !colorsApproximatelyEqual(actual, expected)) {
+      throw new Error(
+        `BIT先端球色がmodeと一致しません: ${state.bitId}/${state.mode}`
+      );
+    }
+  }
+};
+
 const update = (
   system: V2BitSystem,
   deltaSeconds: number,
@@ -1892,6 +1936,7 @@ const update = (
     targets,
     externalAlerts
   });
+  auditBitMuzzleInstanceColors(system);
 };
 
 const completePendingBitSpawnVisuals = (
@@ -4176,7 +4221,10 @@ const runRandomAttackSpeedCheck = (): BitCombatIntegrationCheck => {
   }
 };
 
-const createCarpetHarness = (scatterRoll = 0.5) => {
+const createCarpetHarness = (
+  scatterRoll = 0.5,
+  modeMuzzleColorEnabled = false
+) => {
   const movementSweeps: {
     from: Vector3;
     to: Vector3;
@@ -4198,7 +4246,9 @@ const createCarpetHarness = (scatterRoll = 0.5) => {
           POSITION_EPSILON &&
         Math.abs(to.y - from.y) > POSITION_EPSILON
       );
-    }
+    },
+    null,
+    modeMuzzleColorEnabled
   );
   const origin = harness.system.getFrameView().flightStates[0].position;
   const target = createTarget(
@@ -4605,8 +4655,10 @@ const runCarpetFormationFadeCheck =
         followerBodies.length === 2 &&
         followerBodies.every(
           (body) =>
+            body instanceof InstancedMesh &&
             !body.isDisposed() &&
-            Math.abs(body.visibility - 1) <= POSITION_EPSILON
+            Math.abs(body.instancedBuffers.color.a - 1) <=
+              POSITION_EPSILON
         );
 
       update(
@@ -4618,8 +4670,10 @@ const runCarpetFormationFadeCheck =
       );
       const halfVisible = followerBodies.every(
         (body) =>
+          body instanceof InstancedMesh &&
           !body.isDisposed() &&
-          Math.abs(body.visibility - 0.5) <= POSITION_EPSILON
+          Math.abs(body.instancedBuffers.color.a - 0.5) <=
+            POSITION_EPSILON
       );
       update(
         harness.system,
@@ -4858,7 +4912,7 @@ const runCarpetFollowerImpactCheck =
       target,
       state,
       spawnCompletedElapsedSeconds
-    } = createCarpetHarness();
+    } = createCarpetHarness(0.5, true);
     try {
       const before = harness.system.getFrameView().targetStates;
       const followers = before.filter(
@@ -4871,6 +4925,14 @@ const runCarpetFollowerImpactCheck =
       const followerBody = follower
         ? harness.scene.getMeshByName(`${follower.bitId}_body`)
         : null;
+      const followerMuzzle = follower
+        ? harness.scene.getMeshByName(`${follower.bitId}_muzzle`)
+        : null;
+      const materialCountBefore = harness.scene.materials.length;
+      const followerColorBefore =
+        followerMuzzle instanceof InstancedMesh
+          ? followerMuzzle.instancedBuffers.color
+          : null;
       const after = harness.system.getFrameView().targetStates;
       const leader = after.find(
         (candidate) => candidate.bitId === state.bitId
@@ -4879,9 +4941,10 @@ const runCarpetFollowerImpactCheck =
         (candidate) => candidate.mode === "carpet-follower"
       );
       const visibleImmediately =
-        followerBody !== null &&
+        followerBody instanceof InstancedMesh &&
         !followerBody.isDisposed() &&
-        Math.abs(followerBody.visibility - 1) <= POSITION_EPSILON;
+        Math.abs(followerBody.instancedBuffers.color.a - 1) <=
+          POSITION_EPSILON;
       update(
         harness.system,
         CARPET_FOLLOWER_FADE_SECONDS / 2,
@@ -4890,9 +4953,17 @@ const runCarpetFollowerImpactCheck =
         Object.freeze([target])
       );
       const halfVisible =
-        followerBody !== null &&
+        followerBody instanceof InstancedMesh &&
         !followerBody.isDisposed() &&
-        Math.abs(followerBody.visibility - 0.5) <= POSITION_EPSILON;
+        Math.abs(followerBody.instancedBuffers.color.a - 0.5) <=
+          POSITION_EPSILON &&
+        followerMuzzle instanceof InstancedMesh &&
+        !followerMuzzle.isDisposed() &&
+        colorsApproximatelyEqual(
+          followerMuzzle.instancedBuffers.color,
+          new Color4(0.58, 0.25, 1, 0.5)
+        ) &&
+        harness.scene.materials.length === materialCountBefore;
       update(
         harness.system,
         CARPET_FOLLOWER_FADE_SECONDS / 2,
@@ -4900,7 +4971,11 @@ const runCarpetFollowerImpactCheck =
         Object.freeze([target])
       );
       const disposedAfterFade =
-        followerBody !== null && followerBody.isDisposed();
+        followerBody !== null &&
+        followerBody.isDisposed() &&
+        followerMuzzle !== null &&
+        followerMuzzle.isDisposed() &&
+        harness.scene.materials.length === materialCountBefore;
       return Object.freeze({
         name: "carpet follower被弾は論理即除外・表示1秒fadeでleaderは継続",
         ok:
@@ -4909,6 +4984,11 @@ const runCarpetFollowerImpactCheck =
           after.length === before.length - 1 &&
           remainingFollowers.length === 1 &&
           leader?.mode === "carpet-leader" &&
+          followerColorBefore instanceof Color4 &&
+          colorsApproximatelyEqual(
+            followerColorBefore,
+            V2_BIT_MUZZLE_COLOR_BY_MODE["carpet-follower"]
+          ) &&
           visibleImmediately &&
           halfVisible &&
           disposedAfterFade,
@@ -4916,7 +4996,8 @@ const runCarpetFollowerImpactCheck =
           `before=${before.length} / after=${after.length} / ` +
           `followers=${followers.length}->${remainingFollowers.length} / ` +
           `leader=${leader?.mode ?? "missing"} / accepted=${accepted} / ` +
-          `fade=${visibleImmediately}/${halfVisible}/${disposedAfterFade}`
+          `fade=${visibleImmediately}/${halfVisible}/${disposedAfterFade} / ` +
+          `materials=${materialCountBefore}/${harness.scene.materials.length}`
       });
     } finally {
       harness.dispose();
@@ -5690,6 +5771,110 @@ const runFrameViewAndSharedGeometryCheck =
     }
   };
 
+const colorsApproximatelyEqual = (left: Color4, right: Color4): boolean =>
+  Math.abs(left.r - right.r) <= 1.0e-6 &&
+  Math.abs(left.g - right.g) <= 1.0e-6 &&
+  Math.abs(left.b - right.b) <= 1.0e-6 &&
+  Math.abs(left.a - right.a) <= 1.0e-6;
+
+const runBitMuzzleColorContractCheck = (): BitCombatIntegrationCheck => {
+  const disabled = createHarness(1, () => true);
+  const enabled = createHarness(
+    1,
+    () => true,
+    false,
+    false,
+    () => false,
+    null,
+    true
+  );
+  try {
+    const modes: readonly V2BitMode[] = Object.freeze([
+      "search",
+      "chase",
+      "fixed",
+      "random",
+      "alert-send",
+      "alert-receive",
+      "hold",
+      "carpet-leader",
+      "carpet-follower"
+    ]);
+    const expected = Object.freeze({
+      search: new Color4(0, 0, 0, 1),
+      chase: new Color4(0.18, 0.9, 0.28, 1),
+      fixed: new Color4(0.2, 0.9, 0.95, 1),
+      random: new Color4(0.95, 0.85, 0.2, 1),
+      "alert-send": new Color4(1, 0.6, 0.15, 1),
+      "alert-receive": new Color4(0.2, 0.45, 1, 1),
+      hold: new Color4(1, 1, 1, 1),
+      "carpet-leader": new Color4(1, 0.25, 0.9, 1),
+      "carpet-follower": new Color4(0.58, 0.25, 1, 1)
+    } satisfies Readonly<Record<V2BitMode, Color4>>);
+    const black = expected.search;
+    const disabledMuzzle = disabled.scene.getMeshByName(
+      `${disabled.system.getFrameView().targetStates[0].bitId}_muzzle`
+    );
+    const enabledMuzzle = enabled.scene.getMeshByName(
+      `${enabled.system.getFrameView().targetStates[0].bitId}_muzzle`
+    );
+    const disabledColor =
+      disabledMuzzle instanceof InstancedMesh
+        ? disabledMuzzle.instancedBuffers.color
+        : null;
+    const enabledColor =
+      enabledMuzzle instanceof InstancedMesh
+        ? enabledMuzzle.instancedBuffers.color
+        : null;
+    const disabledContract = modes.every((mode) =>
+      colorsApproximatelyEqual(resolveV2BitMuzzleColor(mode, false), black)
+    );
+    const enabledContract = modes.every(
+      (mode) =>
+        colorsApproximatelyEqual(
+          resolveV2BitMuzzleColor(mode, true),
+          expected[mode]
+        ) &&
+        colorsApproximatelyEqual(V2_BIT_MUZZLE_COLOR_BY_MODE[mode], expected[mode])
+    );
+    disabled.system.update({
+      deltaSeconds: 0,
+      elapsedSeconds: 0,
+      targets: Object.freeze([]),
+      externalAlerts: EMPTY_ALERTS
+    });
+    enabled.system.update({
+      deltaSeconds: 0,
+      elapsedSeconds: 0,
+      targets: Object.freeze([]),
+      externalAlerts: EMPTY_ALERTS
+    });
+    const colorReferencesStable =
+      disabledMuzzle instanceof InstancedMesh &&
+      enabledMuzzle instanceof InstancedMesh &&
+      disabledMuzzle.instancedBuffers.color === disabledColor &&
+      enabledMuzzle.instancedBuffers.color === enabledColor;
+    return Object.freeze({
+      name: "BIT先端球は通常黒・デバッグON時だけ9モード固定色",
+      ok:
+        disabledColor instanceof Color4 &&
+        enabledColor instanceof Color4 &&
+        colorsApproximatelyEqual(disabledColor, black) &&
+        colorsApproximatelyEqual(enabledColor, black) &&
+        disabledContract &&
+        enabledContract &&
+        colorReferencesStable,
+      detail:
+        `instance=${disabledColor instanceof Color4}/${enabledColor instanceof Color4} / ` +
+        `disabled=${disabledContract} / enabled=${enabledContract} / ` +
+        `stable=${colorReferencesStable}`
+    });
+  } finally {
+    disabled.dispose();
+    enabled.dispose();
+  }
+};
+
 const runLazyFlightStatesFrameViewCheck =
   (): BitCombatIntegrationCheck => {
     const harness = createHarness(1, () => true);
@@ -5843,5 +6028,6 @@ export const runBitCombatIntegrationTests =
       runRouteSafetyCacheLruCheck(),
       runSingleBitRelocationCheck(),
       runLazyFlightStatesFrameViewCheck(),
-      runFrameViewAndSharedGeometryCheck()
+      runFrameViewAndSharedGeometryCheck(),
+      runBitMuzzleColorContractCheck()
     ]);

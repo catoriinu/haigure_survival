@@ -1,5 +1,6 @@
 import {
   Color3,
+  Color4,
   InstancedMesh,
   Mesh,
   MeshBuilder,
@@ -227,6 +228,28 @@ export type V2BitMode =
   | "carpet-leader"
   | "carpet-follower";
 
+const V2_BIT_MUZZLE_BLACK = new Color4(0, 0, 0, 1);
+export const V2_BIT_MUZZLE_COLOR_BY_MODE = Object.freeze({
+  search: V2_BIT_MUZZLE_BLACK,
+  chase: new Color4(0.18, 0.9, 0.28, 1),
+  fixed: new Color4(0.2, 0.9, 0.95, 1),
+  random: new Color4(0.95, 0.85, 0.2, 1),
+  "alert-send": new Color4(1, 0.6, 0.15, 1),
+  "alert-receive": new Color4(0.2, 0.45, 1, 1),
+  hold: new Color4(1, 1, 1, 1),
+  "carpet-leader": new Color4(1, 0.25, 0.9, 1),
+  "carpet-follower": new Color4(0.58, 0.25, 1, 1)
+} satisfies Readonly<Record<V2BitMode, Color4>>);
+
+export const resolveV2BitMuzzleColor = (
+  mode: V2BitMode,
+  modeMuzzleColorEnabled: boolean
+): Color4 =>
+  (modeMuzzleColorEnabled
+    ? V2_BIT_MUZZLE_COLOR_BY_MODE[mode]
+    : V2_BIT_MUZZLE_BLACK
+  ).clone();
+
 type V2BitSpawnPhase = "fade-in" | "hold" | "shrink" | "done";
 
 export type V2BitSystemConfig = Readonly<{
@@ -237,6 +260,7 @@ export type V2BitSystemConfig = Readonly<{
   spawnMaxAttempts: number;
   spawnProjectionMaxDistance: number;
   combatEnabled: boolean;
+  modeMuzzleColorEnabled: boolean;
   random: () => number;
   spawnRandom: () => number;
   playerSpawn: StagePlayerSpawn;
@@ -438,6 +462,7 @@ type RuntimeBit = {
   activeTransition: BitFlightTransitionTraversal | null;
   bobPhase: number;
   mode: V2BitMode;
+  renderedMuzzleColorMode: V2BitMode | null;
   targetSelectionPersonality: V2TargetSelectionPersonality;
   targetId: string | null;
   targetProvenance: V2TargetProvenance | null;
@@ -486,8 +511,8 @@ type RuntimeBit = {
 
 type FadingCarpetFollower = {
   root: TransformNode;
-  body: Mesh;
-  muzzle: Mesh;
+  body: InstancedMesh;
+  muzzle: InstancedMesh;
   remainingSeconds: number;
 };
 
@@ -586,6 +611,9 @@ const assertConfig = (config: V2BitSystemConfig) => {
   if (typeof config.combatEnabled !== "boolean") {
     throw new Error("combatEnabledにはbooleanが必要です。");
   }
+  if (typeof config.modeMuzzleColorEnabled !== "boolean") {
+    throw new Error("modeMuzzleColorEnabledにはbooleanが必要です。");
+  }
   if (typeof config.random !== "function") {
     throw new Error("randomには0以上1未満を返す関数が必要です。");
   }
@@ -654,8 +682,8 @@ const createSharedMaterials = (scene: Scene) => {
     redBody.specularColor = new Color3(0.55, 0.18, 0.18);
 
     muzzle = new StandardMaterial("v2BitMuzzleMaterial", scene);
-    muzzle.diffuseColor = new Color3(1, 0.18, 0.74);
-    muzzle.emissiveColor = new Color3(0.7, 0.06, 0.42);
+    muzzle.diffuseColor = Color3.White();
+    muzzle.emissiveColor = Color3.Black();
     muzzle.specularColor = Color3.Black();
 
     return { body, redBody, muzzle };
@@ -693,6 +721,8 @@ const createSharedVisualSources = (
     body.material = materials.body;
     body.isPickable = false;
     body.isVisible = false;
+    body.hasVertexAlpha = true;
+    body.registerInstancedBuffer("color", 4);
 
     redBody = new Mesh("v2RedBitBodySource", scene);
     body.geometry!.applyToMesh(redBody);
@@ -700,6 +730,8 @@ const createSharedVisualSources = (
     redBody.material = materials.redBody;
     redBody.isPickable = false;
     redBody.isVisible = false;
+    redBody.hasVertexAlpha = true;
+    redBody.registerInstancedBuffer("color", 4);
 
     muzzle = MeshBuilder.CreateSphere(
       "v2BitMuzzleSource",
@@ -710,6 +742,8 @@ const createSharedVisualSources = (
     muzzle.material = materials.muzzle;
     muzzle.isPickable = false;
     muzzle.isVisible = false;
+    muzzle.hasVertexAlpha = true;
+    muzzle.registerInstancedBuffer("color", 4);
 
     return Object.freeze({ body, redBody, muzzle });
   } catch (error) {
@@ -779,6 +813,7 @@ const createBitVisual = (
     body.isPickable = false;
     body.isVisible = false;
     body.scaling.set(0, 0, 0);
+    body.instancedBuffers.color = new Color4(1, 1, 1, 1);
 
     muzzle = sources.muzzle.createInstance(`${id}_muzzle`);
     muzzle.parent = root;
@@ -1743,6 +1778,20 @@ export const createV2BitSystem = (
     frameView = null;
   };
 
+  const syncBitMuzzleColor = (bit: RuntimeBit) => {
+    const renderedMode = config.modeMuzzleColorEnabled
+      ? bit.mode
+      : "search";
+    if (bit.renderedMuzzleColorMode === renderedMode) {
+      return;
+    }
+    bit.muzzle.instancedBuffers.color = resolveV2BitMuzzleColor(
+      renderedMode,
+      config.modeMuzzleColorEnabled
+    );
+    bit.renderedMuzzleColorMode = renderedMode;
+  };
+
   const isBitReadyForAi = (bit: RuntimeBit) =>
     !isBitSpawnPending(bit) &&
     !spawnBlockedBitIdsForUpdate.has(bit.id);
@@ -1865,6 +1914,7 @@ export const createV2BitSystem = (
         activeTransition: null,
         bobPhase: nextRandom() * Math.PI * 2,
         mode,
+        renderedMuzzleColorMode: null,
         targetSelectionPersonality:
           selectV2TargetSelectionPersonality("bit", id),
         targetId: null,
@@ -1917,6 +1967,7 @@ export const createV2BitSystem = (
       bit.root.lookAt(bit.root.position.add(initialDirection));
       bits.push(bit);
       bitsById.set(bit.id, bit);
+      syncBitMuzzleColor(bit);
       invalidateFrameViews();
       return bit;
     } catch (error) {
@@ -2734,34 +2785,14 @@ export const createV2BitSystem = (
     invalidateFrameViews();
   };
 
-  const createFadingMesh = (instance: InstancedMesh) => {
-    const mesh = new Mesh(`${instance.name}_fade`, scene);
-    instance.sourceMesh.geometry!.applyToMesh(mesh);
-    mesh.parent = instance.parent;
-    mesh.position.copyFrom(instance.position);
-    mesh.rotation.copyFrom(instance.rotation);
-    mesh.rotationQuaternion =
-      instance.rotationQuaternion?.clone() ?? null;
-    mesh.scaling.copyFrom(instance.scaling);
-    mesh.material = instance.material;
-    mesh.isPickable = false;
-    return mesh;
-  };
-
   const startCarpetFollowerFade = (follower: RuntimeBit) => {
     finalizeBitSpawnVisual(follower);
     follower.flightAgent.dispose();
     unregisterRuntimeBit(follower);
-    const body = createFadingMesh(follower.body);
-    const muzzle = createFadingMesh(follower.muzzle);
-    follower.body.dispose(false, false);
-    follower.muzzle.dispose(false, false);
-    body.name = `${follower.id}_body`;
-    muzzle.name = `${follower.id}_muzzle`;
     fadingCarpetFollowers.push({
       root: follower.root,
-      body,
-      muzzle,
+      body: follower.body,
+      muzzle: follower.muzzle,
       remainingSeconds: CARPET_FOLLOWER_FADE_SECONDS
     });
   };
@@ -2779,8 +2810,19 @@ export const createV2BitSystem = (
       );
       const visibility =
         follower.remainingSeconds / CARPET_FOLLOWER_FADE_SECONDS;
-      follower.body.visibility = visibility;
-      follower.muzzle.visibility = visibility;
+      follower.body.instancedBuffers.color = new Color4(
+        1,
+        1,
+        1,
+        visibility
+      );
+      const muzzleColor = follower.muzzle.instancedBuffers.color as Color4;
+      follower.muzzle.instancedBuffers.color = new Color4(
+        muzzleColor.r,
+        muzzleColor.g,
+        muzzleColor.b,
+        visibility
+      );
       if (follower.remainingSeconds === 0) {
         follower.root.dispose(false);
         fadingCarpetFollowers.splice(index, 1);
@@ -6203,6 +6245,9 @@ export const createV2BitSystem = (
           routeSafetyCache: createRouteSafetyCacheDiagnostics()
         });
       }
+      for (const bit of bits) {
+        syncBitMuzzleColor(bit);
+      }
     },
     getFrameView,
     takeAlertRequests: () => {
@@ -6262,6 +6307,7 @@ export const createV2BitSystem = (
       bit.lastHoldTargetId = targetId;
       bit.fireTelegraphSeconds = 0;
       clearRoute(bit);
+      syncBitMuzzleColor(bit);
       return true;
     },
     prepareForScriptedPhase: () => {
@@ -6312,6 +6358,7 @@ export const createV2BitSystem = (
         bit.bruteForceNextCheckSeconds =
           BRUTE_FORCE_START_SECONDS;
         bit.bruteForceFailedTransitionCandidateCount = 0;
+        syncBitMuzzleColor(bit);
       }
       activeAlerts.clear();
       externalAlertKeyByTargetId.clear();

@@ -1,6 +1,6 @@
 # HAIGURE SURVIVAL v2 複数セッション実装ロードマップ 計画
 
-更新日: 2026-08-17
+更新日: 2026-08-18
 
 ## プロンプト
 
@@ -421,7 +421,7 @@ HAIGURE SURVIVAL v2は、大規模な一括実装を行わず、1タスク＝1�
 - [x] B06-2 エレベーター建築統合: 予定範囲をPR #73のB06-1へ吸収済みとして完了。再実装しない
 - [x] B06-3 小物・表札・Web配布対応: PR #74で`develop=6527097`へ統合済み
 - [x] B06-4 ミニマップ意味資産・Location: 外周Barrierを実塀7区間・門2区間へ一致させ、玄関南側の重複校庭面を廃止して再検証済み
-- [ ] T06-4P-1 ミニマップ・BIT表示: 作者定義仕切り、壁の切れ目＋明色線の出入口、通常黒のBIT先端球、既定OFFのV1準拠デバッグ色を実装する
+- [x] T06-4P-1 ミニマップ・BIT表示: 作者定義仕切り、壁の切れ目＋明色線の出入口、通常黒のBIT先端球、既定OFFのV1準拠デバッグ色を実装した。人間受入で学校内3階段の中央吹き抜けを黒、学校・体育館階段の階切替位置を薄線へ統一し、階段アイコンを撤去した。4Fの屋上階段室誤投影を除き、屋上の実階段室は維持してローカル検証を完了した
 - [ ] T06-4P-2 エレベーター・NPC: 4秒発車、全Actor先着順6人、自律NPCとFollowerの呼出・乗降・追跡、必要時の屋上入口停止修正を実装する
 - [ ] I3 キャラクター反射・表示仕上げ設計: 鏡反射、必要な一人称表示仕上げ、99 NPC時の性能条件をユーザー相談で確定する
 - [ ] T06-5 キャラクター反射・表示仕上げRuntime: T06-1の基本画像表示を前提に、I3で承認された鏡反射と表示仕上げを実装する
@@ -484,6 +484,7 @@ HAIGURE SURVIVAL v2は、大規模な一括実装を行わず、1タスク＝1�
 - T06-2のV3学校基盤機能ゲートは完了し、PR #67で`develop`へ統合済みである。タイトル開始から終了・タイトル復帰・再読込まで、F／E／C・G／N／H、複数開始地点、出現禁止、増援、音声、水中、資源破棄をWeb・Electronで確認した。
 - B05の意味資産特化確認は完了し、PR #69で`develop=96a16cb`へ統合済みである。5階層Map、52 Area、24 Mission Location、17階段踊り場、4エレベーター乗場、放送卓、厳格な参照・被覆・重複検証、3種NavMesh不変性、Web／Electron起動をT06-3の基準とする。
 - T06-4のPull Request作成後、`develop`マージ前にV3Aミニマップ・Mission・放送機能ゲートを行う。階別表示、階段、エレベーター、Follower、Location、プレイヤー／NPC Mission、優先順位、放送3種、公開処刑会場切替、HUDをWeb・Electronで確認する。
+- T06-4P-1の階段受入では、北西・北東・南西の中央吹き抜け、学校・体育館階段の階切替線、階段アイコン非表示、4F／屋上の階段室差分をWeb／Electronで確認済みである。
 - T06-4P-2のPull Request作成後、`develop`マージ前にV3P第1磨き込みゲートを行う。B06-1～4の学校資産、ミニマップ、BIT、エレベーターNPC、4秒発車、P1の受入条件を同一headのWeb・Electronで確認する。
 - T06-5のPull Request作成後、`develop`マージ前にV3Bキャラクター反射・表示仕上げゲートを行う。鏡反射、I3で承認した一人称表示仕上げ、99 NPC表示予算、破棄・再生成をWeb・Electronで確認する。
 - T06-6DのPull Request作成後、`develop`マージ前にV3Cタイトル・設定ゲートを行う。保存、初期値、再起動、リセット、V1相当タイトル・ゲームオーバー、各機能ON／OFF、静的学校資源identity維持、動的状態だけの初期化、最終破棄をWeb・Electronで確認する。
@@ -928,3 +929,16 @@ HAIGURE SURVIVAL v2は、大規模な一括実装を行わず、1タスク＝1�
 - 5階層の作者定義`floor_map`／`map_barrier`／`map_passage`、53 Area／85 piece、25 Mission Location／Anchor／Volume、厳格Runtime registryを追加した。
 - 通常ゲーム目視で判明した1F外周Barrierの位置ずれを、表示塀と共通の作者定義7区間と門Passage 2区間へ修正した。玄関南側の段差は3cm高い重複表示面を廃止し、校庭の表示・Collider・NavMesh上面を`z=-0.3`の連続面へ統一した。
 - 生成2回の決定性、3種NavMesh不変、B05 42/42、T04 81/81、屋上入口192経路、対象build、通常Webの連続面、console warning／error 0件を確認した。通常ミニマップの旧投影削除と作者定義資産への描画切替はT06-4P-1へ引き渡す。
+
+### 2026-08-18 T06-4P-1 ミニマップ・BIT表示
+
+- GitHub障害中の明示指示により、cleanな`codex/v2-minimap-location-assets=56a6ca2`を直接起点とし、`develop`のpull／mergeを行わず実装した。
+- ミニマップを5階分の作者定義Barrier／Passage cacheへ切り替え、床、黒い恒久仕切り、明色開口の順に描画する。BIT先端球は通常全モード黒、専用fixtureでだけ9モードの固定色を使い、carpet-followerのfadeでもInstance色と共有Materialを維持する。
+- T05 320/320、T06-3 16/16、T06-4 36/36、1920×1080の5階Web表示、Electron normal／haigure診断0件を確認した。学校`.blend`、GLB、NavMesh、生成器、カタログhashは変更せず、指定メッセージでローカルcommitまで完了した。
+- 人間受入で判明した作者定義形状の不整合を追加修正した。薄線は「歩行床が恒久壁・柵の固定開口を横断する位置」だけへ統一し、1F～3F体育館接続は各階とも両端へ残した。全階トイレ、エレベーター、1F舞台・体育倉庫、2Fギャラリー、3F体育館屋上を実壁・柵・床へ一致させ、NavMesh境界、床継ぎ目、舞台中央、旧トイレ共通通路の薄線を除去した。
+- GLBは22,464,416 bytes／SHA-256 `84160507C68D30B23BEA9E68FEF3DF204B475FEF144DCCF6AFDFDA6ADA3D2DDA`へ同期し、生成版更新後の通常生成2回でhash一致を確認した。3種NavMeshは不変で、建築・保護・Location監査、T06-3 16/16、対象typecheck／build、Electron normal／haigure診断0件に合格した。通常buildは生成と学校GLB整合まで成功し、既知のOFL／THIRD_PARTY_NOTICES改行差監査だけが失敗した。
+- 追加の人間受入で、1F通用口・南門は外周Barrierの切れ目を維持しつつPassageを除去し、職員室／パソコン室間の実壁Barrierを追加し、図書室中央の実在しないBarrierを削除した。
+- 生成版`t06-4p-1-minimap-acceptance-v6`のGLBは22,472,828 bytes／SHA-256 `C633E71728A0F5B1085779CEE25CE23277D8714DEEA612DE5B67AC09926EEE0D`となった。2回生成の決定性、3種NavMesh不変、建築・保護・Location監査、T06-3実ブラウザ16/16、対象typecheck／build、Electron normal／haigureのPointer Lock・診断0件に合格した。通常buildは既知のOFL／THIRD_PARTY_NOTICES改行差監査だけが失敗した。
+- 体育館ギャラリー階段は、西・東とも黄色い階切替線より下の下段・折返し踊り場を1F、線より上の上段を2Fへ統一した。既存Location Areaの高さ2.55m境界を正本とし、2F floor_mapへの下段混入と下段側壁Barrierの階混在を解消した。左右で床、側壁、薄い階切替線を同じ規則にしている。
+- 生成版`t06-4p-1-minimap-gallery-stairs-v7`のGLBは22,477,080 bytes／SHA-256 `504563028C92B3F524FD2B72B0030B68109997BF3906FC7138BF997C7914C008`となった。2回生成の決定性、3種NavMesh不変、建築・保護・Location監査、T06-3実ブラウザ16/16、対象typecheck／build、Electron normal／haigureのPointer Lock・診断0件に合格した。通常buildは既知のOFL／THIRD_PARTY_NOTICES改行差監査だけが失敗した。
+- PR #76レビュー対応で、BIT先端球のinstance色を毎フレーム再生成せず、通常OFFは初回だけ、デバッグONは実効モード変化時だけ同期するよう修正した。T06-3の接面fixtureは、通常階境界の型付き曖昧例外と対象Area包含、連続階段境界の上階側Area一意所有をケース別に合否へ戻した。修正前T05 319/320・T06-3 15/16を再現し、修正後はT05 320/320・T06-3 16/16、対象typecheck／build、Electron normal／haigure診断0件に合格した。
