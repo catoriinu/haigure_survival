@@ -29,6 +29,7 @@ import type {
 import { createStageDynamicAssetRegistries } from "../../../src/world/stageDynamicAssets";
 import {
   createStageElevatorRuntime,
+  ELEVATOR_FIRST_PASSENGER_WAIT_SECONDS,
   type ElevatorPassengerReservation
 } from "../../../src/world/stageElevatorRuntime";
 import { createStageElevatorCallIndicatorAdapter } from "../../../src/world/stageElevatorCallIndicator";
@@ -1104,8 +1105,10 @@ export const runDynamicInteractionAcceptance =
       const actorZeroCarLocal = actorPositions
         .get("actor-0")!
         .subtract(initialElevator.carPosition);
-      const afterFiveSeconds = elevator.update(4.5);
-      const afterFiveSpatial = elevator.getSpatialSnapshot();
+      const afterWaitSeconds = elevator.update(
+        ELEVATOR_FIRST_PASSENGER_WAIT_SECONDS - 0.5
+      );
+      const afterWaitSpatial = elevator.getSpatialSnapshot();
       const closingStartOpenness = panelOpenness.get("car-panel");
       const afterClosing = elevator.update(1);
       const afterClosingSpatial = elevator.getSpatialSnapshot();
@@ -1139,9 +1142,9 @@ export const runDynamicInteractionAcceptance =
         lowerDoorRayTo
       );
       checks.push({
-        name: "エレベーター5秒待機・1秒扉・6秒搬送",
+        name: "エレベーター4秒待機・1秒扉・6秒搬送",
         ok:
-          afterFiveSeconds.carDoorState === "closing" &&
+          afterWaitSeconds.carDoorState === "closing" &&
           countdownBlink.stops.find(
             (stop) => stop.id === "stop-4"
           )?.callMatState === "departure-countdown" &&
@@ -1161,7 +1164,7 @@ export const runDynamicInteractionAcceptance =
           afterClosing.carState === "moving" &&
           halfwayTravel.currentStopId === null &&
           halfwayTravel.displayStopId === "stop-4" &&
-          afterFiveSeconds.stops.every(
+          afterWaitSeconds.stops.every(
             (stop) => stop.callMatState === "locked"
           ) &&
           Math.abs(halfwayTravel.carTravelProgress - 0.5) < 1e-9 &&
@@ -1182,13 +1185,13 @@ export const runDynamicInteractionAcceptance =
             ?.callMatState === "called" &&
           arrivedOpen.carDoorState === "open" &&
           arrivedOpen.passengers.length === 1,
-        detail: `countdown=${countdownBlink.stops.map((stop) => `${stop.id}:${stop.callMatState}`).join(",")} / snapshot=${repeatedCountdownBeforeBlink === countdownBeforeBlink}->${countdownBlink !== countdownBeforeBlink} / after5=${afterFiveSeconds.carDoorState} / after1=${afterClosing.carState} / half=${halfwayTravel.carTravelProgress}:${halfwayTravel.currentStopId ?? "none"}->${halfwayTravel.displayStopId ?? "none"} / arrival=${arrivedClosed.carDoorState}:${arrivedClosed.displayStopId ?? "none"}:${arrivedClosed.stops.map((stop) => `${stop.id}:${stop.callMatState}`).join(",")}->${arrivalOpening.carDoorState}->${arrivedOpen.carDoorState}`
+        detail: `countdown=${countdownBlink.stops.map((stop) => `${stop.id}:${stop.callMatState}`).join(",")} / snapshot=${repeatedCountdownBeforeBlink === countdownBeforeBlink}->${countdownBlink !== countdownBeforeBlink} / after4=${afterWaitSeconds.carDoorState} / after1=${afterClosing.carState} / half=${halfwayTravel.carTravelProgress}:${halfwayTravel.currentStopId ?? "none"}->${halfwayTravel.displayStopId ?? "none"} / arrival=${arrivedClosed.carDoorState}:${arrivedClosed.displayStopId ?? "none"}:${arrivedClosed.stops.map((stop) => `${stop.id}:${stop.callMatState}`).join(",")}->${arrivalOpening.carDoorState}->${arrivedOpen.carDoorState}`
       });
       checks.push({
         name: "エレベーター人物gateと実panel動的遮蔽",
         ok:
-          afterFiveSpatial.revision > initialElevatorSpatial.revision &&
-          afterFiveSpatial.movementColliders.player.includes(
+          afterWaitSpatial.revision > initialElevatorSpatial.revision &&
+          afterWaitSpatial.movementColliders.player.includes(
             fourthFloorGate
           ) &&
           closingStartOpenness === 1 &&
@@ -1212,7 +1215,7 @@ export const runDynamicInteractionAcceptance =
           arrivedOpenOpenness === 1 &&
           openHumanGateHit === null &&
           openPanelBeamHit === null,
-        detail: `revision=${initialElevatorSpatial.revision}->${afterFiveSpatial.revision}->${afterClosingSpatial.revision}->${halfwaySpatial.revision}->${arrivedOpenSpatial.revision} / panelUpdates=${JSON.stringify([...panelUpdatesBeforeHalfway])}->${JSON.stringify([...panelUpdatesAfterHalfway])} / query=${elevatorQueries.revision} / carY=${carPanelHalfwayY.toFixed(3)} / gate=${gateStates.get("stop-1")}/${gateStates.get("stop-4")}`
+        detail: `revision=${initialElevatorSpatial.revision}->${afterWaitSpatial.revision}->${afterClosingSpatial.revision}->${halfwaySpatial.revision}->${arrivedOpenSpatial.revision} / panelUpdates=${JSON.stringify([...panelUpdatesBeforeHalfway])}->${JSON.stringify([...panelUpdatesAfterHalfway])} / query=${elevatorQueries.revision} / carY=${carPanelHalfwayY.toFixed(3)} / gate=${gateStates.get("stop-1")}/${gateStates.get("stop-4")}`
       });
       actorPositions.set("actor-arrival-wait", new Vector3(0, 0, 0));
       const arrivedEstimate = elevator.estimateTripSeconds(

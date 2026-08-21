@@ -1,6 +1,6 @@
 # HAIGURE SURVIVAL v2 T06-4P-2 エレベーター・NPC 計画
 
-更新日: 2026-08-10
+更新日: 2026-08-22
 
 ## プロンプト
 
@@ -11,6 +11,23 @@
 > 定員6人は全Actor先着順とする。既存乗客・予約を維持し、Player同行者も同じ先着順で空席まで乗車する。満員・乗り遅れ時はFollowを解除せず、次便または階段で追跡する。
 >
 > 屋上入口の複数NPC停止がB06後も残る場合は、同行・Alarm・Mission優先度を変えずRuntime側を修正する。
+
+2026-08-21 実装指示:
+
+> 以下の計画を実装してください。
+>
+> - 最新`develop`を再取得し、`codex/v2-elevator-npc-polish`の専用branch／worktreeから開始する。共有worktreeの未追跡ファイルは触らない。
+> - 現行実装の定員6人、全Actor先着順、自律NPC利用、Followerの次便／階段選択、呼出マット再進入は再実装せず、未達の4秒契約と通常ゲーム受入を完成させる。
+> - 過去の再進入修正`f5579d6`は現行実装へ別経路で吸収済みのためcherry-pickしない。
+> - B06-4では屋上入口192経路が成立しているため、屋上専用コードは追加せず回帰確認だけを行う。
+> - `ELEVATOR_FIRST_PASSENGER_WAIT_SECONDS`を5から4へ変更し、最初の乗車完了から4秒で発車する。後続乗車でカウントをリセットしない。
+> - 発車判定、現在便・次便の所要時間見積り、Followerの同便到達可否は同じ4秒定数を使用する。
+> - 要求時刻順＋同時刻Actor ID順、既存乗客・予約保持、Player優先枠なし、満員時のFollow維持を変えない。
+> - 暗黙teleport、座標fallback、Follower解除、定員超過、旧状態互換を追加しない。Blender、GLB、NavMesh、生成器、カタログhashを変更しない。
+> - T04実学校fixtureへ3.999秒時点の開扉待機、4秒到達時のclosing、後続乗車で発車時刻を延長しないこと、初期状態の乗車後所要時間12秒を固定値で追加する。
+> - 通常ゲームのWeb／Electron受入を再現可能にする固定seedのエレベーター検証ハーネスを追加し、通常人口の状態遷移と診断を記録する。ゲーム本編の選択policyは変更しない。
+> - T02、T04、T05、T06-3、T06-4、`typecheck:v2`、通常build、Electron build、通常Web／Electron、V3P、UTF-8 BOMなし、括弧対応、`git diff --check`、ローカル絶対パスなしを確認する。
+> - 個別・親・中央計画を同期し、T06-4P-2差分だけをcommitする。push、Pull Request、レビュー、merge、worktree削除は行わない。
 
 ## 目的
 
@@ -61,14 +78,32 @@
 
 ## ステップ
 
-- [ ] 現行5秒定数、所要時間見積り、予約・定員・Follower経路を監査する
-- [ ] 失敗fixtureを先に追加する
-- [ ] 4秒定数と全Actor先着順を実装する
-- [ ] 自律NPCと同行者の呼出・乗車・降車・追跡継続を修正する
-- [ ] 必要な場合だけ屋上入口の複数NPC混雑を修正する
-- [ ] T04、T05、T06、build、通常Web／Electronを検証する
-- [ ] V3P第1磨き込みゲートを通し、結果を更新してT06-4P-2差分だけをcommitする
+- [x] 現行5秒定数、所要時間見積り、予約・定員・Follower経路を監査する
+- [x] 失敗fixtureを先に追加する
+- [x] 4秒定数と全Actor先着順を実装する
+- [x] 自律NPCと同行者の呼出・乗車・降車・追跡継続を修正する
+- [x] 必要な場合だけ屋上入口の複数NPC混雑を修正する
+- [x] T04、T05、T06、build、通常Web／Electronを検証する
+- [x] V3P第1磨き込み事前ゲートを通し、結果を更新してT06-4P-2差分だけをcommitする
 
 ## 結果
 
-未着手。T06-4P-1の`develop`統合後に開始する。
+2026-08-21、`origin/develop=c716331`にT06-4P-1のPR #76が統合済みであることを確認し、同headから`codex/v2-elevator-npc-polish`と専用worktreeを作成した。共有`develop`の未追跡ファイル4件は変更していない。
+
+現行実装を監査し、定員6人、要求時刻順＋同時刻Actor ID順、自律NPCのエレベーター選択・呼出・乗降、Followerの同便・次便・階段選択、呼出マット再進入は実装・fixture化済みであることを確認した。過去の`f5579d6`はcherry-pickしない。B06-4の屋上入口は6状態・単体／5体／10体・上下方向の192経路が成立しており、停止snapshotがないため屋上専用Runtime修正は行わない。未達は5秒定数と、4秒固定値・通常ゲームWeb／Electron受入の明示である。
+
+T04実学校fixtureへ、初期所要時間12秒、3.999秒時点の開扉、後続乗車で残り時間を延長しないこと、4秒到達時のclosingを固定値で追加した。現行5秒実装に対して実ブラウザで実行し、4秒時点でclosingへ移らないため後続の降車処理が成立せず失敗することを確認した。
+
+`ELEVATOR_FIRST_PASSENGER_WAIT_SECONDS`を4へ変更した。発車判定、現在便・次便の所要時間見積り、Followerの同便猶予は既存どおり同じ公開定数を参照し、全Actor先着順、定員6人、既存乗客・予約保持、Player優先枠なしの実装には変更を加えていない。T04実ブラウザfixtureは82/82件PASSし、初期所要時間12秒、3.999秒の開扉、後続乗車後も残り0.001秒、4秒到達時closingを確認した。
+
+通常ゲーム入口へ`elevatorAcceptance=T06-4P-2&seed=20260821&followers=1..5`を追加した。通常人口50 NPC・初期洗脳10・初期BIT 1を維持し、実Player便の呼出・予約・乗車・約4秒発車・搬送・降車、1～5人へのFollow受理と乗り遅れ後の歩行診断、通常人口の自律NPCによる呼出・乗車・到着をDOM遷移として記録する。WebではPlayer便の発車猶予約4.000秒と自律`npc_10`、Electronでは発車猶予約3.997秒と自律`npc_17`の乗車・到着を確認し、Electronのconsole、renderer、load、render-process-gone、unresponsiveはすべて0件だった。厳密な同便・満員・次便・階段・Follow維持はT04実学校fixtureで担保し、通常ゲームの選択policyは変更していない。
+
+B06-4屋上入口は192経路fixtureで停止snapshotがなく、通常ゲーム受入でも屋上専用の再現条件は発生しなかったため、屋上Runtimeは変更していない。
+
+2026-08-22、4秒定数へ追随していなかったT04動的状態機械fixtureも同じ公開定数へ統一した。T05 NPC指示fixtureでは、既存`develop`上の旧world scale座標とNavigation初期化frame不足を検出し、3m指示範囲内かつ1.2m再開距離外の配置と0秒初期化更新へ修正した。NPC Runtimeや戦闘・Follow policyは変更していない。
+
+ローカル同一headのV3P事前ゲートとして、B05 42/42、T04実学校82/82、T05総合320/320、T05 NPC指示27/27、T06-3 16/16、T06-4 36/36を実ブラウザで通過した。T04実学校では初期所要時間12秒、3.999秒時点open、後続乗車後も残り約0.001秒、4秒到達時closing、全Actor先着順6人、満員時Follow維持、屋上入口192経路、破棄・再生成を確認し、Babylon Logger、console warning／errorは0件だった。T02の実ブラウザ43/52とT04総合114/118に残る資産系失敗は、今回変更していない`origin/develop`正本の既知基準と同じであり、対象のT04実学校fixtureは全件PASSしている。
+
+通常人口Webはseed `20260821`、50 NPC、初期洗脳済み10、初期BIT 1、Follower 5人でPASSし、Player便の発車猶予3.985秒、自律`npc_20`の乗車・到着、Follower `npc_41`の同便乗車・降車、最大同時2人を記録した。Electronは発車猶予3.981秒、自律`npc_17`の乗車・到着を確認し、console、renderer、load、render-process-gone、unresponsiveは0件だった。
+
+`build:t02`、`build:t04`、`build:t05`、`build:t06-3`、`build:t06-4`、`build:electron`、`typecheck:v2`はPASSした。通常buildはrenderer生成と学校GLB catalog整合まで成功し、`origin/develop`から差分0のOFL／THIRD_PARTY_NOTICESがCRLF bytes／hashとなる既知2件だけで配布監査が停止した。学校`.blend`、GLB、3種NavMesh、生成器、監査器、catalogは`origin/develop`との差分0で、GLBと3種NavMeshのSHA-256はcatalogと一致した。B05実GLB監査42/42で5階Map、Barrier／Passage各5、53 Area／85 piece、25 Mission Location、通常版／荒れ版Anchor各25/25、異常0件を確認した。

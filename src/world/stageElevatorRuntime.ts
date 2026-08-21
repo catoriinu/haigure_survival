@@ -1,7 +1,7 @@
 import { type Mesh, Vector3 } from "@babylonjs/core";
 
 export const ELEVATOR_CAPACITY = 6;
-export const ELEVATOR_FIRST_PASSENGER_WAIT_SECONDS = 5;
+export const ELEVATOR_FIRST_PASSENGER_WAIT_SECONDS = 4;
 export const ELEVATOR_DOOR_MOTION_SECONDS = 1;
 export const ELEVATOR_TRAVEL_SECONDS = 6;
 

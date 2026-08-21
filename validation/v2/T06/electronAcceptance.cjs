@@ -15,6 +15,8 @@ const reportPath = process.env.T06_ELECTRON_REPORT_FILE ?? null;
 const audioOnly = process.env.T06_ELECTRON_AUDIO_ONLY === "1";
 const poolStartOnly = process.env.T06_ELECTRON_POOL_START_ONLY === "1";
 const missionOnly = process.env.T06_ELECTRON_MISSION_ONLY === "1";
+const elevatorOnly =
+  process.env.T06_ELECTRON_ELEVATOR_ONLY === "1";
 if (
   applicationUrl.hostname !== "localhost" &&
   applicationUrl.hostname !== "127.0.0.1"
@@ -152,6 +154,7 @@ const inspectDom = (window) =>
       const npcSpawnReportText = document.body.dataset.v2NpcSpawnReport ?? null;
       const missionAcceptancePlacementText = document.body.dataset.v2MissionAcceptancePlacement ?? null;
       const missionAcceptanceSnapshotText = document.body.dataset.v2MissionAcceptanceSnapshot ?? null;
+      const elevatorNpcAcceptanceReportText = document.body.dataset.v2ElevatorNpcAcceptanceReport ?? null;
       return {
         titleHint: document.getElementById("titleStartHint")?.textContent ?? "",
         titleVisible: visible(document.getElementById("titleOverlay")),
@@ -175,6 +178,7 @@ const inspectDom = (window) =>
         missionAcceptanceScenario: document.body.dataset.v2MissionAcceptanceScenario ?? null,
         missionAcceptancePlacement: missionAcceptancePlacementText === null ? null : JSON.parse(missionAcceptancePlacementText),
         missionAcceptanceSnapshot: missionAcceptanceSnapshotText === null ? null : JSON.parse(missionAcceptanceSnapshotText),
+        elevatorNpcAcceptanceReport: elevatorNpcAcceptanceReportText === null ? null : JSON.parse(elevatorNpcAcceptanceReportText),
         completionGuideVisible: roleVisible("completion-guide"),
         completionGuideText: document.querySelector('[data-v2-runtime-hud-role="completion-guide"]')?.textContent ?? "",
         crosshairVisible: roleVisible("crosshair"),
@@ -488,6 +492,106 @@ const run = async () => {
   await testWindow.loadURL(applicationUrl.toString());
   testWindow.show();
   testWindow.focus();
+
+  if (elevatorOnly) {
+    assertCondition(
+      applicationUrl.searchParams.get("elevatorAcceptance") ===
+        "T06-4P-2",
+      "エレベーターNPC専用受入にはelevatorAcceptance=T06-4P-2が必要です。"
+    );
+    const completed = await waitFor(
+      "エレベーターNPC専用Runtime完了",
+      testWindow,
+      (snapshot) =>
+        snapshot.elevatorNpcAcceptanceReport?.status === "passed",
+      180_000
+    );
+    const spawnReport = assertNpcSpawnReport(
+      completed,
+      "エレベーターNPC専用session"
+    );
+    const elevatorReport = completed.elevatorNpcAcceptanceReport;
+    assertCondition(
+      elevatorReport.scenario === "T06-4P-2" &&
+        elevatorReport.seed === 20260821 &&
+        spawnReport.sessionSeed === 20260821,
+      "エレベーターNPC専用受入のscenarioまたは固定seedが不正です。"
+    );
+    assertCondition(
+      elevatorReport.population.npcCount === 50 &&
+        elevatorReport.followerIds.length === 5 &&
+        elevatorReport.followCommandAcceptedIds.length === 5,
+      "エレベーターNPC専用受入の通常人口またはFollow受理数が不正です。"
+    );
+    assertCondition(
+      elevatorReport.expectedDepartureDelaySeconds === 4 &&
+        Math.abs(elevatorReport.departureDelaySeconds - 4) <= 0.051,
+      `エレベーターNPC専用受入の発車猶予が4秒ではありません: ${elevatorReport.departureDelaySeconds}`
+    );
+    assertCondition(
+      elevatorReport.maximumCommittedActorCount <= 6 &&
+        elevatorReport.maximumPassengerCount <= 6,
+      "エレベーターNPC専用受入で定員6人を超過しました。"
+    );
+    assertCondition(
+      elevatorReport.autonomousRidingIds.length > 0 &&
+        elevatorReport.autonomousArrivedIds.some((npcId) =>
+          elevatorReport.autonomousRidingIds.includes(npcId)
+        ),
+      "通常人口の自律NPCが乗車・到着していません。"
+    );
+    const transitionKinds = new Set(
+      elevatorReport.transitions.map(
+        (transition) =>
+          `${transition.carState}:${transition.carDoorState}`
+      )
+    );
+    assertCondition(
+      transitionKinds.has("stopped:open") &&
+        transitionKinds.has("stopped:closing") &&
+        transitionKinds.has("moving:closed") &&
+        elevatorReport.transitions.some(
+          (transition) =>
+            transition.currentStopId ===
+              elevatorReport.destinationStopId &&
+            transition.carDoorState === "open"
+        ),
+      "エレベーターNPC専用受入の開扉・closing・走行・到着遷移が不足しています。"
+    );
+    assertCondition(
+      report.diagnostics.console.length === 0 &&
+        report.diagnostics.renderer.length === 0 &&
+        report.diagnostics.load.length === 0 &&
+        report.diagnostics.renderProcessGone.length === 0 &&
+        report.diagnostics.unresponsive.length === 0,
+      "エレベーターNPC専用Electron受入に診断エラーがあります。"
+    );
+    addCheck("通常人口のPlayer・Follower・自律NPCエレベーター遷移", {
+      seed: elevatorReport.seed,
+      population: elevatorReport.population,
+      followerIds: elevatorReport.followerIds,
+      departureDelaySeconds:
+        elevatorReport.departureDelaySeconds,
+      maximumCommittedActorCount:
+        elevatorReport.maximumCommittedActorCount,
+      maximumPassengerCount:
+        elevatorReport.maximumPassengerCount,
+      autonomousRidingIds:
+        elevatorReport.autonomousRidingIds,
+      autonomousArrivedIds:
+        elevatorReport.autonomousArrivedIds,
+      transitionCount: elevatorReport.transitions.length
+    });
+    addCheck("エレベーターNPC専用Electron診断0件", {
+      console: report.diagnostics.console.length,
+      renderer: report.diagnostics.renderer.length,
+      load: report.diagnostics.load.length,
+      renderProcessGone: report.diagnostics.renderProcessGone.length,
+      unresponsive: report.diagnostics.unresponsive.length
+    });
+    report.status = "passed";
+    return;
+  }
 
   if (missionOnly) {
     const scenario = applicationUrl.searchParams.get("missionAcceptance");
