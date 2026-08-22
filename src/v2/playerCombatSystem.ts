@@ -27,6 +27,7 @@ export const V2_PLAYER_GUN_BEAM_ORIGIN_OFFSET = 0.1;
 export type V2PlayerCombatSystemOptions = Readonly<{
   playerId: string;
   initialState: V2CharacterState;
+  instantBrainwash: boolean;
   random: () => number;
 }>;
 
@@ -80,6 +81,7 @@ const assertFiniteVector = (name: string, value: Vector3) => {
 export const createV2PlayerCombatSystem = ({
   playerId,
   initialState,
+  instantBrainwash,
   random
 }: V2PlayerCombatSystemOptions): V2PlayerCombatSystem => {
   if (playerId.length === 0) {
@@ -89,6 +91,8 @@ export const createV2PlayerCombatSystem = ({
   const stateSystem = createV2CharacterStateSystem({
     kind: "player",
     initialState,
+    instantBrainwash,
+    npcCompletionPercentages: null,
     random
   });
 

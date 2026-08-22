@@ -3,12 +3,7 @@ import {
   V2_PORTRAIT_ASSET_CATALOG,
   createV2PortraitAssetCatalogFromPublicPaths
 } from "../v2/v2PortraitAssetCatalog";
-import {
-  isV2TitleSettingsRecord,
-  readV2TitleSettingsRoot,
-  writeV2TitleSettingsSection,
-  type V2TitleSettingsStorage
-} from "../v2TitleSettingsStore";
+import type { V2TitleSettingsStore } from "../v2TitleSettingsStore";
 import { createTitledSettingsPanelRoot } from "./settingsPanelShared";
 
 export type V2CharacterSettings = Readonly<{
@@ -41,46 +36,6 @@ export type V2CharacterSettingsStore = Readonly<{
   save(settings: V2CharacterSettings): void;
 }>;
 
-const normalizeDirectory = (
-  value: unknown,
-  validDirectories: ReadonlySet<string>,
-): Readonly<{ value: string | null; changed: boolean }> => {
-  if (value === null) {
-    return Object.freeze({ value: null, changed: false });
-  }
-  if (typeof value === "string" && validDirectories.has(value)) {
-    return Object.freeze({ value, changed: false });
-  }
-  return Object.freeze({ value: null, changed: true });
-};
-
-const normalizeCharacterSpriteVerticalAngle = (
-  value: unknown,
-): Readonly<{ value: boolean; changed: boolean }> => {
-  if (value === undefined) {
-    return Object.freeze({ value: true, changed: true });
-  }
-  if (typeof value !== "boolean") {
-    throw new Error(
-      "enableCharacterSpriteVerticalAngleにはbooleanが必要です。",
-    );
-  }
-  return Object.freeze({ value, changed: false });
-};
-
-const writeSettings = (
-  storage: V2TitleSettingsStorage,
-  root: Record<string, unknown>,
-  settings: V2CharacterSettings,
-): void => {
-  writeV2TitleSettingsSection(storage, root, "playerSettings", {
-    portraitDirectory: settings.portraitDirectory,
-    voiceDirectory: settings.voiceDirectory,
-    enableCharacterSpriteVerticalAngle:
-      settings.enableCharacterSpriteVerticalAngle
-  });
-};
-
 const assertDirectorySelection = (
   label: string,
   directory: string | null,
@@ -92,7 +47,7 @@ const assertDirectorySelection = (
 };
 
 export const createV2CharacterSettingsStore = (
-  storage: V2TitleSettingsStorage,
+  settingsStore: V2TitleSettingsStore,
   portraitDirectories: readonly string[],
   voiceDirectories: readonly string[],
 ): V2CharacterSettingsStore => {
@@ -104,43 +59,13 @@ export const createV2CharacterSettingsStore = (
   const voiceDirectorySet = new Set(voiceDirectories);
   return Object.freeze({
     load: () => {
-      const storedSettings = readV2TitleSettingsRoot(storage);
-      if (!storedSettings.stored) {
-        return { ...V2_DEFAULT_CHARACTER_SETTINGS };
-      }
-      const playerSettings = isV2TitleSettingsRecord(
-        storedSettings.root.playerSettings,
-      )
-        ? storedSettings.root.playerSettings
-        : {};
-      const portraitDirectory = normalizeDirectory(
-        playerSettings.portraitDirectory,
-        portraitDirectorySet,
-      );
-      const voiceDirectory = normalizeDirectory(
-        playerSettings.voiceDirectory,
-        voiceDirectorySet,
-      );
-      const enableCharacterSpriteVerticalAngle =
-        normalizeCharacterSpriteVerticalAngle(
-          playerSettings.enableCharacterSpriteVerticalAngle,
-        );
-      const settings = Object.freeze({
-        portraitDirectory: portraitDirectory.value,
-        voiceDirectory: voiceDirectory.value,
+      const current = settingsStore.get();
+      return Object.freeze({
+        portraitDirectory: current.character.portraitDirectory,
+        voiceDirectory: current.character.voiceDirectory,
         enableCharacterSpriteVerticalAngle:
-          enableCharacterSpriteVerticalAngle.value,
+          current.display.enableCharacterSpriteVerticalAngle
       });
-      if (
-        storedSettings.changed ||
-        !isV2TitleSettingsRecord(storedSettings.root.playerSettings) ||
-        portraitDirectory.changed ||
-        voiceDirectory.changed ||
-        enableCharacterSpriteVerticalAngle.changed
-      ) {
-        writeSettings(storage, storedSettings.root, settings);
-      }
-      return settings;
     },
     save: (settings) => {
       assertDirectorySelection(
@@ -153,8 +78,18 @@ export const createV2CharacterSettingsStore = (
         settings.voiceDirectory,
         voiceDirectorySet,
       );
-      const storedSettings = readV2TitleSettingsRoot(storage);
-      writeSettings(storage, storedSettings.root, settings);
+      settingsStore.update((current) => ({
+        ...current,
+        character: {
+          portraitDirectory: settings.portraitDirectory,
+          voiceDirectory: settings.voiceDirectory
+        },
+        display: {
+          ...current.display,
+          enableCharacterSpriteVerticalAngle:
+            settings.enableCharacterSpriteVerticalAngle
+        }
+      }));
     },
   });
 };

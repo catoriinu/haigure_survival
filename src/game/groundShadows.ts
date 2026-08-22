@@ -27,7 +27,7 @@ export type GroundShadowSyncState = {
   layerMask: number;
 };
 
-type GroundShadowManager = {
+export type GroundShadowManager = {
   createGroundShadow: (
     name: string,
     kind: GroundShadowKind
@@ -37,6 +37,7 @@ type GroundShadowManager = {
     state: GroundShadowSyncState
   ) => void;
   disposeGroundShadow: (handle: GroundShadowHandle | null) => void;
+  dispose: () => void;
 };
 
 const shadowTextureSize = 256;
@@ -223,9 +224,19 @@ export const createGroundShadowManager = (scene: Scene): GroundShadowManager => 
     handle.mesh.dispose();
   };
 
+  const dispose = () => {
+    ellipseMaterial.dispose(false, false);
+    bitMaterial.dispose(false, false);
+    bitCircleMaterial.dispose(false, false);
+    ellipseTexture.dispose();
+    bitTexture.dispose();
+    bitCircleTexture.dispose();
+  };
+
   return {
     createGroundShadow,
     syncGroundShadow,
-    disposeGroundShadow
+    disposeGroundShadow,
+    dispose
   };
 };

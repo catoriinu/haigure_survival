@@ -28,7 +28,11 @@ import type { V2CharacterAssignments } from "../../../src/v2/v2CharacterAssignme
 import {
   createV2GameplayAudioEventQueue
 } from "../../../src/v2/gameplayAudioEventQueue";
-import { V2_TITLE_SETTINGS_STORAGE_KEY } from "../../../src/v2TitleSettingsStore";
+import {
+  V2_DEFAULT_TITLE_SETTINGS,
+  V2_TITLE_SETTINGS_STORAGE_KEY,
+  createV2TitleSettingsStore
+} from "../../../src/v2TitleSettingsStore";
 
 import { assert, assertThrows, executeTest } from "./testUtils";
 
@@ -521,12 +525,14 @@ export const runAudioRuntimeTests = async () =>
       return "level 0をMUTE、10を既存base gain、5を50%として即時反映";
     }),
     executeTest("保存設定なしの既定音量は全category 5", () => {
-      const store = createV2AudioVolumeSettingsStore({
+      const settingsStore = createV2TitleSettingsStore({
         getItem: () => null,
         setItem: () => {
           throw new Error("保存設定なしのloadで書込みが発生しました。");
         }
-      });
+      }, { portraitDirectories: [], voiceDirectories: [] });
+      settingsStore.load();
+      const store = createV2AudioVolumeSettingsStore(settingsStore);
       const loaded = store.load();
       assert(
         loaded.voice === 5 && loaded.bgm === 5 && loaded.se === 5,
@@ -539,28 +545,31 @@ export const runAudioRuntimeTests = async () =>
       values.set(
         V2_TITLE_SETTINGS_STORAGE_KEY,
         JSON.stringify({
-          language: "ja",
-          volumeLevels: {
+          ...V2_DEFAULT_TITLE_SETTINGS,
+          audio: {
             voice: 4,
             bgm: 3,
             se: 2,
             futureCategory: 9
-          }
+          },
+          futureField: "remove"
         })
       );
-      const store = createV2AudioVolumeSettingsStore({
+      const settingsStore = createV2TitleSettingsStore({
         getItem: (key: string) => values.get(key) ?? null,
         setItem: (key: string, value: string) => {
           values.set(key, value);
         }
-      });
+      }, { portraitDirectories: [], voiceDirectories: [] });
+      settingsStore.load();
+      const store = createV2AudioVolumeSettingsStore(settingsStore);
       const loaded = store.load();
       const muted = store.saveLevel(loaded, "voice", 0);
       const serialized = values.get(V2_TITLE_SETTINGS_STORAGE_KEY);
       const stored = serialized
         ? (JSON.parse(serialized) as {
-            language?: unknown;
-            volumeLevels?: Record<string, unknown>;
+            audio?: Record<string, unknown>;
+            futureField?: unknown;
           })
         : null;
       assert(
@@ -569,12 +578,13 @@ export const runAudioRuntimeTests = async () =>
       );
       assert(
         muted.voice === 0 &&
-          stored?.language === "ja" &&
-          stored.volumeLevels?.voice === 0 &&
-          stored.volumeLevels?.futureCategory === 9,
-        `MUTE保存時に既存設定が失われました: ${serialized ?? "なし"}`
+          stored?.audio?.voice === 0 &&
+          stored.audio?.bgm === 3 &&
+          stored.audio?.futureCategory === undefined &&
+          stored.futureField === undefined,
+        `MUTE保存またはcanonical化が不正です: ${serialized ?? "なし"}`
       );
-      return "VOICEを0へ保存し、他category・未知field・既存タイトル設定を保持";
+      return "VOICEを0へ保存し、他categoryを保持、未知fieldを削除";
     }),
     executeTest("AudioManager disposeの全音声停止・Context終了", async () => {
       type FakeAudioNode = Readonly<{

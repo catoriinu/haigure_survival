@@ -506,6 +506,12 @@ const createNpcFixture = async (
     characterVisuals: countingCharacterVisuals,
     npcCount,
     initialBrainwashedNpcCount,
+    brainwashSettings: Object.freeze({
+      instantBrainwash: false,
+      brainwashOnNoGunTouch: false,
+      gunPercent: 45,
+      noGunPercent: 45
+    }),
     diagnosticsEnabled: true,
     random: createInitializationRandom(
       npcCount,

@@ -283,6 +283,12 @@ const createRuntime = async (
         ),
         getOrbVisibilityPredicate,
         population: V2_PERFORMANCE_ACCEPTANCE_POPULATION,
+        brainwashSettings: Object.freeze({
+          instantBrainwash: false,
+          brainwashOnNoGunTouch: false,
+          gunPercent: 45,
+          noGunPercent: 45
+        }),
         performanceDiagnostics,
         performanceWorkloadScenario,
         releaseStageTraversalForScriptedPhase: () => {},
@@ -737,6 +743,12 @@ export const runSurvivalRuntimeLifecycleTests = async (
           initialBitCount: 0,
           bitReinforcementIntervalSeconds: 10,
           maximumBitCount: 0
+        }),
+        brainwashSettings: Object.freeze({
+          instantBrainwash: false,
+          brainwashOnNoGunTouch: false,
+          gunPercent: 45,
+          noGunPercent: 45
         }),
         performanceDiagnostics: null,
         performanceWorkloadScenario: null,

@@ -163,6 +163,7 @@ const CURRENT_BEAM_ORIGIN_KINDS = Object.freeze(
     "bit-random": true,
     "bit-carpet": true,
     "npc-gun": true,
+    "npc-no-gun-touch": true,
     "player-gun": true,
     "execution-bit": true,
     "execution-npc": true,
@@ -800,6 +801,10 @@ class StrictTraversalSurvivalHarness implements V2SurvivalRuntime {
     return true;
   }
 
+  setHostileActionsSuspended(_suspended: boolean): void {
+    this.unexpected("setHostileActionsSuspended");
+  }
+
   getHumanTargets(): readonly V2HumanTargetSnapshot[] {
     this.assertActive();
     this.humanTargetReadCount += 1;
@@ -1086,6 +1091,20 @@ class StrictTraversalSurvivalHarness implements V2SurvivalRuntime {
     _command: Parameters<V2SurvivalRuntime["requestBroadcast"]>[0]
   ): boolean {
     return this.unexpected("requestBroadcast");
+  }
+
+  previewNpcLocationMissionRoute(
+    _npcId: string,
+    _locationId: string
+  ): never {
+    return this.unexpected("previewNpcLocationMissionRoute");
+  }
+
+  requestNpcLocationMission(
+    _npcId: string,
+    _locationId: string
+  ): never {
+    return this.unexpected("requestNpcLocationMission");
   }
 
   getMissions(): ReturnType<V2SurvivalRuntime["getMissions"]> {

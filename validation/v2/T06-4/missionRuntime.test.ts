@@ -332,6 +332,9 @@ export const createMissionFixture = (options: Readonly<{
   playerRandom?: () => number;
   npcRandom?: () => number;
   broadcastRandom?: () => number;
+  completedBrainwashedBroadcastState?:
+    | "brainwash-complete-gun"
+    | "brainwash-complete-no-gun";
 }> = {}): MissionFixture => {
   const assignments = new Map<string, StoredNpcMission>();
   const conversionNpcIds: string[] = [];
@@ -379,6 +382,9 @@ export const createMissionFixture = (options: Readonly<{
       playerRandom: options.playerRandom ?? (() => 0.9),
       npcRandom: options.npcRandom ?? (() => 0.1),
       broadcastRandom: options.broadcastRandom ?? (() => 0.1),
+      completedBrainwashedBroadcastState:
+        options.completedBrainwashedBroadcastState ??
+        "brainwash-complete-gun",
       npcPort: port
     }),
     port,

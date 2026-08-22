@@ -24,7 +24,7 @@ const testCanonicalUniformSelection = () => {
   const reversed = Object.freeze([...createApprovedSpawns()].reverse());
   let randomCallCount = 0;
   const selectedIds = SCHOOL_PLAYER_SPAWN_IDS.map((_id, index) =>
-    selectV2PlayerSpawn(reversed, () => {
+    selectV2PlayerSpawn(reversed, "random", () => {
       randomCallCount += 1;
       return (index + 0.5) / SCHOOL_PLAYER_SPAWN_IDS.length;
     }).id
@@ -61,8 +61,8 @@ const testIndependentRandomSeries = () => {
   }
 
   const spawns = createApprovedSpawns();
-  const selectedA = selectV2PlayerSpawn(spawns, playerSeriesA).id;
-  const selectedB = selectV2PlayerSpawn(spawns, playerSeriesB).id;
+  const selectedA = selectV2PlayerSpawn(spawns, "random", playerSeriesA).id;
+  const selectedB = selectV2PlayerSpawn(spawns, "random", playerSeriesB).id;
   assert(
     selectedA === selectedB,
     `他系列の消費で開始地点系列が変化しました: ${selectedA}/${selectedB}`
@@ -86,7 +86,7 @@ const testIndependentRandomSeries = () => {
 const testStrictApprovedSet = () => {
   const approved = createApprovedSpawns();
   const missingMessage = captureThrownMessage(() =>
-    selectV2PlayerSpawn(approved.slice(1), () => 0)
+    selectV2PlayerSpawn(approved.slice(1), "random", () => 0)
   );
   const extraMessage = captureThrownMessage(() =>
     selectV2PlayerSpawn(
@@ -94,17 +94,19 @@ const testStrictApprovedSet = () => {
         ...approved,
         createPlayerSpawnStub("player-spawn-unapproved")
       ]),
+      "random",
       () => 0
     )
   );
   const duplicateMessage = captureThrownMessage(() =>
     selectV2PlayerSpawn(
       Object.freeze([...approved, approved[0]]),
+      "random",
       () => 0
     )
   );
   const invalidRandomMessage = captureThrownMessage(() =>
-    selectV2PlayerSpawn(approved, () => 1)
+    selectV2PlayerSpawn(approved, "random", () => 1)
   );
 
   assert(

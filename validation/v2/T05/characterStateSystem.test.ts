@@ -91,6 +91,8 @@ const testPlayerHitSequence = () => {
   const system = createV2CharacterStateSystem({
     kind: "player",
     initialState: "normal",
+    instantBrainwash: false,
+    npcCompletionPercentages: null,
     random: createRandomSequence([])
   });
   const accepted = system.applyImpact({
@@ -137,6 +139,8 @@ const testNpcBrainwashTransitions = () => {
   const system = createV2CharacterStateSystem({
     kind: "npc",
     initialState: "brainwash-in-progress",
+    instantBrainwash: false,
+    npcCompletionPercentages: Object.freeze({ gun: 45, noGun: 45 }),
     random: createRandomSequence([0.25, 0.75, 0.05, 0.2, 0.4])
   });
   system.update(V2_NPC_BRAINWASH_DECISION_SECONDS);
@@ -166,6 +170,8 @@ const testNpcNoGunTransition = () => {
   const system = createV2CharacterStateSystem({
     kind: "npc",
     initialState: "brainwash-complete-haigure",
+    instantBrainwash: false,
+    npcCompletionPercentages: Object.freeze({ gun: 45, noGun: 45 }),
     random: createRandomSequence([0.2, 0.8])
   });
   system.update(V2_NPC_HAIGURE_DECISION_SECONDS);
@@ -180,6 +186,8 @@ const testStrictBehaviorTransitions = () => {
   const aliveNpc = createV2CharacterStateSystem({
     kind: "npc",
     initialState: "normal",
+    instantBrainwash: false,
+    npcCompletionPercentages: Object.freeze({ gun: 45, noGun: 45 }),
     random: createRandomSequence([])
   });
   assert(
@@ -203,6 +211,8 @@ const testStrictBehaviorTransitions = () => {
   const brainwashedNpc = createV2CharacterStateSystem({
     kind: "npc",
     initialState: "brainwash-complete-no-gun",
+    instantBrainwash: false,
+    npcCompletionPercentages: Object.freeze({ gun: 45, noGun: 45 }),
     random: createRandomSequence([])
   });
   assert(
@@ -221,6 +231,8 @@ const testScriptedExecutionTransitions = () => {
   const hitAudience = createV2CharacterStateSystem({
     kind: "npc",
     initialState: "hit-b",
+    instantBrainwash: false,
+    npcCompletionPercentages: Object.freeze({ gun: 45, noGun: 45 }),
     random: createRandomSequence([])
   });
   hitAudience.prepareExecutionAudience();
@@ -235,6 +247,8 @@ const testScriptedExecutionTransitions = () => {
   const brainwashedShooter = createV2CharacterStateSystem({
     kind: "player",
     initialState: "brainwash-in-progress",
+    instantBrainwash: false,
+    npcCompletionPercentages: null,
     random: createRandomSequence([])
   });
   brainwashedShooter.prepareExecutionShooter();
@@ -248,6 +262,8 @@ const testScriptedExecutionTransitions = () => {
   const alive = createV2CharacterStateSystem({
     kind: "npc",
     initialState: "evade",
+    instantBrainwash: false,
+    npcCompletionPercentages: Object.freeze({ gun: 45, noGun: 45 }),
     random: createRandomSequence([])
   });
   assertThrows(
@@ -265,10 +281,51 @@ const testScriptedExecutionTransitions = () => {
   return "hit/brainwashを観客・射手へ正規化、alive誤用はthrow";
 };
 
+const testInstantBrainwash = () => {
+  const player = createV2CharacterStateSystem({
+    kind: "player",
+    initialState: "normal",
+    instantBrainwash: true,
+    npcCompletionPercentages: null,
+    random: createRandomSequence([])
+  });
+  player.applyImpact({
+    sourceId: "npc_0",
+    originKind: "npc-no-gun-touch"
+  });
+  const playerSnapshot = player.getSnapshot();
+  assert(
+    playerSnapshot.state === "brainwash-in-progress" &&
+      playerSnapshot.hitPhase === "none" &&
+      playerSnapshot.playerCompletionUnlocked,
+    "即時洗脳ONのPlayerが選択可能な洗脳中状態へ即時遷移しません。"
+  );
+
+  const npc = createV2CharacterStateSystem({
+    kind: "npc",
+    initialState: "normal",
+    instantBrainwash: true,
+    npcCompletionPercentages: Object.freeze({ gun: 0, noGun: 100 }),
+    random: createRandomSequence([0.75])
+  });
+  npc.applyImpact({
+    sourceId: "npc_1",
+    originKind: "npc-no-gun-touch"
+  });
+  const npcSnapshot = npc.getSnapshot();
+  assert(
+    npcSnapshot.state === "brainwash-complete-no-gun" &&
+      npcSnapshot.hitPhase === "none",
+    "即時洗脳ONのNPCが設定比率の完了状態へ即時遷移しません。"
+  );
+  return "Playerは即時選択可能、NPCは設定比率へ即時完了";
+};
+
 const testPlayerCombatStateWrapper = () => {
   const player = createV2PlayerCombatSystem({
     playerId: "player",
     initialState: "normal",
+    instantBrainwash: false,
     random: createRandomSequence([])
   });
   assert(
@@ -307,5 +364,6 @@ export const runCharacterStateSystemTests = () =>
     executeTest("NPC洗脳遷移no-gun経路", testNpcNoGunTransition),
     executeTest("厳格な行動・集合遷移", testStrictBehaviorTransitions),
     executeTest("公開処刑の強制状態遷移", testScriptedExecutionTransitions),
+    executeTest("即時洗脳", testInstantBrainwash),
     executeTest("player combat状態wrapper", testPlayerCombatStateWrapper)
   ]);

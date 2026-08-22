@@ -163,15 +163,17 @@ const inspectDom = (window) =>
         status: document.getElementById("statusInfo")?.textContent ?? "",
         pointerLockId: document.pointerLockElement?.id ?? null,
         hudRootCount: document.querySelectorAll('[data-v2-runtime-hud="root"]').length,
-        volumeRootCount: document.querySelectorAll('[data-ui="volume-panel"]').length,
-        volumeValues: Array.from(document.querySelectorAll('.volume-value')).map(
-          (element) => element.textContent ?? ""
+        volumeRootCount: document.querySelectorAll('[data-ui="v2-settings-audio"]').length,
+        volumeValues: Array.from(
+          document.querySelectorAll('[data-ui^="v2-settings-audio-"]')
+        ).map(
+          (element) => element.value ?? ""
         ),
-        characterSettingsRootCount: document.querySelectorAll('[data-ui="v2-character-settings"]').length,
-        portraitSelectCount: document.querySelectorAll('[data-ui="v2-player-portrait-select"]').length,
-        portraitSelection: document.querySelector('[data-ui="v2-player-portrait-select"]')?.value ?? null,
-        voiceSelectCount: document.querySelectorAll('[data-ui="v2-player-voice-select"]').length,
-        voiceSelection: document.querySelector('[data-ui="v2-player-voice-select"]')?.value ?? null,
+        characterSettingsRootCount: document.querySelectorAll('[data-ui="v2-settings-character"]').length,
+        portraitSelectCount: document.querySelectorAll('[data-ui="v2-settings-portrait"]').length,
+        portraitSelection: document.querySelector('[data-ui="v2-settings-portrait"]')?.value ?? null,
+        voiceSelectCount: document.querySelectorAll('[data-ui="v2-settings-voice"]').length,
+        voiceSelection: document.querySelector('[data-ui="v2-settings-voice"]')?.value ?? null,
         runtimeSessionSeed: document.body.dataset.v2RuntimeSessionSeed ?? null,
         playerSpawnId: document.body.dataset.v2PlayerSpawnId ?? null,
         npcSpawnReport: npcSpawnReportText === null ? null : JSON.parse(npcSpawnReportText),

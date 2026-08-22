@@ -21,17 +21,18 @@ import { AudioManager } from "../audio/audio";
 import {
   V2_AUDIO_ASSET_CATALOG,
   applyV2AudioVolumeLevels,
-  createV2AudioVolumeSettingsStore,
   createV2GameplayAudioBridge,
   createV2VoiceRuntime,
   getV2VoiceProfileIds
 } from "../audio/v2AudioRuntime";
-import { createVolumePanel } from "../ui/volumePanel";
+import { V2_PORTRAIT_ASSET_INVENTORY } from "../ui/v2CharacterSettings";
+import { createV2TitleSettingsPanel } from "../ui/v2TitleSettingsPanel";
 import {
-  V2_PORTRAIT_ASSET_INVENTORY,
-  createV2CharacterSettingsPanel,
-  createV2CharacterSettingsStore
-} from "../ui/v2CharacterSettings";
+  createBrowserV2TitleSettingsStore,
+  createV2FixtureTitleSettingsSnapshot,
+  createV2TitleSettingsSnapshot,
+  type V2TitleSettingsSnapshot
+} from "../v2TitleSettingsStore";
 import {
   canV2RuntimePlayerFire,
   createV2RuntimeHudController
@@ -253,19 +254,6 @@ const nextRuntimeSessionSeed = () => {
   crypto.getRandomValues(entropy);
   return entropy[0];
 };
-const roomVariantLevel = resolveV2RoomVariantLevel(location.search);
-const runtimePopulation = performanceScenario
-  ? V2_PERFORMANCE_ACCEPTANCE_POPULATION
-  : rampValidationTarget
-    ? Object.freeze({
-        npcCount: 0,
-        initialBrainwashedNpcCount: 0,
-        initialBitCount: 0,
-        bitReinforcementIntervalSeconds: 10,
-        maximumBitCount: 0
-      })
-    : runtimeStressScenario?.population ??
-      V2_TEST_SURVIVAL_POPULATION;
 const canvas = document.getElementById("renderCanvas") as unknown as HTMLCanvasElement;
 const minimapCanvas = document.getElementById(
   "minimapCanvas"
@@ -280,6 +268,42 @@ const titleStartHint = document.getElementById("titleStartHint") as HTMLDivEleme
 const titleMessage = document.getElementById("titleMessage") as HTMLDivElement;
 const titleMode = document.getElementById("titleMode") as HTMLDivElement;
 const titleVersion = document.getElementById("titleVersion") as HTMLDivElement;
+const audioAssets = V2_AUDIO_ASSET_CATALOG;
+const titleSettingsStore = createBrowserV2TitleSettingsStore({
+  portraitDirectories: V2_PORTRAIT_ASSET_INVENTORY.directories,
+  voiceDirectories: audioAssets.voiceDirectories
+});
+titleSettingsStore.load();
+
+const createSessionSettingsSnapshot = (): V2TitleSettingsSnapshot => {
+  const storedSettings = titleSettingsStore.get();
+  const roomVariantReviewRequested = new URLSearchParams(location.search).has(
+    "roomVariantReview"
+  );
+  const settings = roomVariantReviewRequested
+    ? {
+        ...storedSettings,
+        school: {
+          ...storedSettings.school,
+          roomDisorderLevel: resolveV2RoomVariantLevel(location.search)
+        }
+      }
+    : storedSettings;
+  const fixturePopulation = performanceScenario
+    ? V2_PERFORMANCE_ACCEPTANCE_POPULATION
+    : rampValidationTarget
+      ? Object.freeze({
+          npcCount: 0,
+          initialBrainwashedNpcCount: 0,
+          initialBitCount: 0,
+          bitReinforcementIntervalSeconds: 10,
+          maximumBitCount: 0
+        })
+      : runtimeStressScenario?.population ?? null;
+  return fixturePopulation === null
+    ? createV2TitleSettingsSnapshot(settings)
+    : createV2FixtureTitleSettingsSnapshot(settings, fixturePopulation);
+};
 
 if (performanceScenario) {
   canvas.style.width = "1920px";
@@ -294,11 +318,12 @@ type V2RuntimeSession = Readonly<{
 
 const createRuntimeSession = async (
   sessionSeed: number,
+  settingsSnapshot: V2TitleSettingsSnapshot,
   requestSessionRebuild: () => void
 ): Promise<V2RuntimeSession> => {
 markV2StartupPhase("runtime-session-creating");
 const roomVariantSelections = createSchoolRoomVariantSelections(
-  createSchoolRuntimeSettings(roomVariantLevel),
+  createSchoolRuntimeSettings(settingsSnapshot.school.roomDisorderLevel),
   sessionSeed
 );
 document.body.dataset.v2RuntimeSessionSeed = String(sessionSeed);
@@ -406,8 +431,6 @@ helpPanel.style.display = "none";
 const formatLoadError = (error: unknown) =>
   error instanceof Error ? error.message : String(error);
 
-const audioAssets = V2_AUDIO_ASSET_CATALOG;
-
 const initializeRuntime = async () => {
   let ownedStage: StageSpatialContext | null = null;
   let ownedDynamicRuntime: SchoolStageDynamicRuntime | null =
@@ -452,6 +475,7 @@ const initializeRuntime = async () => {
     );
     const playerSpawn = selectV2PlayerSpawn(
       ownedStage.playerSpawns.all,
+      settingsSnapshot.school.playerSpawn,
       createSchoolRuntimeRandom(sessionSeed, "player-spawn")
     );
     document.body.dataset.v2PlayerSpawnId = playerSpawn.id;
@@ -464,29 +488,24 @@ const initializeRuntime = async () => {
       camera,
       stage: ownedStage,
       playerSpawn,
-      input: ownedInput
+      input: ownedInput,
+      eyeHeightScale: settingsSnapshot.display.eyeHeightScale
     });
     const playerController = ownedPlayer;
     ownedInput = null;
-    const characterSettingsStore = createV2CharacterSettingsStore(
-      localStorage,
-      V2_PORTRAIT_ASSET_INVENTORY.directories,
-      audioAssets.voiceDirectories
-    );
-    const characterSettings = characterSettingsStore.load();
     const characterAssignments = createV2CharacterAssignments({
       actorIds: Object.freeze([
         "player",
         ...Array.from(
-          { length: runtimePopulation.npcCount },
+          { length: settingsSnapshot.runtimePopulation.npcCount },
           (_, index) => `npc_${index}`
         )
       ]),
       playerActorId: "player",
       voiceProfileIds: getV2VoiceProfileIds(),
       portraitDirectories: V2_PORTRAIT_ASSET_INVENTORY.directories,
-      playerVoiceDirectory: characterSettings.voiceDirectory,
-      playerPortraitDirectory: characterSettings.portraitDirectory,
+      playerVoiceDirectory: settingsSnapshot.character.voiceDirectory,
+      playerPortraitDirectory: settingsSnapshot.character.portraitDirectory,
       random: createSchoolRuntimeRandom(
         sessionSeed,
         "character-assignment"
@@ -496,8 +515,9 @@ const initializeRuntime = async () => {
     ownedCharacterVisuals = await createV2CharacterVisualRuntime({
       scene,
       assignments: characterAssignments,
+      showGroundShadows: settingsSnapshot.display.showGroundShadows,
       orientationMode:
-        characterSettings.enableCharacterSpriteVerticalAngle
+        settingsSnapshot.display.enableCharacterSpriteVerticalAngle
           ? "upright"
           : "camera-facing"
     });
@@ -511,7 +531,9 @@ const initializeRuntime = async () => {
       initialPlayerState:
         missionAcceptanceScenario === "haigure"
           ? "brainwash-complete-haigure"
-          : "normal",
+          : settingsSnapshot.population.startPlayerBrainwashed
+            ? "brainwash-complete-gun"
+            : "normal",
       characterVisuals,
       random: createSchoolRuntimeRandom(sessionSeed, "core"),
       npcSpawnRandom: createSchoolRuntimeRandom(
@@ -552,7 +574,14 @@ const initializeRuntime = async () => {
           Vector3.DistanceSquared(position, playerCenter) <= 25 &&
           Frustum.IsPointInFrustum(position, frustumPlanes);
       },
-      population: runtimePopulation,
+      population: settingsSnapshot.runtimePopulation,
+      brainwashSettings: Object.freeze({
+        instantBrainwash: settingsSnapshot.brainwash.instantBrainwash,
+        brainwashOnNoGunTouch:
+          settingsSnapshot.brainwash.brainwashOnNoGunTouch,
+        gunPercent: settingsSnapshot.brainwash.gunPercent,
+        noGunPercent: settingsSnapshot.brainwash.noGunPercent
+      }),
       performanceDiagnostics,
       performanceWorkloadScenario: performanceScenario,
       releaseStageTraversalForScriptedPhase: () => {
@@ -695,8 +724,6 @@ const initializeRuntime = async () => {
       survival: ownedSurvival,
       characterVisuals,
       characterAssignments,
-      characterSettings,
-      characterSettingsStore,
       alarmFloorVisual: ownedAlarmFloorVisual,
       navigationPolicy: selectNavigationRoute
     };
@@ -729,8 +756,6 @@ const {
   survival,
   characterVisuals,
   characterAssignments,
-  characterSettings,
-  characterSettingsStore,
   alarmFloorVisual,
   navigationPolicy
 } =
@@ -747,11 +772,8 @@ let ownedMinimap: ReturnType<
   typeof createV2MinimapController
 > | null = null;
 let ownedAudio: AudioManager | null = null;
-let ownedVolumePanel: ReturnType<
-  typeof createVolumePanel
-> | null = null;
-let ownedCharacterSettingsPanel: ReturnType<
-  typeof createV2CharacterSettingsPanel
+let ownedTitleSettingsPanel: ReturnType<
+  typeof createV2TitleSettingsPanel
 > | null = null;
 let ownedGameplayAudioBridge: ReturnType<
   typeof createV2GameplayAudioBridge
@@ -773,8 +795,7 @@ const disposeRuntime = async () => {
   ownedMissionHud?.dispose();
   ownedMinimap?.dispose();
   ownedPlayerCharacterVisual?.dispose();
-  ownedCharacterSettingsPanel?.dispose();
-  ownedVolumePanel?.dispose();
+  ownedTitleSettingsPanel?.dispose();
   ownedGameplayAudioBridge?.dispose();
   ownedVoiceRuntime?.dispose();
   ownedSchoolVisualAcceptanceBridge?.remove();
@@ -962,35 +983,18 @@ const playerCharacterVisual = createV2PlayerCharacterVisual(
 ownedPlayerCharacterVisual = playerCharacterVisual;
 const audio = new AudioManager(camera);
 ownedAudio = audio;
-const audioVolumeStore =
-  createV2AudioVolumeSettingsStore(localStorage);
-let audioVolumeLevels = audioVolumeStore.load();
+const audioVolumeLevels = settingsSnapshot.audio;
 applyV2AudioVolumeLevels(audio, audioVolumeLevels);
-const volumePanel = createVolumePanel({
+const titleSettingsPanel = createV2TitleSettingsPanel({
   parent: titleOverlay,
-  className: "volume-panel--title",
-  initialLevels: { ...audioVolumeLevels },
-  onChange: (category, level) => {
-    audioVolumeLevels = audioVolumeStore.saveLevel(
-      audioVolumeLevels,
-      category,
-      level
-    );
-    applyV2AudioVolumeLevels(audio, audioVolumeLevels);
-  }
-});
-ownedVolumePanel = volumePanel;
-const characterSettingsPanel = createV2CharacterSettingsPanel({
-  parent: titleOverlay,
-  initialSettings: characterSettings,
+  store: titleSettingsStore,
   portraitDirectories: V2_PORTRAIT_ASSET_INVENTORY.directories,
   voiceDirectories: audioAssets.voiceDirectories,
-  onChange: (nextSettings) => {
-    characterSettingsStore.save(nextSettings);
+  onSettingsChange: () => {
     requestSessionRebuild();
   }
 });
-ownedCharacterSettingsPanel = characterSettingsPanel;
+ownedTitleSettingsPanel = titleSettingsPanel;
 const gameplayAudioBridge = createV2GameplayAudioBridge({
   audio,
   assets: audioAssets,
@@ -2540,7 +2544,11 @@ const rebuildSession = () => {
       exitPointerLock: () => document.exitPointerLock(),
       showLoading: showSessionLoading,
       createSession: (sessionSeed) =>
-        createRuntimeSession(sessionSeed, rebuildSession)
+        createRuntimeSession(
+          sessionSeed,
+          createSessionSettingsSnapshot(),
+          rebuildSession
+        )
     });
   })()
     .catch((error: unknown) => {
@@ -2560,6 +2568,7 @@ const rebuildSession = () => {
 try {
   activeSession = await createRuntimeSession(
     nextRuntimeSessionSeed(),
+    createSessionSettingsSnapshot(),
     rebuildSession
   );
   markV2StartupPhase("runtime-session-ready");

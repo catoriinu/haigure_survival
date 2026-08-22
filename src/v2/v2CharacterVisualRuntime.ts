@@ -17,6 +17,10 @@ import {
   CHARACTER_SPRITE_IMAGE_WIDTH,
   createDefaultCharacterSpritesheet,
 } from "../game/characterSprites";
+import {
+  createGroundShadowManager,
+  type GroundShadowHandle
+} from "../game/groundShadows";
 import { BLENDER_METERS_TO_WORLD_UNITS } from "../world/worldUnits";
 import type { V2CharacterState } from "./combatTypes";
 import {
@@ -90,6 +94,7 @@ export type V2CharacterVisualRuntimeOptions = Readonly<{
   scene: Scene;
   assignments: V2CharacterAssignments;
   orientationMode: V2CharacterVisualOrientationMode;
+  showGroundShadows: boolean;
 }>;
 
 type V2CharacterVisualSheet = Readonly<{
@@ -127,6 +132,7 @@ type V2CharacterVisualSpriteRecord = {
   sprite: Sprite;
   presentation: V2CharacterVisualPresentation | null;
   managerResource: V2CharacterVisualManagerResource;
+  shadow: GroundShadowHandle | null;
   disposed: boolean;
 };
 
@@ -515,6 +521,7 @@ export const createV2CharacterVisualRuntime = async ({
   scene,
   assignments,
   orientationMode,
+  showGroundShadows,
 }: V2CharacterVisualRuntimeOptions): Promise<V2CharacterVisualRuntime> => {
   assertAssignments(assignments);
   const assignmentsByActorId = new Map(
@@ -538,6 +545,9 @@ export const createV2CharacterVisualRuntime = async ({
   >();
   const spriteRecords = new Set<V2CharacterVisualSpriteRecord>();
   const blobUrls = new Set<string>();
+  const groundShadowManager = showGroundShadows
+    ? createGroundShadowManager(scene)
+    : null;
 
   try {
     const directories = [...capacitiesByDirectory.keys()].sort();
@@ -608,6 +618,7 @@ export const createV2CharacterVisualRuntime = async ({
       return;
     }
     record.disposed = true;
+    groundShadowManager?.disposeGroundShadow(record.shadow);
     record.presentation?.mesh.dispose();
     record.sprite.dispose();
     record.managerResource.activeSpriteCount -= 1;
@@ -692,6 +703,10 @@ export const createV2CharacterVisualRuntime = async ({
         sprite,
         presentation,
         managerResource,
+        shadow: groundShadowManager?.createGroundShadow(
+          `V2CharacterGroundShadow_${instanceName}`,
+          "ellipse"
+        ) ?? null,
         disposed: false,
       };
       managerResource.activeSpriteCount += 1;
@@ -738,6 +753,20 @@ export const createV2CharacterVisualRuntime = async ({
               facingYaw,
             );
           }
+          if (record.shadow !== null && groundShadowManager !== null) {
+            groundShadowManager.syncGroundShadow(record.shadow, {
+              positionX: sprite.position.x,
+              positionY: sprite.position.y - sprite.height / 2,
+              positionZ: sprite.position.z,
+              width: sprite.width * 0.72,
+              depth: sprite.width * 0.42,
+              yaw: 0,
+              visibility: sprite.color.a,
+              visible: sprite.isVisible,
+              layerMask:
+                presentation?.mesh.layerMask ?? managerResource.manager.layerMask
+            });
+          }
         },
         dispose: () => {
           assertActive();
@@ -756,6 +785,7 @@ export const createV2CharacterVisualRuntime = async ({
         resource.manager.dispose();
       }
       managerResources.clear();
+      groundShadowManager?.dispose();
       for (const blobUrl of blobUrls) {
         URL.revokeObjectURL(blobUrl);
       }

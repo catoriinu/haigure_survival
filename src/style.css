@@ -786,6 +786,107 @@ body {
   border-color: #3a3a3a;
 }
 
+.v2-title-settings {
+  position: absolute;
+  inset: 16px 16px 16px auto;
+  width: min(620px, calc(50vw - 24px));
+  padding: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.24);
+  border-radius: 8px;
+  background: rgba(10, 10, 10, 0.9);
+  box-sizing: border-box;
+  overflow: auto;
+  color: #f5f5f5;
+  font-family: "IBM Plex Mono", "Fira Code", ui-monospace, monospace;
+  pointer-events: auto;
+}
+
+.v2-title-settings__grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.v2-title-settings__section[data-ui="v2-settings-school"],
+.v2-title-settings__section[data-ui="v2-settings-character"] {
+  grid-column: span 2;
+}
+
+.v2-title-settings__section {
+  min-width: 0;
+  padding: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.04);
+  box-sizing: border-box;
+}
+
+.v2-title-settings__section-title {
+  margin: 0 0 8px;
+  color: #b7ddff;
+  font-size: 14px;
+  letter-spacing: 0.08em;
+}
+
+.v2-title-settings__row {
+  display: grid;
+  grid-template-columns: minmax(90px, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  margin-top: 6px;
+  font-size: 12px;
+}
+
+.v2-title-settings__label {
+  min-width: 0;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.v2-title-settings__value {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.v2-title-settings__number,
+.v2-title-settings__select,
+.v2-title-settings__reset {
+  min-width: 0;
+  border: 1px solid #444444;
+  border-radius: 4px;
+  background: #141414;
+  color: #f5f5f5;
+  font: inherit;
+}
+
+.v2-title-settings__number {
+  width: 58px;
+  height: 24px;
+  padding: 0 5px;
+  box-sizing: border-box;
+}
+
+.v2-title-settings__select {
+  width: min(220px, 18vw);
+  height: 26px;
+  padding: 0 5px;
+}
+
+.v2-title-settings__checkbox {
+  width: 18px;
+  height: 18px;
+  margin: 0;
+}
+
+.v2-title-settings__reset {
+  display: block;
+  margin: 12px 0 0 auto;
+  padding: 7px 12px;
+  cursor: pointer;
+}
+
 #crosshair {
   position: absolute;
   left: 50%;

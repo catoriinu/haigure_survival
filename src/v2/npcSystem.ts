@@ -108,8 +108,6 @@ const NAVIGATION_PROJECTION_MAX_DISTANCE = 0.75;
 const PLACEMENT_PROJECTION_MAX_DISTANCE = 0.1;
 const GROUND_PROBE_UPWARD_OFFSET = 0.5;
 const GROUND_PROBE_DISTANCE = 1.5;
-const NPC_INITIAL_GUN_CHANCE = 0.45;
-const NPC_INITIAL_NO_GUN_CHANCE = 0.45;
 
 export const V2_NPC_GUN_RANGE = 1.5;
 export const V2_NPC_GUN_INTERVAL_MIN_SECONDS = 1.4;
@@ -263,6 +261,12 @@ export type V2NpcSystemOptions = Readonly<{
   characterVisuals: V2CharacterVisualRuntime;
   npcCount: number;
   initialBrainwashedNpcCount: number;
+  brainwashSettings: Readonly<{
+    instantBrainwash: boolean;
+    brainwashOnNoGunTouch: boolean;
+    gunPercent: number;
+    noGunPercent: number;
+  }>;
   diagnosticsEnabled: boolean;
   random: () => number;
   spawnRandom: () => number;
@@ -340,6 +344,11 @@ export type V2NpcBeamImpact = Readonly<{
   npcId: string;
   source: V2CharacterImpactSource;
   playerNoGunAssisted: boolean;
+}>;
+
+export type V2NpcContactBrainwashImpact = Readonly<{
+  sourceNpcId: string;
+  targetId: string;
 }>;
 
 export type V2NpcLocationMissionSource = "normal" | "broadcast";
@@ -475,6 +484,7 @@ export interface V2NpcSystem {
   applyBeamImpacts(
     impacts: readonly V2NpcBeamImpact[]
   ): readonly V2NpcStateChangeResult[];
+  drainContactBrainwashImpacts(): readonly V2NpcContactBrainwashImpact[];
   assignLocationMission(
     npcId: string,
     assignment: V2NpcLocationMissionAssignment
@@ -973,6 +983,11 @@ class SchoolV2NpcSystem implements V2NpcSystem {
   private readonly pendingBeamRequests: V2BeamRequest[] = [];
   private readonly pendingTraversalRequests: V2NpcTraversalRequest[] = [];
   private readonly pendingStateTransitions: V2NpcStateTransitionEvent[] = [];
+  private readonly pendingContactBrainwashImpacts: V2NpcContactBrainwashImpact[] = [];
+  private readonly instantBrainwash: boolean;
+  private readonly brainwashOnNoGunTouch: boolean;
+  private readonly brainwashGunPercent: number;
+  private readonly brainwashNoGunPercent: number;
   private frameView: V2NpcFrameView;
   private readonly grantedReplanNpcIds = new Set<string>();
   private readonly queuedReplanNpcs: NpcRuntime[] = [];
@@ -1049,6 +1064,20 @@ class SchoolV2NpcSystem implements V2NpcSystem {
     this.stage = options.stage;
     this.random = options.random;
     this.diagnosticsEnabled = options.diagnosticsEnabled;
+    this.instantBrainwash = options.brainwashSettings.instantBrainwash;
+    this.brainwashOnNoGunTouch =
+      options.brainwashSettings.brainwashOnNoGunTouch;
+    this.brainwashGunPercent = options.brainwashSettings.gunPercent;
+    this.brainwashNoGunPercent = options.brainwashSettings.noGunPercent;
+    if (
+      !Number.isInteger(this.brainwashGunPercent) ||
+      !Number.isInteger(this.brainwashNoGunPercent) ||
+      this.brainwashGunPercent < 0 ||
+      this.brainwashNoGunPercent < 0 ||
+      this.brainwashGunPercent + this.brainwashNoGunPercent > 100
+    ) {
+      throw new Error("NPC洗脳完了状態比率が不正です。");
+    }
     this.selectNavigationRoute = options.selectNavigationRoute;
     this.resolveTargetNavigationArea = options.resolveTargetNavigationArea;
     if (typeof this.resolveTargetNavigationArea !== "function") {
@@ -1178,6 +1207,11 @@ class SchoolV2NpcSystem implements V2NpcSystem {
         const stateSystem = createV2CharacterStateSystem({
           kind: "npc",
           initialState,
+          instantBrainwash: this.instantBrainwash,
+          npcCompletionPercentages: Object.freeze({
+            gun: this.brainwashGunPercent,
+            noGun: this.brainwashNoGunPercent
+          }),
           random: () => this.nextRandom()
         });
         const visual = options.characterVisuals.createSprite(id, id);
@@ -2108,6 +2142,13 @@ class SchoolV2NpcSystem implements V2NpcSystem {
     return Object.freeze(results);
   }
 
+  drainContactBrainwashImpacts() {
+    this.assertActive();
+    const impacts = Object.freeze([...this.pendingContactBrainwashImpacts]);
+    this.pendingContactBrainwashImpacts.length = 0;
+    return impacts;
+  }
+
   assignLocationMission(
     npcId: string,
     assignment: V2NpcLocationMissionAssignment
@@ -2870,6 +2911,7 @@ class SchoolV2NpcSystem implements V2NpcSystem {
     this.pendingBeamRequests.length = 0;
     this.pendingTraversalRequests.length = 0;
     this.pendingStateTransitions.length = 0;
+    this.pendingContactBrainwashImpacts.length = 0;
     for (const npc of this.npcs) {
       this.clearNpcCommand(npc, false);
       this.clearAutonomousState(npc);
@@ -5580,6 +5622,14 @@ class SchoolV2NpcSystem implements V2NpcSystem {
       Vector3.Distance(npc.footPosition, target.footPosition) <=
         V2_NPC_CAPTURE_RADIUS
     ) {
+      if (this.brainwashOnNoGunTouch) {
+        this.pendingContactBrainwashImpacts.push(
+          Object.freeze({ sourceNpcId: npc.id, targetId: target.id })
+        );
+        this.clearNavigationAgent(npc);
+        this.clearTarget(npc);
+        return;
+      }
       npc.capture = {
         targetId: target.id,
         remainingSeconds: V2_NPC_CAPTURE_DURATION_SECONDS,
@@ -6658,10 +6708,13 @@ class SchoolV2NpcSystem implements V2NpcSystem {
 
   private pickInitialBrainwashedState(): V2CharacterState {
     const roll = this.nextRandom();
-    if (roll < NPC_INITIAL_GUN_CHANCE) {
+    if (roll < this.brainwashGunPercent / 100) {
       return "brainwash-complete-gun";
     }
-    if (roll < NPC_INITIAL_GUN_CHANCE + NPC_INITIAL_NO_GUN_CHANCE) {
+    if (
+      roll <
+      (this.brainwashGunPercent + this.brainwashNoGunPercent) / 100
+    ) {
       return "brainwash-complete-no-gun";
     }
     return "brainwash-complete-haigure";

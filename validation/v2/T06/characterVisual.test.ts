@@ -177,9 +177,10 @@ export const runCharacterVisualTests = async (): Promise<
     executeTest("camera-facing Character表示Runtimeの所有契約", async () => {
       const engine = new NullEngine();
       const scene = new Scene(engine);
-      const runtime = await createV2CharacterVisualRuntime({
-        scene,
-        orientationMode: "camera-facing",
+    const runtime = await createV2CharacterVisualRuntime({
+      scene,
+      showGroundShadows: false,
+      orientationMode: "camera-facing",
         assignments: Object.freeze([
           Object.freeze({
             actorId: "player",
@@ -238,9 +239,10 @@ export const runCharacterVisualTests = async (): Promise<
     executeTest("upright Character表示Runtimeの同期と破棄", async () => {
       const engine = new NullEngine();
       const scene = new Scene(engine);
-      const runtime = await createV2CharacterVisualRuntime({
-        scene,
-        orientationMode: "upright",
+    const runtime = await createV2CharacterVisualRuntime({
+      scene,
+      showGroundShadows: true,
+      orientationMode: "upright",
         assignments: Object.freeze([
           Object.freeze({
             actorId: "player",
@@ -403,9 +405,10 @@ export const runCharacterVisualTests = async (): Promise<
       camera.maxZ = 10;
       scene.activeCamera = camera;
 
-      const runtime = await createV2CharacterVisualRuntime({
-        scene,
-        orientationMode: "upright",
+    const runtime = await createV2CharacterVisualRuntime({
+      scene,
+      showGroundShadows: false,
+      orientationMode: "upright",
         assignments: Object.freeze([
           Object.freeze({
             actorId: "npc-001",

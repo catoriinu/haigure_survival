@@ -439,6 +439,9 @@ export type V2MissionRuntimeOptions = Readonly<{
   playerRandom: () => number;
   npcRandom: () => number;
   broadcastRandom: () => number;
+  completedBrainwashedBroadcastState:
+    | "brainwash-complete-gun"
+    | "brainwash-complete-no-gun";
   npcPort: V2MissionNpcPort;
 }>;
 
@@ -898,6 +901,7 @@ export const createV2MissionRuntime = ({
   playerRandom,
   npcRandom,
   broadcastRandom,
+  completedBrainwashedBroadcastState,
   npcPort
 }: V2MissionRuntimeOptions): V2MissionRuntime => {
   const nextPlayerRandom = validateRandom("player Mission random", playerRandom);
@@ -2519,7 +2523,7 @@ export const createV2MissionRuntime = ({
       } else {
         lastSchoolInstruction = "courtyard";
         for (const npcId of npcPort.setCompletedBrainwashedNpcsState(
-          "brainwash-complete-gun"
+          completedBrainwashedBroadcastState
         )) {
           cancelNormalNpcMission(npcId);
         }

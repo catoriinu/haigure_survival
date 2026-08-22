@@ -208,6 +208,25 @@ export const runBroadcastRuntimeTests = async (): Promise<
       fixture.runtime.dispose();
       return "洗脳完了NPC全員のG変更を1回実行し、体育館／中庭のRegistry IDを厳密解決";
     }),
+    executeTest("銃なし接触洗脳ON時のハイグレ人間化はNへ変更", () => {
+      const fixture = createMissionFixture({
+        completedBrainwashedBroadcastState: "brainwash-complete-no-gun"
+      });
+      fixture.port.conversionNpcIds.push("npc-h");
+      executeBroadcast(
+        fixture,
+        "become-haigure-human",
+        "brainwash-complete-gun",
+        Object.freeze([])
+      );
+      assert(
+        fixture.port.conversionStates.join("|") ===
+          "brainwash-complete-no-gun",
+        "設定snapshotがN変更先へ接続されていません。"
+      );
+      fixture.runtime.dispose();
+      return "brainwashOnNoGunTouch相当のsnapshotで洗脳完了NPCをNへ変更";
+    }),
     executeTest("ハイグレ人間化は変換対象の通常Missionを置換", () => {
       const fixture = createMissionFixture({
         playerRandom: () => 0.9,

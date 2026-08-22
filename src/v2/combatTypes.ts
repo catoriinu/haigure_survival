@@ -122,6 +122,7 @@ export type V2BeamOriginKind =
   | "bit-random"
   | "bit-carpet"
   | "npc-gun"
+  | "npc-no-gun-touch"
   | "player-gun"
   | "execution-bit"
   | "execution-npc"

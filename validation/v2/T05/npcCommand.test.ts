@@ -463,6 +463,12 @@ const createNpcCommandFixture = async (
     characterVisuals,
     npcCount,
     initialBrainwashedNpcCount,
+    brainwashSettings: Object.freeze({
+      instantBrainwash: false,
+      brainwashOnNoGunTouch: false,
+      gunPercent: 45,
+      noGunPercent: 45
+    }),
     diagnosticsEnabled: true,
     random: createInitializationRandom(
       npcCount,
@@ -662,6 +668,7 @@ const testPlayerGunFireEventSnapshot = async () => {
   const gunPlayer = createV2PlayerCombatSystem({
     playerId: "player",
     initialState: "brainwash-complete-gun",
+    instantBrainwash: false,
     random: () => 0.5
   });
   const callerDirection = new Vector3(0, 0, 4);
@@ -705,6 +712,7 @@ const testPlayerGunFireEventSnapshot = async () => {
     const player = createV2PlayerCombatSystem({
       playerId: `player-${state}`,
       initialState: state,
+      instantBrainwash: false,
       random: () => 0.5
     });
     assert(
@@ -2315,6 +2323,7 @@ const testBrainwashedFollowersAndSynchronizedFire = async () => {
   const playerCombat = createV2PlayerCombatSystem({
     playerId: "player",
     initialState: "brainwash-complete-gun",
+    instantBrainwash: false,
     random: () => 0.5
   });
   try {
@@ -2693,6 +2702,7 @@ const testActualBeamCompletionEvents = async () => {
   const playerCombat = createV2PlayerCombatSystem({
     playerId: "player",
     initialState: "brainwash-complete-gun",
+    instantBrainwash: false,
     random: () => 0.5
   });
   const hitTargets: V2HumanTargetSnapshot[] = [];
@@ -2904,6 +2914,7 @@ const testActiveBeamSurvivesFollowRelease = async () => {
   const playerCombat = createV2PlayerCombatSystem({
     playerId: "player",
     initialState: "brainwash-complete-gun",
+    instantBrainwash: false,
     random: () => 0.5
   });
   try {
@@ -3682,6 +3693,7 @@ const testCommandLifecycleCleanup = async () => {
   const playerCombat = createV2PlayerCombatSystem({
     playerId: "player",
     initialState: "brainwash-complete-gun",
+    instantBrainwash: false,
     random: () => 0.5
   });
   const fireEvent = playerCombat.requestGunFire(

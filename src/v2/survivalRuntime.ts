@@ -365,6 +365,12 @@ export type V2SurvivalRuntimeOptions = Readonly<{
   broadcastMissionRandom: () => number;
   getOrbVisibilityPredicate(): (position: Vector3) => boolean;
   population: V2SurvivalPopulation;
+  brainwashSettings: Readonly<{
+    instantBrainwash: boolean;
+    brainwashOnNoGunTouch: boolean;
+    gunPercent: number;
+    noGunPercent: number;
+  }>;
   performanceDiagnostics: V2PerformanceDiagnostics | null;
   performanceWorkloadScenario: V2PerformanceScenario | null;
   releaseStageTraversalForScriptedPhase(): void;
@@ -458,6 +464,7 @@ export const createV2SurvivalRuntime = ({
   broadcastMissionRandom,
   getOrbVisibilityPredicate,
   population,
+  brainwashSettings,
   performanceDiagnostics,
   performanceWorkloadScenario,
   releaseStageTraversalForScriptedPhase,
@@ -519,6 +526,7 @@ export const createV2SurvivalRuntime = ({
   const playerCombat = createV2PlayerCombatSystem({
     playerId: PLAYER_ID,
     initialState: initialPlayerState,
+    instantBrainwash: brainwashSettings.instantBrainwash,
     random
   });
 
@@ -575,6 +583,7 @@ export const createV2SurvivalRuntime = ({
       npcCount: population.npcCount,
       initialBrainwashedNpcCount:
         population.initialBrainwashedNpcCount,
+      brainwashSettings,
       diagnosticsEnabled: performanceDiagnostics !== null,
       random,
       spawnRandom: npcSpawnRandom,
@@ -588,6 +597,10 @@ export const createV2SurvivalRuntime = ({
       playerRandom: playerMissionRandom,
       npcRandom: npcMissionRandom,
       broadcastRandom: broadcastMissionRandom,
+      completedBrainwashedBroadcastState:
+        brainwashSettings.brainwashOnNoGunTouch
+          ? "brainwash-complete-no-gun"
+          : "brainwash-complete-gun",
       npcPort: ownedNpcSystem
     });
     ownedBitSystem = createV2BitSystem(scene, stage, {
@@ -1251,6 +1264,51 @@ export const createV2SurvivalRuntime = ({
     }
   };
 
+  const applyNoGunContactBrainwashImpacts = (): void => {
+    const impacts = npcSystem.drainContactBrainwashImpacts();
+    let playerImpactAccepted = false;
+    for (const impact of impacts) {
+      const target = humanTargets.find(
+        (candidate) => candidate.id === impact.targetId
+      );
+      if (!target) {
+        throw new Error(
+          `銃なし接触洗脳の対象がありません: ${impact.targetId}`
+        );
+      }
+      const source = Object.freeze({
+        sourceId: impact.sourceNpcId,
+        originKind: "npc-no-gun-touch" as const
+      });
+      const accepted =
+        impact.targetId === PLAYER_ID
+          ? playerCombat.applyImpact(source)
+          : npcSystem.applyBeamImpacts(
+              Object.freeze([
+                Object.freeze({
+                  npcId: impact.targetId,
+                  source,
+                  playerNoGunAssisted: false
+                })
+              ])
+            )[0].accepted;
+      if (!accepted) {
+        continue;
+      }
+      playerImpactAccepted ||= impact.targetId === PLAYER_ID;
+      audioEventQueue.enqueue(
+        Object.freeze({
+          kind: "character-hit" as const,
+          position: target.aimPosition.clone()
+        })
+      );
+      hitEffectSystem.start(target);
+    }
+    if (playerImpactAccepted) {
+      npcSystem.notifyPlayerImpactAccepted();
+    }
+  };
+
   const buildBitThreats = (
     frameView: V2BitFrameView,
     actorById: ReadonlyMap<string, V2ActorSphere>,
@@ -1810,6 +1868,7 @@ export const createV2SurvivalRuntime = ({
           getPlayerTarget(),
           alarmFrame.events
         );
+        applyNoGunContactBrainwashImpacts();
         performanceDiagnostics?.finishSection(
           "npc",
           performanceSectionStartedAt
@@ -2056,6 +2115,7 @@ export const createV2SurvivalRuntime = ({
           getPlayerTarget(),
           EMPTY_ALARM_FRAME.events
         );
+        applyNoGunContactBrainwashImpacts();
         performanceDiagnostics?.finishSection(
           "npc",
           performanceSectionStartedAt

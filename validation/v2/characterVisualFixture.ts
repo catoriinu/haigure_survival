@@ -25,6 +25,7 @@ export const createDefaultV2CharacterVisualRuntime = async (
   return createV2CharacterVisualRuntime({
     scene,
     assignments,
+    showGroundShadows: false,
     orientationMode: "camera-facing"
   });
 };
