@@ -83,6 +83,7 @@ import {
   createV2RuntimeSessionEventScope,
   transitionV2RuntimeSession
 } from "./runtimeSessionLifecycle";
+import { doV2TitleSettingsSnapshotsMatch } from "./titleSettingsSession";
 import {
   createV2SurvivalRuntime,
   V2_PERFORMANCE_ACCEPTANCE_POPULATION,
@@ -316,10 +317,18 @@ type V2RuntimeSession = Readonly<{
   dispose(): Promise<void>;
 }>;
 
+type V2RuntimeSessionRebuildOptions = Readonly<{
+  startAfterCreate: boolean;
+  preservePointerLock: boolean;
+}>;
+
 const createRuntimeSession = async (
   sessionSeed: number,
   settingsSnapshot: V2TitleSettingsSnapshot,
-  requestSessionRebuild: () => void
+  requestSessionRebuild: (
+    options?: V2RuntimeSessionRebuildOptions
+  ) => void,
+  startImmediately: boolean
 ): Promise<V2RuntimeSession> => {
 markV2StartupPhase("runtime-session-creating");
 const roomVariantSelections = createSchoolRoomVariantSelections(
@@ -418,7 +427,7 @@ ambientLight.groundColor = new Color3(0.16, 0.2, 0.22);
 
 titleHeading.textContent = "HAIGURE SURVIVAL V2";
 titleStartHint.textContent = "";
-titleMessage.textContent = "学校3D空間を読み込んでいます";
+titleMessage.textContent = "NOW LOADING";
 titleMode.textContent = "学校3Dサバイバル基盤";
 titleVersion.textContent = "V2 3D SPATIAL RUNTIME";
 titleOverlay.style.display = "flex";
@@ -989,10 +998,7 @@ const titleSettingsPanel = createV2TitleSettingsPanel({
   parent: titleOverlay,
   store: titleSettingsStore,
   portraitDirectories: V2_PORTRAIT_ASSET_INVENTORY.directories,
-  voiceDirectories: audioAssets.voiceDirectories,
-  onSettingsChange: () => {
-    requestSessionRebuild();
-  }
+  voiceDirectories: audioAssets.voiceDirectories
 });
 ownedTitleSettingsPanel = titleSettingsPanel;
 const gameplayAudioBridge = createV2GameplayAudioBridge({
@@ -1994,6 +2000,22 @@ const handleCanvasClick: EventListener = () => {
   const wasStarted = started;
   const hadPointerLock =
     document.pointerLockElement === canvasElement;
+  if (
+    !wasStarted &&
+    !doV2TitleSettingsSnapshotsMatch(
+      settingsSnapshot,
+      createSessionSettingsSnapshot()
+    )
+  ) {
+    requestCanvasPointerLock();
+    requestSessionRebuild(
+      Object.freeze({
+        startAfterCreate: true,
+        preservePointerLock: true
+      })
+    );
+    return;
+  }
   startPlay(!hadPointerLock);
   const frame = survival.getFrame();
   if (
@@ -2007,6 +2029,10 @@ const handleCanvasClick: EventListener = () => {
 };
 
 eventScope.listen(canvas, "click", handleCanvasClick);
+
+if (startImmediately) {
+  startPlay(false);
+}
 
 const handlePointerLockChange: EventListener = () => {
   if (
@@ -2522,7 +2548,7 @@ const showSessionLoading = () => {
   titleOverlay.style.display = "flex";
   titleStartHint.style.display = "none";
   titleMessage.style.display = "block";
-  titleMessage.textContent = "学校3D空間を読み込んでいます";
+  titleMessage.textContent = "NOW LOADING";
   statusInfo.style.display = "none";
   helpPanel.style.display = "none";
   minimapCanvas.style.display = "none";
@@ -2530,7 +2556,12 @@ const showSessionLoading = () => {
   minimapReadout.textContent = "";
 };
 
-const rebuildSession = () => {
+const rebuildSession = (
+  options: V2RuntimeSessionRebuildOptions = Object.freeze({
+    startAfterCreate: false,
+    preservePointerLock: false
+  })
+) => {
   if (sessionTransition !== null || runtimeTerminated) {
     return;
   }
@@ -2541,13 +2572,18 @@ const rebuildSession = () => {
       currentSession: previousSession,
       nextRuntimeSeed: nextRuntimeSessionSeed,
       isCancelled: () => runtimeTerminated,
-      exitPointerLock: () => document.exitPointerLock(),
+      exitPointerLock: () => {
+        if (!options.preservePointerLock) {
+          document.exitPointerLock();
+        }
+      },
       showLoading: showSessionLoading,
       createSession: (sessionSeed) =>
         createRuntimeSession(
           sessionSeed,
           createSessionSettingsSnapshot(),
-          rebuildSession
+          rebuildSession,
+          options.startAfterCreate
         )
     });
   })()
@@ -2569,7 +2605,8 @@ try {
   activeSession = await createRuntimeSession(
     nextRuntimeSessionSeed(),
     createSessionSettingsSnapshot(),
-    rebuildSession
+    rebuildSession,
+    false
   );
   markV2StartupPhase("runtime-session-ready");
 } catch (error) {

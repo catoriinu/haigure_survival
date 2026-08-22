@@ -12,6 +12,7 @@ import {
   type V2TitleSettingsStorage
 } from "../../../src/v2TitleSettingsStore";
 import { createV2TitleSettingsPanel } from "../../../src/ui/v2TitleSettingsPanel";
+import { doV2TitleSettingsSnapshotsMatch } from "../../../src/v2/titleSettingsSession";
 import type { StagePlayerSpawn } from "../../../src/world/stageSpatialContext";
 import { assert, executeTest } from "../T06/testUtils";
 
@@ -107,6 +108,23 @@ export const runTitleSettingsTests = async () => [
     assert(snapshot.population.npcCount === 50 && snapshot.runtimePopulation.npcCount === 50, "開始後変更がsnapshotへ反映されました。");
     return "root／nested／runtimePopulation frozen、開始後変更非反映";
   }),
+  await executeTest("開始時snapshot差分判定", () => {
+    const active = createV2TitleSettingsSnapshot(V2_DEFAULT_TITLE_SETTINGS);
+    const same = createV2TitleSettingsSnapshot(V2_DEFAULT_TITLE_SETTINGS);
+    const changed = createV2TitleSettingsSnapshot({
+      ...V2_DEFAULT_TITLE_SETTINGS,
+      population: { ...V2_DEFAULT_TITLE_SETTINGS.population, npcCount: 23 }
+    });
+    assert(
+      doV2TitleSettingsSnapshotsMatch(active, same),
+      "同一設定を差分ありと判定しました。"
+    );
+    assert(
+      !doV2TitleSettingsSnapshotsMatch(active, changed),
+      "変更設定を差分なしと判定しました。"
+    );
+    return "同一snapshotは再構築不要、変更snapshotだけ開始時再構築";
+  }),
   await executeTest("承認済み11開始地点とrandom", () => {
     const spawns = SCHOOL_PLAYER_SPAWN_IDS.map((id) => Object.freeze({ id }) as StagePlayerSpawn);
     for (const id of SCHOOL_PLAYER_SPAWN_IDS) {
@@ -121,25 +139,70 @@ export const runTitleSettingsTests = async () => [
     const memory = createStorage();
     const store = createV2TitleSettingsStore(memory.storage, CATALOGS);
     store.load();
-    const changes = { count: 0 };
-    const getChangeCount = () => changes.count;
+    const writesBeforeUi = memory.writes.length;
     const panel = createV2TitleSettingsPanel({
       parent: host,
       store,
       portraitDirectories: CATALOGS.portraitDirectories,
-      voiceDirectories: CATALOGS.voiceDirectories,
-      onSettingsChange: () => { changes.count += 1; }
+      voiceDirectories: CATALOGS.voiceDirectories
     });
     const npcInput = panel.root.querySelector<HTMLInputElement>('[data-ui="v2-settings-npc-count"]')!;
     npcInput.value = "23";
     npcInput.dispatchEvent(new Event("change", { bubbles: true }));
-    assert(store.get().population.npcCount === 23 && getChangeCount() === 1, "UI変更が1回保存されません。");
+    assert(
+      store.get().population.npcCount === 23 &&
+        memory.writes.length === writesBeforeUi + 1,
+      "UI変更が1回保存されません。"
+    );
+    const noGunRatio = panel.root.querySelector<HTMLInputElement>('[data-ui="v2-settings-ratio-n"]')!;
+    noGunRatio.value = "80";
+    noGunRatio.dispatchEvent(new Event("input", { bubbles: true }));
+    assert(
+      store.get().brainwash.gunPercent === 20 &&
+        store.get().brainwash.noGunPercent === 80 &&
+        store.get().brainwash.haigurePercent === 0,
+      "銃なしslider変更時に銃ありを調整できません。"
+    );
+    panel.root
+      .querySelector<HTMLButtonElement>(
+        '[data-audio-channel="voice"][data-audio-action="increment"]'
+      )!
+      .click();
+    assert(store.get().audio.voice === 6, "VOICEの＋操作が保存されません。");
+    panel.root
+      .querySelector<HTMLButtonElement>(
+        '[data-audio-channel="voice"][data-audio-action="mute"]'
+      )!
+      .click();
+    assert(
+      store.get().audio.voice === 0 &&
+        panel.root.querySelector<HTMLOutputElement>(
+          '[data-ui="v2-settings-audio-voice"]'
+        )!.value === "MUTE",
+      "VOICEのMUTE操作が保存・表示されません。"
+    );
     panel.root.querySelector<HTMLButtonElement>('[data-ui="v2-settings-reset-all"]')!.click();
-    assert(store.get().population.npcCount === 50 && getChangeCount() === 2, "UI全resetが保存されません。");
+    assert(store.get().population.npcCount === 50, "UI全resetが保存されません。");
     assert(document.pointerLockElement === null, "設定操作中にPointer Lockを取得しました。");
     assert(panel.root.querySelectorAll("section").length === 7, "semantic sectionが7個ではありません。");
     assert(panel.root.querySelector<HTMLElement>('[data-ui="v2-settings-fixed-stage"]')!.textContent === "学校", "固定学校表示がありません。");
+    assert(panel.root.querySelector<HTMLElement>(".v2-title-settings__stage-host") !== null, "学校設定が左上hostへ分離されていません。");
+    assert(panel.root.querySelector<HTMLElement>(".v2-title-settings__audio-host") !== null, "音量設定が左下hostへ分離されていません。");
+    for (const uiId of [
+      "v2-settings-brainwashed-percent",
+      "v2-settings-eye-height",
+      "v2-settings-disorder",
+      "v2-settings-ratio-g",
+      "v2-settings-ratio-n"
+    ]) {
+      assert(panel.root.querySelector<HTMLInputElement>(`[data-ui="${uiId}"]`)?.type === "range", `${uiId}がsliderではありません。`);
+    }
+    const brainwashText = panel.root.querySelector<HTMLElement>('[data-ui="v2-settings-brainwash"]')!.textContent ?? "";
+    assert(brainwashText.includes("ポーズ") && brainwashText.includes("銃あり") && brainwashText.includes("銃なし") && !brainwashText.includes("G比率"), "V1相当の洗脳完了表示名ではありません。");
+    assert(panel.root.querySelectorAll<HTMLButtonElement>('[data-audio-channel]').length === 9, "V1相当の音量操作ボタンがありません。");
+    const modeButton = panel.root.querySelector<HTMLButtonElement>('[data-ui="title-instant-execution-toggle-button"]')!;
+    assert(modeButton.disabled && modeButton.textContent === "いきなり公開処刑モードに変更", "操作不能な公開処刑modeボタンがありません。");
     panel.dispose();
-    return "7 section、固定学校、変更保存、全reset、Pointer Lockなし";
+    return "V1操作部品、独立配置、無効modeボタン、変更保存、Pointer Lockなし";
   })
 ];

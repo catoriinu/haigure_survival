@@ -21,12 +21,21 @@ export type V2TitleSettingsPanelOptions = Readonly<{
   store: V2TitleSettingsStore;
   portraitDirectories: readonly string[];
   voiceDirectories: readonly string[];
-  onSettingsChange(settings: V2TitleSettings): void;
 }>;
 
-const createSection = (title: string, uiId: string): HTMLElement => {
+type EventSubscription = Readonly<{
+  target: EventTarget;
+  type: string;
+  listener: EventListener;
+}>;
+
+const createSection = (
+  title: string,
+  uiId: string,
+  placement: "stage" | "audio" | "main"
+): HTMLElement => {
   const section = document.createElement("section");
-  section.className = "v2-title-settings__section";
+  section.className = `v2-title-settings__section v2-title-settings__section--${placement}`;
   section.dataset.ui = uiId;
   const heading = document.createElement("h2");
   heading.className = "v2-title-settings__section-title";
@@ -66,12 +75,35 @@ const createNumberInput = (
   return input;
 };
 
+const createRangeInput = (
+  minimum: number,
+  maximum: number,
+  step: number,
+  uiId: string
+): HTMLInputElement => {
+  const input = document.createElement("input");
+  input.className = "v2-title-settings__range";
+  input.type = "range";
+  input.min = String(minimum);
+  input.max = String(maximum);
+  input.step = String(step);
+  input.dataset.ui = uiId;
+  return input;
+};
+
 const createCheckbox = (uiId: string): HTMLInputElement => {
   const input = document.createElement("input");
   input.className = "v2-title-settings__checkbox";
   input.type = "checkbox";
   input.dataset.ui = uiId;
   return input;
+};
+
+const createOutput = (uiId: string): HTMLOutputElement => {
+  const output = document.createElement("output");
+  output.className = "v2-title-settings__output";
+  output.dataset.ui = uiId;
+  return output;
 };
 
 const appendOptions = (
@@ -90,40 +122,40 @@ export const createV2TitleSettingsPanel = ({
   parent,
   store,
   portraitDirectories,
-  voiceDirectories,
-  onSettingsChange
+  voiceDirectories
 }: V2TitleSettingsPanelOptions): V2TitleSettingsPanel => {
   const root = document.createElement("div");
   root.className = "v2-title-settings";
   root.dataset.ui = "v2-title-settings";
   root.dataset.schemaVersion = String(V2_TITLE_SETTINGS_SCHEMA_VERSION);
-  const grid = document.createElement("div");
-  grid.className = "v2-title-settings__grid";
-  root.append(grid);
 
-  const populationSection = createSection("人口", "v2-settings-population");
-  const npcCountRow = createRow("NPC人数");
+  const stageHost = document.createElement("div");
+  stageHost.className = "v2-title-settings__stage-host";
+  const audioHost = document.createElement("div");
+  audioHost.className = "v2-title-settings__audio-host";
+  const mainHost = document.createElement("div");
+  mainHost.className = "v2-title-settings__main-host";
+  const mainGrid = document.createElement("div");
+  mainGrid.className = "v2-title-settings__main-grid";
+  mainHost.append(mainGrid);
+  root.append(stageHost, audioHost, mainHost);
+
+  const populationSection = createSection("人口", "v2-settings-population", "main");
+  const npcCountRow = createRow("NPC初期人数");
   const npcCount = createNumberInput(0, 99, 1, "v2-settings-npc-count");
   npcCountRow.valueHost.append(npcCount);
-  const brainwashedPercentRow = createRow("初期洗脳済み率");
-  const brainwashedPercent = createNumberInput(
-    0,
-    100,
-    1,
-    "v2-settings-brainwashed-percent"
-  );
-  brainwashedPercentRow.valueHost.append(brainwashedPercent, "%");
-  const playerBrainwashedRow = createRow("Player初期洗脳済み");
+  const brainwashedPercentRow = createRow("NPC洗脳完了済み人数");
+  brainwashedPercentRow.row.classList.add("v2-title-settings__row--range");
+  const brainwashedPercent = createRangeInput(0, 100, 1, "v2-settings-brainwashed-percent");
+  const brainwashedPercentValue = createOutput("v2-settings-brainwashed-percent-value");
+  brainwashedPercentRow.valueHost.append(brainwashedPercent, brainwashedPercentValue);
+  const playerBrainwashedRow = createRow("プレイヤーが洗脳完了済み");
   const playerBrainwashed = createCheckbox("v2-settings-player-brainwashed");
   playerBrainwashedRow.valueHost.append(playerBrainwashed);
-  populationSection.append(
-    npcCountRow.row,
-    brainwashedPercentRow.row,
-    playerBrainwashedRow.row
-  );
+  populationSection.append(npcCountRow.row, brainwashedPercentRow.row, playerBrainwashedRow.row);
 
-  const bitSection = createSection("BIT", "v2-settings-bit");
-  const bitDisabledRow = createRow("BIT無効化");
+  const bitSection = createSection("BIT", "v2-settings-bit", "main");
+  const bitDisabledRow = createRow("BITを出現させない");
   const bitDisabled = createCheckbox("v2-settings-bit-disabled");
   bitDisabledRow.valueHost.append(bitDisabled);
   const bitIntervalRow = createRow("増援間隔（秒）");
@@ -134,97 +166,51 @@ export const createV2TitleSettingsPanel = ({
   bitMaximumRow.valueHost.append(bitMaximum);
   bitSection.append(bitDisabledRow.row, bitIntervalRow.row, bitMaximumRow.row);
 
-  const audioSection = createSection("音量", "v2-settings-audio");
-  const audioInputs = Object.freeze({
-    bgm: createNumberInput(0, 10, 1, "v2-settings-audio-bgm"),
-    se: createNumberInput(0, 10, 1, "v2-settings-audio-se"),
-    voice: createNumberInput(0, 10, 1, "v2-settings-audio-voice")
-  });
-  for (const [key, label] of [
-    ["bgm", "BGM"],
-    ["se", "SE"],
-    ["voice", "VOICE"]
-  ] as const) {
-    const row = createRow(label);
-    row.valueHost.append(audioInputs[key]);
-    audioSection.append(row.row);
-  }
-
-  const displaySection = createSection("表示", "v2-settings-display");
+  const displaySection = createSection("表示", "v2-settings-display", "main");
   const eyeHeightRow = createRow("視点高さ");
-  const eyeHeight = createNumberInput(0.5, 1.5, 0.05, "v2-settings-eye-height");
-  eyeHeightRow.valueHost.append(eyeHeight);
-  const shadowsRow = createRow("地面影");
+  eyeHeightRow.row.classList.add("v2-title-settings__row--range");
+  const eyeHeight = createRangeInput(0.5, 1.5, 0.05, "v2-settings-eye-height");
+  const eyeHeightValue = createOutput("v2-settings-eye-height-value");
+  eyeHeightRow.valueHost.append(eyeHeight, eyeHeightValue);
+  const shadowsRow = createRow("影を表示する");
   const shadows = createCheckbox("v2-settings-ground-shadows");
   shadowsRow.valueHost.append(shadows);
-  const verticalRow = createRow("Characterを地面に垂直表示");
+  const verticalRow = createRow("キャラ画像の縦角度をカメラに追従");
   const vertical = createCheckbox("v2-settings-character-vertical");
   verticalRow.valueHost.append(vertical);
   displaySection.append(eyeHeightRow.row, shadowsRow.row, verticalRow.row);
 
-  const brainwashSection = createSection("洗脳", "v2-settings-brainwash");
-  const instantRow = createRow("即時洗脳");
+  const brainwashSection = createSection("洗脳", "v2-settings-brainwash", "main");
+  const instantRow = createRow("洗脳進行中を経ずに即洗脳");
   const instant = createCheckbox("v2-settings-instant-brainwash");
   instantRow.valueHost.append(instant);
-  const touchRow = createRow("銃なし接触洗脳");
+  const touchRow = createRow("銃なしに触れたら洗脳");
   const touch = createCheckbox("v2-settings-no-gun-touch");
   touchRow.valueHost.append(touch);
-  const ratioInputs = Object.freeze({
-    gun: createNumberInput(0, 100, 1, "v2-settings-ratio-g"),
-    noGun: createNumberInput(0, 100, 1, "v2-settings-ratio-n")
-  });
-  const gunRow = createRow("G比率");
-  gunRow.valueHost.append(ratioInputs.gun, "%");
-  const noGunRow = createRow("N比率");
-  noGunRow.valueHost.append(ratioInputs.noGun, "%");
-  const haigureRow = createRow("H比率（残余）");
-  const haigureValue = document.createElement("output");
-  haigureValue.dataset.ui = "v2-settings-ratio-h";
-  haigureRow.valueHost.append(haigureValue);
-  brainwashSection.append(
-    instantRow.row,
-    touchRow.row,
-    gunRow.row,
-    noGunRow.row,
-    haigureRow.row
-  );
+  const poseRow = createRow("ポーズ");
+  const poseValue = createOutput("v2-settings-ratio-h");
+  poseRow.valueHost.append(poseValue);
+  const gunRow = createRow("銃あり");
+  gunRow.row.classList.add("v2-title-settings__row--range");
+  const gunRatio = createRangeInput(0, 100, 1, "v2-settings-ratio-g");
+  const gunValue = createOutput("v2-settings-ratio-g-value");
+  gunRow.valueHost.append(gunRatio, gunValue);
+  const noGunRow = createRow("銃なし");
+  noGunRow.row.classList.add("v2-title-settings__row--range");
+  const noGunRatio = createRangeInput(0, 100, 1, "v2-settings-ratio-n");
+  const noGunValue = createOutput("v2-settings-ratio-n-value");
+  noGunRow.valueHost.append(noGunRatio, noGunValue);
+  brainwashSection.append(instantRow.row, touchRow.row, poseRow.row, gunRow.row, noGunRow.row);
 
-  const schoolSection = createSection("学校", "v2-settings-school");
-  const stageRow = createRow("ステージ");
-  const stage = document.createElement("strong");
-  stage.dataset.ui = "v2-settings-fixed-stage";
-  stage.textContent = "学校";
-  stageRow.valueHost.append(stage);
-  const disorderRow = createRow("荒れ度");
-  const disorder = createNumberInput(0, 10, 1, "v2-settings-disorder");
-  disorderRow.valueHost.append(disorder);
-  const spawnRow = createRow("Player開始地点");
-  const spawn = document.createElement("select");
-  spawn.className = "v2-title-settings__select";
-  spawn.dataset.ui = "v2-settings-player-spawn";
-  appendOptions(spawn, [
-    Object.freeze({ value: "random", label: "ランダム" }),
-    ...SCHOOL_PLAYER_SPAWN_OPTIONS.map(({ id, label }) =>
-      Object.freeze({ value: id, label })
-    )
-  ]);
-  spawnRow.valueHost.append(spawn);
-  schoolSection.append(stageRow.row, disorderRow.row, spawnRow.row);
-
-  const characterSection = createSection("Character", "v2-settings-character");
+  const characterSection = createSection("Character", "v2-settings-character", "main");
   const portraitRow = createRow("自キャラ");
   const portrait = document.createElement("select");
   portrait.className = "v2-title-settings__select";
   portrait.dataset.ui = "v2-settings-portrait";
   appendOptions(portrait, [
     Object.freeze({ value: "", label: "ランダム選択" }),
-    Object.freeze({
-      value: V2_DEFAULT_PORTRAIT_DIRECTORY,
-      label: "デフォルトスプライト"
-    }),
-    ...portraitDirectories.map((directory) =>
-      Object.freeze({ value: directory, label: directory })
-    )
+    Object.freeze({ value: V2_DEFAULT_PORTRAIT_DIRECTORY, label: "デフォルトスプライト" }),
+    ...portraitDirectories.map((directory) => Object.freeze({ value: directory, label: directory }))
   ]);
   portraitRow.valueHost.append(portrait);
   const voiceRow = createRow("自ボイス");
@@ -233,137 +219,256 @@ export const createV2TitleSettingsPanel = ({
   voice.dataset.ui = "v2-settings-voice";
   appendOptions(voice, [
     Object.freeze({ value: "", label: "ランダム選択" }),
-    ...voiceDirectories.map((directory) =>
-      Object.freeze({ value: directory, label: directory })
-    )
+    ...voiceDirectories.map((directory) => Object.freeze({ value: directory, label: directory }))
   ]);
   voiceRow.valueHost.append(voice);
   characterSection.append(portraitRow.row, voiceRow.row);
+  mainGrid.append(populationSection, bitSection, displaySection, brainwashSection, characterSection);
 
-  grid.append(
-    populationSection,
-    bitSection,
-    audioSection,
-    displaySection,
-    brainwashSection,
-    schoolSection,
-    characterSection
-  );
+  const schoolSection = createSection("学校", "v2-settings-school", "stage");
+  const stageRow = createRow("ステージ");
+  const stage = document.createElement("strong");
+  stage.dataset.ui = "v2-settings-fixed-stage";
+  stage.textContent = "学校";
+  stageRow.valueHost.append(stage);
+  const disorderRow = createRow("荒れ度");
+  disorderRow.row.classList.add("v2-title-settings__row--range");
+  const disorder = createRangeInput(0, 10, 1, "v2-settings-disorder");
+  const disorderValue = createOutput("v2-settings-disorder-value");
+  disorderRow.valueHost.append(disorder, disorderValue);
+  const spawnRow = createRow("Player開始地点");
+  const spawn = document.createElement("select");
+  spawn.className = "v2-title-settings__select";
+  spawn.dataset.ui = "v2-settings-player-spawn";
+  appendOptions(spawn, [
+    Object.freeze({ value: "random", label: "ランダム" }),
+    ...SCHOOL_PLAYER_SPAWN_OPTIONS.map(({ id, label }) => Object.freeze({ value: id, label }))
+  ]);
+  spawnRow.valueHost.append(spawn);
+  schoolSection.append(stageRow.row, disorderRow.row, spawnRow.row);
+  stageHost.append(schoolSection);
 
+  const audioSection = createSection("VOLUME", "v2-settings-audio", "audio");
+  const audioOutputs = Object.freeze({
+    voice: createOutput("v2-settings-audio-voice"),
+    bgm: createOutput("v2-settings-audio-bgm"),
+    se: createOutput("v2-settings-audio-se")
+  });
+  const audioButtons: HTMLButtonElement[] = [];
+  const audioRows = Object.freeze({
+    voice: createRow("VOICE"),
+    bgm: createRow("BGM"),
+    se: createRow("SE")
+  });
+  for (const key of ["voice", "bgm", "se"] as const) {
+    const decrement = document.createElement("button");
+    decrement.type = "button";
+    decrement.className = "v2-title-settings__audio-button";
+    decrement.dataset.audioAction = "decrement";
+    decrement.dataset.audioChannel = key;
+    decrement.textContent = "−";
+    decrement.setAttribute("aria-label", `${key.toUpperCase()}を下げる`);
+    const increment = document.createElement("button");
+    increment.type = "button";
+    increment.className = "v2-title-settings__audio-button";
+    increment.dataset.audioAction = "increment";
+    increment.dataset.audioChannel = key;
+    increment.textContent = "+";
+    increment.setAttribute("aria-label", `${key.toUpperCase()}を上げる`);
+    const mute = document.createElement("button");
+    mute.type = "button";
+    mute.className = "v2-title-settings__audio-button v2-title-settings__audio-button--mute";
+    mute.dataset.audioAction = "mute";
+    mute.dataset.audioChannel = key;
+    mute.textContent = "MUTE";
+    mute.setAttribute("aria-label", `${key.toUpperCase()}をミュートする`);
+    audioRows[key].valueHost.append(decrement, audioOutputs[key], increment, mute);
+    audioButtons.push(decrement, increment, mute);
+    audioSection.append(audioRows[key].row);
+  }
+  audioHost.append(audioSection);
+
+  const modeButton = document.createElement("button");
+  modeButton.type = "button";
+  modeButton.className = "v2-title-settings__mode-placeholder";
+  modeButton.dataset.ui = "title-instant-execution-toggle-button";
+  modeButton.textContent = "いきなり公開処刑モードに変更";
+  modeButton.disabled = true;
+  const modeNote = document.createElement("span");
+  modeNote.className = "v2-title-settings__mode-placeholder-note";
+  modeNote.textContent = "（準備中）";
   const resetButton = document.createElement("button");
   resetButton.type = "button";
   resetButton.className = "v2-title-settings__reset";
   resetButton.dataset.ui = "v2-settings-reset-all";
-  resetButton.textContent = "全設定リセット";
-  root.append(resetButton);
+  resetButton.textContent = "全設定をリセットする";
+  mainHost.append(resetButton);
+  root.append(modeButton, modeNote);
 
   let settings = store.get();
   const render = (nextSettings: V2TitleSettings): void => {
     settings = nextSettings;
     npcCount.value = String(settings.population.npcCount);
-    brainwashedPercent.value = String(
-      settings.population.initialBrainwashedNpcPercent
+    brainwashedPercent.value = String(settings.population.initialBrainwashedNpcPercent);
+    const brainwashedCount = Math.floor(
+      settings.population.npcCount * settings.population.initialBrainwashedNpcPercent / 100
     );
+    brainwashedPercentValue.value = `${settings.population.initialBrainwashedNpcPercent}%（${brainwashedCount}人）`;
     playerBrainwashed.checked = settings.population.startPlayerBrainwashed;
     bitDisabled.checked = settings.bit.disabled;
     bitInterval.value = String(settings.bit.reinforcementIntervalSeconds);
     bitMaximum.value = String(settings.bit.maximumCount);
     bitInterval.disabled = settings.bit.disabled;
     bitMaximum.disabled = settings.bit.disabled;
-    audioInputs.bgm.value = String(settings.audio.bgm);
-    audioInputs.se.value = String(settings.audio.se);
-    audioInputs.voice.value = String(settings.audio.voice);
+    for (const key of ["voice", "bgm", "se"] as const) {
+      const value = settings.audio[key];
+      audioOutputs[key].value = value === 0 ? "MUTE" : String(value);
+    }
     eyeHeight.value = settings.display.eyeHeightScale.toFixed(2);
+    eyeHeightValue.value = settings.display.eyeHeightScale.toFixed(2);
     shadows.checked = settings.display.showGroundShadows;
     vertical.checked = settings.display.enableCharacterSpriteVerticalAngle;
     instant.checked = settings.brainwash.instantBrainwash;
     touch.checked = settings.brainwash.brainwashOnNoGunTouch;
-    ratioInputs.gun.value = String(settings.brainwash.gunPercent);
-    ratioInputs.noGun.value = String(settings.brainwash.noGunPercent);
-    haigureValue.value = `${settings.brainwash.haigurePercent}%`;
+    gunRatio.value = String(settings.brainwash.gunPercent);
+    gunValue.value = `${settings.brainwash.gunPercent}%`;
+    noGunRatio.value = String(settings.brainwash.noGunPercent);
+    noGunValue.value = `${settings.brainwash.noGunPercent}%`;
+    poseValue.value = `${settings.brainwash.haigurePercent}%`;
     disorder.value = String(settings.school.roomDisorderLevel);
+    disorderValue.value = String(settings.school.roomDisorderLevel);
     spawn.value = settings.school.playerSpawn;
     portrait.value = settings.character.portraitDirectory ?? "";
     voice.value = settings.character.voiceDirectory ?? "";
   };
   const save = (nextSettings: V2TitleSettings): void => {
-    const saved = store.save(nextSettings);
-    render(saved);
-    onSettingsChange(saved);
+    render(store.save(nextSettings));
   };
-  const numberValue = (input: HTMLInputElement): number =>
-    input.valueAsNumber;
-  const handleChange = (): void => {
+  const numberValue = (input: HTMLInputElement): number => input.valueAsNumber;
+  const subscriptions: EventSubscription[] = [];
+  const listen = (target: EventTarget, type: string, listener: EventListener): void => {
+    target.addEventListener(type, listener);
+    subscriptions.push(Object.freeze({ target, type, listener }));
+  };
+
+  listen(npcCount, "change", () => {
+    save({ ...settings, population: { ...settings.population, npcCount: numberValue(npcCount) } });
+  });
+  listen(brainwashedPercent, "input", () => {
     save({
       ...settings,
       population: {
-        npcCount: numberValue(npcCount),
-        initialBrainwashedNpcPercent: numberValue(brainwashedPercent),
-        startPlayerBrainwashed: playerBrainwashed.checked
-      },
-      bit: {
-        disabled: bitDisabled.checked,
-        reinforcementIntervalSeconds: numberValue(bitInterval),
-        maximumCount: numberValue(bitMaximum)
-      },
-      audio: {
-        bgm: numberValue(audioInputs.bgm),
-        se: numberValue(audioInputs.se),
-        voice: numberValue(audioInputs.voice)
-      },
-      display: {
-        eyeHeightScale: numberValue(eyeHeight),
-        showGroundShadows: shadows.checked,
-        enableCharacterSpriteVerticalAngle: vertical.checked
-      },
-      brainwash: {
-        instantBrainwash: instant.checked,
-        brainwashOnNoGunTouch: touch.checked,
-        gunPercent: numberValue(ratioInputs.gun),
-        noGunPercent: numberValue(ratioInputs.noGun),
-        haigurePercent: 0
-      },
-      school: {
-        roomDisorderLevel: numberValue(disorder),
-        playerSpawn: spawn.value as V2PlayerSpawnSelection
-      },
-      character: {
-        portraitDirectory: portrait.value || null,
-        voiceDirectory: voice.value || null
+        ...settings.population,
+        initialBrainwashedNpcPercent: numberValue(brainwashedPercent)
       }
     });
-  };
-  const controls: readonly HTMLElement[] = Object.freeze([
-    npcCount,
-    brainwashedPercent,
-    playerBrainwashed,
-    bitDisabled,
-    bitInterval,
-    bitMaximum,
-    audioInputs.bgm,
-    audioInputs.se,
-    audioInputs.voice,
-    eyeHeight,
-    shadows,
-    vertical,
-    instant,
-    touch,
-    ratioInputs.gun,
-    ratioInputs.noGun,
-    disorder,
-    spawn,
-    portrait,
-    voice
-  ]);
-  for (const control of controls) {
-    control.addEventListener("change", handleChange);
+  });
+  listen(playerBrainwashed, "change", () => {
+    save({
+      ...settings,
+      population: { ...settings.population, startPlayerBrainwashed: playerBrainwashed.checked }
+    });
+  });
+  listen(bitDisabled, "change", () => {
+    save({ ...settings, bit: { ...settings.bit, disabled: bitDisabled.checked } });
+  });
+  for (const input of [bitInterval, bitMaximum]) {
+    listen(input, "change", () => {
+      save({
+        ...settings,
+        bit: {
+          ...settings.bit,
+          reinforcementIntervalSeconds: numberValue(bitInterval),
+          maximumCount: numberValue(bitMaximum)
+        }
+      });
+    });
   }
-  const handleReset = (): void => {
-    const reset = store.reset();
-    render(reset);
-    onSettingsChange(reset);
-  };
-  resetButton.addEventListener("click", handleReset);
+  listen(eyeHeight, "input", () => {
+    save({ ...settings, display: { ...settings.display, eyeHeightScale: numberValue(eyeHeight) } });
+  });
+  listen(shadows, "change", () => {
+    save({ ...settings, display: { ...settings.display, showGroundShadows: shadows.checked } });
+  });
+  listen(vertical, "change", () => {
+    save({
+      ...settings,
+      display: { ...settings.display, enableCharacterSpriteVerticalAngle: vertical.checked }
+    });
+  });
+  listen(instant, "change", () => {
+    save({ ...settings, brainwash: { ...settings.brainwash, instantBrainwash: instant.checked } });
+  });
+  listen(touch, "change", () => {
+    save({
+      ...settings,
+      brainwash: { ...settings.brainwash, brainwashOnNoGunTouch: touch.checked }
+    });
+  });
+  listen(gunRatio, "input", () => {
+    const gunPercent = numberValue(gunRatio);
+    const noGunPercent = Math.min(settings.brainwash.noGunPercent, 100 - gunPercent);
+    save({
+      ...settings,
+      brainwash: {
+        ...settings.brainwash,
+        gunPercent,
+        noGunPercent,
+        haigurePercent: 100 - gunPercent - noGunPercent
+      }
+    });
+  });
+  listen(noGunRatio, "input", () => {
+    const noGunPercent = numberValue(noGunRatio);
+    const gunPercent = Math.min(settings.brainwash.gunPercent, 100 - noGunPercent);
+    save({
+      ...settings,
+      brainwash: {
+        ...settings.brainwash,
+        gunPercent,
+        noGunPercent,
+        haigurePercent: 100 - gunPercent - noGunPercent
+      }
+    });
+  });
+  listen(disorder, "input", () => {
+    save({ ...settings, school: { ...settings.school, roomDisorderLevel: numberValue(disorder) } });
+  });
+  listen(spawn, "change", () => {
+    save({
+      ...settings,
+      school: { ...settings.school, playerSpawn: spawn.value as V2PlayerSpawnSelection }
+    });
+  });
+  listen(portrait, "change", () => {
+    save({
+      ...settings,
+      character: { ...settings.character, portraitDirectory: portrait.value || null }
+    });
+  });
+  listen(voice, "change", () => {
+    save({
+      ...settings,
+      character: { ...settings.character, voiceDirectory: voice.value || null }
+    });
+  });
+  for (const button of audioButtons) {
+    listen(button, "click", () => {
+      const channel = button.dataset.audioChannel as keyof V2TitleSettings["audio"];
+      const action = button.dataset.audioAction;
+      const current = settings.audio[channel];
+      const next = action === "mute"
+        ? 0
+        : action === "increment"
+          ? Math.min(10, current + 1)
+          : Math.max(0, current - 1);
+      save({ ...settings, audio: { ...settings.audio, [channel]: next } });
+    });
+  }
+  listen(resetButton, "click", () => {
+    render(store.reset());
+  });
+
   render(settings);
   parent.append(root);
 
@@ -385,10 +490,9 @@ export const createV2TitleSettingsPanel = ({
     },
     dispose: () => {
       assertActive();
-      for (const control of controls) {
-        control.removeEventListener("change", handleChange);
+      for (const subscription of subscriptions) {
+        subscription.target.removeEventListener(subscription.type, subscription.listener);
       }
-      resetButton.removeEventListener("click", handleReset);
       root.remove();
       disposed = true;
     }
