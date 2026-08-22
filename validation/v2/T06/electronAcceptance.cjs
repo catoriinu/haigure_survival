@@ -525,6 +525,10 @@ const run = async () => {
       "エレベーターNPC専用受入の通常人口またはFollow受理数が不正です。"
     );
     assertCondition(
+      elevatorReport.hostileActionsSuspended === true,
+      "エレベーターNPC専用受入の固定開始条件が不正です。"
+    );
+    assertCondition(
       elevatorReport.expectedDepartureDelaySeconds === 4 &&
         Math.abs(elevatorReport.departureDelaySeconds - 4) <= 0.051,
       `エレベーターNPC専用受入の発車猶予が4秒ではありません: ${elevatorReport.departureDelaySeconds}`
@@ -533,6 +537,14 @@ const run = async () => {
       elevatorReport.maximumCommittedActorCount <= 6 &&
         elevatorReport.maximumPassengerCount <= 6,
       "エレベーターNPC専用受入で定員6人を超過しました。"
+    );
+    assertCondition(
+      typeof elevatorReport.autonomousScenario.npcId === "string" &&
+        elevatorReport.autonomousScenario.npcId === "npc_7" &&
+        elevatorReport.autonomousScenario.locationId === "f04-music" &&
+        typeof elevatorReport.autonomousScenario.missionId === "string" &&
+        elevatorReport.autonomousScenario.missionId.length > 0,
+      "通常人口の自律NPC開始条件が固定されていません。"
     );
     assertCondition(
       elevatorReport.autonomousRidingIds.length > 0 &&

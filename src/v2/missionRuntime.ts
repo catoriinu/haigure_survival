@@ -453,6 +453,11 @@ export interface V2MissionRuntime {
       "deltaSeconds" | "npcStateTransitions" | "phase" | "elevators"
     >
   ): void;
+  assignNpcLocationMission(
+    npcId: string,
+    locationId: string,
+    npcs: readonly V2MissionNpcSnapshot[]
+  ): V2MissionView;
   getFrame(): V2MissionFrame;
   getMissions(): readonly V2MissionView[];
   dispose(): void;
@@ -2520,6 +2525,39 @@ export const createV2MissionRuntime = ({
         }
       }
       frame = buildFrame();
+    },
+    assignNpcLocationMission: (npcId, locationId, npcs) => {
+      assertActive();
+      if (phase !== "playing") {
+        throw new Error("NPC Location Missionはplaying中だけ開始できます。");
+      }
+      const npc = npcs.find((candidate) => candidate.id === npcId);
+      if (!npc) {
+        throw new Error(`未登録のMission NPC IDです: ${npcId}`);
+      }
+      if (!isMovementCapableState(npc.state)) {
+        throw new Error(
+          `移動できないNPCへLocation Missionを開始できません: ${npcId}/${npc.state}`
+        );
+      }
+      if (npc.commandMode !== "none") {
+        throw new Error(
+          `指示中のNPCへLocation Missionを開始できません: ${npcId}/${npc.commandMode}`
+        );
+      }
+      if (npc.locationMission !== null) {
+        throw new Error(
+          `実行中のLocation Missionがあります: ${npcId}/${npc.locationMission.missionId}`
+        );
+      }
+      const mission = createNpcLocationMission(
+        npc,
+        requireLocation(locations, locationId),
+        "normal",
+        elapsedSeconds
+      );
+      frame = buildFrame();
+      return freezeMission(mission);
     },
     getFrame: () => {
       assertActive();

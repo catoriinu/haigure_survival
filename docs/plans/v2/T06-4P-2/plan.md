@@ -43,6 +43,10 @@
 >
 > 同行者は、同じ便に最大人数まで乗れる場合、Playerと一緒にエレベーターへ乗ることを最優先にする。時間予測による先回りは、同便へ乗れない場合の代替とする。
 
+2026-08-22 PR #77レビュー対応指示:
+
+> 専用受入が、同行者便の完了後に別の自律NPCが自然利用する未達条件を待ち続けてtimeoutする。通常人口を維持した決定的なNPC利用シナリオまたは固定seedで成立する明示的な開始条件を追加し、`npm run acceptance:t06-4p-2:electron`をPASSさせる。
+
 ## 目的
 
 現行エレベーターの5秒待機とNPC利用policyを修正し、自律NPCとPlayer同行者が通常人口・定員競合下で呼出、乗車、搬送、降車、追跡継続できる状態を成立させる。
@@ -121,6 +125,9 @@
 - [x] 固定seed受入を待機位置への実合流後に呼び出す構造へ変更し、指定同行者全員の乗車を完了条件にする
 - [x] T04実学校、T05 Follow、通常Web／Electron受入と共通検証を再実行する
 - [x] 診断結果を更新し、白画面追補と同行者同便優先の差分を専用commitにする
+- [x] PR #77の未解決レビュー1件を最新headで再現し、専用受入が自律NPC自然利用待ちでtimeoutする指摘を妥当と判定する
+- [x] 同行者便完了後に通常人口NPCへ決定的な移動契約を開始し、自律的な呼出・乗車・到着を独立記録する
+- [x] Electron専用受入、対象typecheck／build、差分品質を再検証して同じPRへpush・返信する
 
 ## 結果
 
@@ -167,3 +174,9 @@ T04実学校fixtureでは、最初のActorが乗車して呼出マットが`depa
 Electron専用受入全体は、同行者便の完了後に別の自律NPCが180秒以内に自然利用する既存条件だけが2回とも成立せずtimeoutした。同行者修正前から残る既知未達であり、今回の同行者便は約21秒で完了している。自律NPCの呼出・乗車・搬送・降車は同一headのT04実学校fixtureでPASSしているが、通常人口での自律利用を再現可能にする別段階の明示化は未完としてcommit前に分離判断が必要である。
 
 最終`typecheck:v2`、V2依存監査、`typecheck:t04`、`build:t04`、`build:t05`、Vite production build、`build:electron`はPASSした。UTF-8 BOMなし、`git diff --check`、ローカル絶対パス混入なしを確認した。括弧対応はTypeScript型検査とbuildで確認した。白画面追補と同行者同便優先をT06-4P-2の単一commitとして確定した。
+
+2026-08-22、PR #77のレビュー指摘を最新headで再現し、同行者便は約21秒で完了する一方、その後の自律NPC自然利用だけが固定seedでも非決定的なため180秒timeoutすることを確認した。指摘は妥当と判定した。
+
+通常人口50 NPC・初期洗脳済み10・初期BIT 20を変えず、固定seedで状態が確定する`npc_7`へ通常の4F音楽室Location Missionを明示割当した。割当前に通常navigation policyが1Fから4Fへの`link`経路を選ぶことを検査し、実NavMesh移動、呼出、予約、乗車、搬送、降車、目的地到着を通す。専用受入中だけ敵対行動を停止し、非敵対のLocation Mission移動は停止対象から除外した。通常ゲームの自動Mission生成、経路選択、人口設定は変更していない。
+
+同じ`npm run acceptance:t06-4p-2:electron`を2回連続実行し、両方PASSした。各回でPlayer＋Follower 5人の同便乗車・全員降車、最大予約／乗客6人、発車猶予3.9999秒／3.9668秒、固定`npc_7`の乗車・4F到着、console／renderer／load／render-process-gone／unresponsive 0件を確認した。`typecheck:v2`、`typecheck:t06`、`build:t06-4`、`build:electron`、通常入口のVite production buildはPASSした。`build:renderer`は配布生成まで成功し、変更前から同一のOFL／THIRD_PARTY_NOTICES改行コード・hash 2件だけで既知の配布監査停止となった。`git diff --check`、UTF-8 BOMなし、ローカル絶対パスなし、括弧対応を再確認した。

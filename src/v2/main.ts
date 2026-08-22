@@ -1058,6 +1058,7 @@ type ElevatorNpcAcceptancePhase =
   | "boarding"
   | "riding"
   | "disembarking"
+  | "autonomous"
   | "passed";
 
 const elevatorNpcAcceptanceAsset = (() => {
@@ -1168,6 +1169,10 @@ let elevatorNpcAcceptanceMaximumPassengerCount = 0;
 let elevatorNpcAcceptancePlayerCompleted = false;
 let elevatorNpcAcceptancePreviousSignature: string | null = null;
 let elevatorNpcAcceptanceCommandIndex = 0;
+let elevatorNpcAcceptanceAutonomousNpcId: string | null = null;
+let elevatorNpcAcceptanceAutonomousMissionId: string | null = null;
+const elevatorNpcAcceptanceAutonomousFixedNpcId = "npc_7";
+const elevatorNpcAcceptanceAutonomousLocationId = "f04-music";
 const elevatorNpcAcceptanceFollowCommandIds = new Set<string>();
 const elevatorNpcAcceptanceRidingFollowerIds = new Set<string>();
 const elevatorNpcAcceptanceLeavingFollowerIds = new Set<string>();
@@ -1227,6 +1232,7 @@ const publishElevatorNpcAcceptanceReport = (
       brainwashedNpcCount: survivalFrame.brainwashedNpcCount,
       bitCount: survivalFrame.bitCount
     },
+    hostileActionsSuspended: true,
     followerIds: elevatorNpcAcceptanceFollowerIds,
     followCommandAcceptedIds: [
       ...elevatorNpcAcceptanceFollowCommandIds
@@ -1270,6 +1276,11 @@ const publishElevatorNpcAcceptanceReport = (
     ),
     ridingFollowerIds: [...elevatorNpcAcceptanceRidingFollowerIds].sort(),
     leavingFollowerIds: [...elevatorNpcAcceptanceLeavingFollowerIds].sort(),
+    autonomousScenario: {
+      npcId: elevatorNpcAcceptanceAutonomousNpcId,
+      locationId: elevatorNpcAcceptanceAutonomousLocationId,
+      missionId: elevatorNpcAcceptanceAutonomousMissionId
+    },
     autonomousRidingIds: [
       ...elevatorNpcAcceptanceAutonomousRidingIds
     ].sort(),
@@ -1435,11 +1446,59 @@ const positionElevatorNpcAcceptanceActors = () => {
   ) {
     return;
   }
+  survival.setHostileActionsSuspended(true);
+  selectElevatorNpcAcceptanceAutonomousCandidate();
+  startElevatorNpcAcceptanceAutonomousMission();
   elevatorNpcAcceptancePhase = "commanding";
   publishElevatorNpcAcceptanceReport(
     "running",
     elevatorNpcAcceptanceRuntime.getSnapshot()
   );
+};
+
+const selectElevatorNpcAcceptanceAutonomousCandidate = () => {
+  if (
+    elevatorNpcAcceptanceAsset === null ||
+    elevatorNpcAcceptanceRuntime === null
+  ) {
+    return;
+  }
+  const autonomousCandidate = survival
+    .getHumanTargets()
+    .find(
+      (target) =>
+        target.id === elevatorNpcAcceptanceAutonomousFixedNpcId &&
+        target.kind === "npc" &&
+        (target.state === "brainwash-complete-gun" ||
+          target.state === "brainwash-complete-no-gun") &&
+        target.brainwashed &&
+        !elevatorNpcAcceptanceFollowerIds.includes(target.id)
+    );
+  if (
+    !autonomousCandidate ||
+    survival.previewNpcLocationMissionRoute(
+      autonomousCandidate.id,
+      elevatorNpcAcceptanceAutonomousLocationId
+    ) !== "link"
+  ) {
+    throw new Error(
+      `固定自律NPCが4Fへのエレベーター経路を選びません: ${elevatorNpcAcceptanceAutonomousFixedNpcId}`
+    );
+  }
+  elevatorNpcAcceptanceAutonomousNpcId = autonomousCandidate.id;
+};
+
+const startElevatorNpcAcceptanceAutonomousMission = () => {
+  if (elevatorNpcAcceptanceAutonomousNpcId === null) {
+    throw new Error(
+      "エレベーターNPC受入の自律NPC候補が選択されていません。"
+    );
+  }
+  const mission = survival.requestNpcLocationMission(
+    elevatorNpcAcceptanceAutonomousNpcId,
+    elevatorNpcAcceptanceAutonomousLocationId
+  );
+  elevatorNpcAcceptanceAutonomousMissionId = mission.id;
 };
 
 const positionElevatorNpcAcceptancePlayer = () => {
@@ -1542,8 +1601,7 @@ const updateElevatorNpcAcceptanceBeforeTraversal = () => {
     ) {
       return;
     }
-    positionElevatorNpcAcceptancePlayer();
-    elevatorNpcAcceptancePhase = "gathering";
+    elevatorNpcAcceptancePhase = "autonomous";
     return;
   }
   if (elevatorNpcAcceptancePhase === "gathering") {
@@ -1678,6 +1736,25 @@ const updateElevatorNpcAcceptanceAfterTraversal = () => {
   ) {
     elevatorNpcAcceptancePlayerCompleted = true;
   }
+  if (
+    elevatorNpcAcceptancePhase === "autonomous" &&
+    elevatorNpcAcceptanceAutonomousNpcId !== null &&
+    elevatorNpcAcceptanceAutonomousArrivedIds.has(
+      elevatorNpcAcceptanceAutonomousNpcId
+    ) &&
+    !elevatorSnapshot.passengers.some(
+      (passenger) =>
+        passenger.actorId === elevatorNpcAcceptanceAutonomousNpcId
+    ) &&
+    survival.getNpcTraversalState(
+      elevatorNpcAcceptanceAutonomousNpcId
+    ).kind === "walking"
+  ) {
+    positionElevatorNpcAcceptancePlayer();
+    elevatorNpcAcceptanceFirstPassengerAtSeconds = null;
+    elevatorNpcAcceptanceClosingAtSeconds = null;
+    elevatorNpcAcceptancePhase = "gathering";
+  }
   const signature = [
     elevatorNpcAcceptancePhase,
     elevatorSnapshot.carState,
@@ -1720,15 +1797,29 @@ const updateElevatorNpcAcceptanceAfterTraversal = () => {
       ? null
       : elevatorNpcAcceptanceClosingAtSeconds -
         elevatorNpcAcceptanceFirstPassengerAtSeconds;
-  if (
+  const partyDisembarked =
     elevatorNpcAcceptancePhase === "disembarking" &&
     elevatorNpcAcceptancePlayerCompleted &&
+    elevatorNpcAcceptanceRidingFollowerIds.size ===
+      elevatorNpcAcceptanceFollowerIds.length &&
+    elevatorNpcAcceptanceLeavingFollowerIds.size ===
+      elevatorNpcAcceptanceFollowerIds.length &&
+    elevatorSnapshot.reservations.length === 0 &&
+    elevatorSnapshot.passengers.length === 0;
+  if (
+    partyDisembarked &&
     elevatorNpcAcceptanceFollowCommandIds.size ===
       elevatorNpcAcceptanceFollowerIds.length &&
     elevatorNpcAcceptanceRidingFollowerIds.size ===
       elevatorNpcAcceptanceFollowerIds.length &&
-    elevatorNpcAcceptanceAutonomousRidingIds.size > 0 &&
-    elevatorNpcAcceptanceAutonomousArrivedIds.size > 0 &&
+    elevatorNpcAcceptanceAutonomousNpcId !== null &&
+    elevatorNpcAcceptanceAutonomousMissionId !== null &&
+    elevatorNpcAcceptanceAutonomousRidingIds.has(
+      elevatorNpcAcceptanceAutonomousNpcId
+    ) &&
+    elevatorNpcAcceptanceAutonomousArrivedIds.has(
+      elevatorNpcAcceptanceAutonomousNpcId
+    ) &&
     !elevatorSnapshot.passengers.some(
       (passenger) => passenger.actorId === "player"
     ) &&
