@@ -759,6 +759,18 @@ export const runSchoolNpcNavigationPolicyAcceptance = ({
       firstStopCenter
     )
   ]);
+  const playerDestinationStop = requireOtherStop(
+    elevator,
+    elevator.initialStop
+  );
+  const playerReservation = runtime
+    .getElevator(elevator.id)
+    .requestBoarding({
+      actorId: "player",
+      fromStopId: elevator.initialStop.id,
+      destinationStopId: playerDestinationStop.id,
+      requestedAtSeconds: 0
+    });
   const samePlayerTripSelection = createPolicy()(
     createContext(
       "npc_follower_same_trip",
@@ -778,11 +790,21 @@ export const runSchoolNpcNavigationPolicyAcceptance = ({
     ])
   );
   add(
-    "Followerはplayer対象の既知便へ間に合う場合に同便を最優先する",
-    getSelectedElevatorId(samePlayerTripSelection) ===
+    "FollowerはPlayer予約後も既知便への合流を最優先する",
+    playerReservation.status === "accepted" &&
+      getSelectedElevatorId(samePlayerTripSelection) ===
       elevator.link.id,
-    `selected=${getSelectedElevatorId(samePlayerTripSelection)}`
+    `reservation=${playerReservation.status} / ` +
+      `callMat=${runtime
+        .getElevator(elevator.id)
+        .getSnapshot()
+        .stops.find((stop) => stop.id === elevator.initialStop.id)
+        ?.callMatState} / ` +
+      `selected=${getSelectedElevatorId(samePlayerTripSelection)}`
   );
+  runtime
+    .getElevator(elevator.id)
+    .cancelBoardingReservation("player");
 
   targets = Object.freeze([
     createTarget(
@@ -851,11 +873,12 @@ export const runSchoolNpcNavigationPolicyAcceptance = ({
     ])
   );
   add(
-    "Followerが同便猶予へ間に合わなければ短い別経路を選ぶ",
-    lateFollowerSelection?.kind === "surface",
+    "Followerは同便に空席があれば到達予測時間より乗車接近を優先する",
+    getSelectedElevatorId(lateFollowerSelection) ===
+      elevator.link.id,
     `window=${lateFollowerBoardingWindowSeconds} / ` +
       `approach=${lateFollowerApproachDistance / 0.5} / ` +
-      `selected=${lateFollowerSelection?.kind ?? "null"}`
+      `selected=${getSelectedElevatorId(lateFollowerSelection)}`
   );
 
   const destinationStop = requireOtherStop(

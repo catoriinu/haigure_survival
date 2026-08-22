@@ -1027,16 +1027,22 @@ export const createSchoolStageTraversalCoordinator = ({
           `NPC呼出階snapshotがありません: ${waiting.elevator.id}/${waiting.fromStop.id}`
         );
       }
-      if (stopSnapshot.callMatState !== "ready") {
-        continue;
-      }
-      const callResult = elevatorRuntime.requestCall(
-        waiting.fromStop.id
-      );
-      if (callResult.status !== "accepted") {
-        throw new Error(
-          `ready呼出マットのNPC呼出が受理されませんでした: ${npcId}/${waiting.elevator.id}/${waiting.fromStop.id}`
+      if (stopSnapshot.callMatState === "ready") {
+        const callResult = elevatorRuntime.requestCall(
+          waiting.fromStop.id
         );
+        if (callResult.status !== "accepted") {
+          throw new Error(
+            `ready呼出マットのNPC呼出が受理されませんでした: ${npcId}/${waiting.elevator.id}/${waiting.fromStop.id}`
+          );
+        }
+      } else if (
+        !isElevatorBoardableAtStop(
+          waiting.elevator,
+          waiting.fromStop
+        )
+      ) {
+        continue;
       }
       waitingElevatorCallByNpcId.set(
         npcId,

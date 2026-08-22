@@ -39,7 +39,7 @@ V2のステージ実行契約は現行の[V2ステージランタイム仕様書
 | パッケージ | npm |
 | Windows配布 | electron-builder / NSIS |
 
-エントリーポイントはWeb側が `src/main.ts`、Electron側が `electron/main.ts` と `electron/preload.ts` である。HTMLは `index.html`、全体スタイルは `src/style.css` に置く。
+V2のWebエントリーポイントは軽量な `src/v2/bootstrap.ts` であり、loading UIの初回描画後に `src/v2/main.ts` を読み込む。Electron側は `electron/main.ts` と `electron/preload.ts` である。HTMLは `index.html`、全体スタイルは `src/style.css` に置く。
 
 ### 2.1 npmコマンド
 
@@ -55,11 +55,12 @@ V2のステージ実行契約は現行の[V2ステージランタイム仕様書
 
 ## 3. 実行時の全体構成
 
-`src/main.ts` がBabylon.jsのEngine、Scene、カメラ、タイトルUI、HUD、音声、ステージ、キャラクター、各ゲームシステムを生成し、フレーム更新を調停する。機能別モジュールは状態と処理を提供するが、最終的なライフサイクルと相互接続は `main.ts` が保持する。
+`src/v2/bootstrap.ts` がloading UIと起動診断を先に成立させ、`src/v2/main.ts` がBabylon.jsのEngine、Scene、カメラ、タイトルUI、HUD、音声、ステージ、キャラクター、各ゲームシステムを生成してフレーム更新を調停する。機能別モジュールは状態と処理を提供するが、最終的なゲームSessionのライフサイクルと相互接続は `src/v2/main.ts` が保持する。
 
 ```mermaid
 flowchart TD
-    HTML["index.html / UI要素"] --> Main["src/main.ts"]
+    HTML["index.html / UI要素"] --> Bootstrap["src/v2/bootstrap.ts / loading UI・起動診断"]
+    Bootstrap --> Main["src/v2/main.ts"]
     Main --> Title["title UI / settings / storage"]
     Main --> StageLoad["stageSelection / stageJson"]
     StageLoad --> StageContext["stageContext / stage rendering"]
@@ -77,7 +78,8 @@ flowchart TD
 
 | モジュール | 責務 |
 |---|---|
-| `src/main.ts` | 依存生成、設定適用、開始・リセット・タイトル復帰、フレーム更新、システム間連携 |
+| `src/v2/bootstrap.ts` | loading UIの初回描画、起動フェーズ診断、Runtime module読込 |
+| `src/v2/main.ts` | 依存生成、設定適用、開始・リセット・タイトル復帰、フレーム更新、システム間連携 |
 | `src/game/runtimeFrame.ts` | フレーム時間などランタイム更新の補助 |
 | `src/game/titleStartPreparation.ts` | タイトル設定に対応する開始準備のデバウンス、キャッシュ、進捗管理 |
 | `src/ui/titleOverlayController.ts` | タイトル中央表示、ローディング表示、開始可能表示 |

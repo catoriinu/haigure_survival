@@ -1,5 +1,3 @@
-import "../style.css";
-
 import {
   Color3,
   Color4,
@@ -113,6 +111,10 @@ import {
 } from "./runtimeStressScenario";
 import { resolveV2RoomVariantLevel } from "./roomVariantVisualReview";
 import { selectV2PlayerSpawn } from "./schoolSpawnSelection";
+import {
+  markV2PageUnloading,
+  markV2StartupPhase
+} from "./startupDiagnostics";
 
 const V2_GAMEPLAY_HELP_TEXT =
   "操作説明\n" +
@@ -284,6 +286,7 @@ if (performanceScenario) {
   canvas.style.height = "1080px";
 }
 const engine = new Engine(canvas, true);
+markV2StartupPhase("engine-created");
 
 type V2RuntimeSession = Readonly<{
   dispose(): Promise<void>;
@@ -293,6 +296,7 @@ const createRuntimeSession = async (
   sessionSeed: number,
   requestSessionRebuild: () => void
 ): Promise<V2RuntimeSession> => {
+markV2StartupPhase("runtime-session-creating");
 const roomVariantSelections = createSchoolRoomVariantSelections(
   createSchoolRuntimeSettings(roomVariantLevel),
   sessionSeed
@@ -422,6 +426,7 @@ const initializeRuntime = async () => {
     null;
 
   try {
+    markV2StartupPhase("school-stage-loading");
     ownedStage = await loadStageSpatialContext(
       scene,
       SCHOOL_STAGE,
@@ -434,6 +439,7 @@ const initializeRuntime = async () => {
         roomVariantSelections
       }
     );
+    markV2StartupPhase("school-stage-loaded");
     if (ownedStage.worldBoundary === null) {
       throw new Error("学校ステージのworld boundaryがありません");
     }
@@ -486,6 +492,7 @@ const initializeRuntime = async () => {
         "character-assignment"
       )
     });
+    markV2StartupPhase("character-visuals-loading");
     ownedCharacterVisuals = await createV2CharacterVisualRuntime({
       scene,
       assignments: characterAssignments,
@@ -494,6 +501,7 @@ const initializeRuntime = async () => {
           ? "upright"
           : "camera-facing"
     });
+    markV2StartupPhase("character-visuals-loaded");
     const characterVisuals = ownedCharacterVisuals;
     ownedSurvival = createV2SurvivalRuntime({
       scene,
@@ -564,6 +572,7 @@ const initializeRuntime = async () => {
         return selectNavigationRoute(context, candidates);
       }
     });
+    markV2StartupPhase("survival-runtime-created");
     const survivalRuntime = ownedSurvival;
     const initialNpcTargets = Object.freeze(
       survivalRuntime
@@ -671,10 +680,12 @@ const initializeRuntime = async () => {
       }
     }
     await scene.whenReadyAsync();
+    markV2StartupPhase("scene-ready");
     const visualPreparation =
       ownedSurvival.prepareVisualResources();
     scene.render();
     await visualPreparation;
+    markV2StartupPhase("visual-resources-ready");
     return {
       stage: ownedStage,
       dynamicRuntime: ownedDynamicRuntime,
@@ -1042,6 +1053,7 @@ let missionAcceptanceLookAtPosition: Vector3 | null = null;
 type ElevatorNpcAcceptancePhase =
   | "positioning"
   | "commanding"
+  | "gathering"
   | "calling"
   | "boarding"
   | "riding"
@@ -1063,19 +1075,46 @@ const elevatorNpcAcceptanceRuntime =
   elevatorNpcAcceptanceAsset === null
     ? null
     : dynamicRuntime.getElevator(elevatorNpcAcceptanceAsset.id);
+const elevatorNpcAcceptanceDepartureStop = (() => {
+  if (elevatorNpcAcceptanceAsset === null) {
+    return null;
+  }
+  const stop = elevatorNpcAcceptanceAsset.stops.find(
+    (candidate) => candidate !== elevatorNpcAcceptanceAsset.initialStop
+  );
+  if (!stop) {
+    throw new Error(
+      "エレベーターNPC受入の初期停止階と異なる出発階がありません。"
+    );
+  }
+  return stop;
+})();
 const elevatorNpcAcceptanceFollowerIds: readonly string[] = (() => {
-  if (elevatorNpcAcceptanceScenario === null) {
+  if (
+    elevatorNpcAcceptanceScenario === null ||
+    elevatorNpcAcceptanceDepartureStop === null
+  ) {
     return Object.freeze([]);
   }
-  elevatorNpcAcceptanceAsset!.initialStop.callMat.mesh.computeWorldMatrix(
+  elevatorNpcAcceptanceDepartureStop.callMat.mesh.computeWorldMatrix(
     true
   );
-  const elevatorFloorY =
-    elevatorNpcAcceptanceAsset!.initialStop.callMat.mesh.getBoundingInfo()
-      .boundingBox.centerWorld.y;
-  const playerPosition = survival.getHumanTargets().find(
-    (target) => target.kind === "player"
-  )!.footPosition;
+  const callMatBounds =
+    elevatorNpcAcceptanceDepartureStop.callMat.mesh.getBoundingInfo()
+      .boundingBox;
+  const callMatProjection = stage.navigation.projectPoint(
+    callMatBounds.centerWorld,
+    Math.max(
+      callMatBounds.extendSizeWorld.x,
+      callMatBounds.extendSizeWorld.y,
+      callMatBounds.extendSizeWorld.z
+    )
+  );
+  if (callMatProjection === null) {
+    throw new Error(
+      "エレベーターNPC受入の初期呼出マットをNavMeshへ投影できません。"
+    );
+  }
   const ids = survival
     .getHumanTargets()
     .filter(
@@ -1084,12 +1123,29 @@ const elevatorNpcAcceptanceFollowerIds: readonly string[] = (() => {
         !target.brainwashed &&
         target.state === "normal"
     )
+    .map((target) => {
+      const start = stage.navigation.projectPoint(
+        target.footPosition,
+        0.1
+      );
+      if (start === null) {
+        throw new Error(
+          `エレベーターNPC受入の同行候補をNavMeshへ投影できません: ${target.id}`
+        );
+      }
+      const path = stage.navigation.findSurfacePath(
+        start,
+        callMatProjection
+      );
+      return Object.freeze({
+        id: target.id,
+        distance: path?.distance ?? Number.POSITIVE_INFINITY
+      });
+    })
+    .filter((target) => Number.isFinite(target.distance))
     .sort(
       (left, right) =>
-        Math.abs(left.footPosition.y - elevatorFloorY) -
-          Math.abs(right.footPosition.y - elevatorFloorY) ||
-        Vector3.DistanceSquared(left.footPosition, playerPosition) -
-          Vector3.DistanceSquared(right.footPosition, playerPosition) ||
+        left.distance - right.distance ||
         left.id.localeCompare(right.id)
     )
     .map((target) => target.id)
@@ -1389,27 +1445,13 @@ const positionElevatorNpcAcceptanceActors = () => {
 const positionElevatorNpcAcceptancePlayer = () => {
   if (
     elevatorNpcAcceptanceAsset === null ||
-    elevatorNpcAcceptanceRuntime === null
+    elevatorNpcAcceptanceRuntime === null ||
+    elevatorNpcAcceptanceDepartureStop === null
   ) {
     return;
   }
-  const elevatorSnapshot = elevatorNpcAcceptanceRuntime.getSnapshot();
-  const fromStop = elevatorNpcAcceptanceAsset.stops.find(
-    (stop) => stop.id === elevatorSnapshot.currentStopId
-  );
-  if (!fromStop || elevatorSnapshot.carDoorState !== "open") {
-    throw new Error(
-      "エレベーターNPC受入の開始時に初期停止階が開扉していません。"
-    );
-  }
-  const destinationStop = elevatorNpcAcceptanceAsset.stops.find(
-    (stop) => stop !== fromStop
-  );
-  if (!destinationStop) {
-    throw new Error(
-      "エレベーターNPC受入の目的停止階がありません。"
-    );
-  }
+  const fromStop = elevatorNpcAcceptanceDepartureStop;
+  const destinationStop = elevatorNpcAcceptanceAsset.initialStop;
   const callMatCenter = requireElevatorAcceptanceMeshCenter(
     "エレベーターNPC受入の呼出マット",
     fromStop.callMat.mesh
@@ -1463,7 +1505,7 @@ const updateElevatorNpcAcceptanceBeforeTraversal = () => {
       .getHumanTargets()
       .find((candidate) => candidate.id === npcId)!;
     const commandPosition = stage.navigation.projectPoint(
-      target.footPosition.add(new Vector3(0.015, 0, 0)),
+      target.footPosition,
       0.03
     );
     if (commandPosition === null) {
@@ -1501,7 +1543,24 @@ const updateElevatorNpcAcceptanceBeforeTraversal = () => {
       return;
     }
     positionElevatorNpcAcceptancePlayer();
-    elevatorNpcAcceptancePhase = "calling";
+    elevatorNpcAcceptancePhase = "gathering";
+    return;
+  }
+  if (elevatorNpcAcceptancePhase === "gathering") {
+    const playerTraversal =
+      traversalCoordinator.getPlayerElevatorTraversalSnapshot();
+    if (playerTraversal?.phase !== "reserved") {
+      return;
+    }
+    elevatorNpcAcceptanceAsset.car.passengerOriginNode.computeWorldMatrix(
+      true
+    );
+    player.setTransportFootPosition(
+      elevatorNpcAcceptanceAsset.car.passengerOriginNode
+        .getAbsolutePosition()
+        .clone()
+    );
+    elevatorNpcAcceptancePhase = "boarding";
     return;
   }
 
@@ -1582,6 +1641,7 @@ const updateElevatorNpcAcceptanceAfterTraversal = () => {
       elevatorSnapshot.elapsedSeconds;
   }
   if (
+    elevatorNpcAcceptanceFirstPassengerAtSeconds !== null &&
     elevatorNpcAcceptanceClosingAtSeconds === null &&
     elevatorSnapshot.carDoorState === "closing"
   ) {
@@ -1664,6 +1724,8 @@ const updateElevatorNpcAcceptanceAfterTraversal = () => {
     elevatorNpcAcceptancePhase === "disembarking" &&
     elevatorNpcAcceptancePlayerCompleted &&
     elevatorNpcAcceptanceFollowCommandIds.size ===
+      elevatorNpcAcceptanceFollowerIds.length &&
+    elevatorNpcAcceptanceRidingFollowerIds.size ===
       elevatorNpcAcceptanceFollowerIds.length &&
     elevatorNpcAcceptanceAutonomousRidingIds.size > 0 &&
     elevatorNpcAcceptanceAutonomousArrivedIds.size > 0 &&
@@ -2409,18 +2471,19 @@ try {
     nextRuntimeSessionSeed(),
     rebuildSession
   );
-} catch {
+  markV2StartupPhase("runtime-session-ready");
+} catch (error) {
   activeSession = null;
+  throw error;
 }
 
 window.addEventListener(
   "beforeunload",
   () => {
     runtimeTerminated = true;
-    const session = activeSession;
     activeSession = null;
-    void session?.dispose();
-    engine.dispose();
+    engine.stopRenderLoop();
+    markV2PageUnloading();
   },
   { once: true }
 );

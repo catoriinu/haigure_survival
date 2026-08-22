@@ -29,6 +29,20 @@
 > - T02、T04、T05、T06-3、T06-4、`typecheck:v2`、通常build、Electron build、通常Web／Electron、V3P、UTF-8 BOMなし、括弧対応、`git diff --check`、ローカル絶対パスなしを確認する。
 > - 個別・親・中央計画を同期し、T06-4P-2差分だけをcommitする。push、Pull Request、レビュー、merge、worktree削除は行わない。
 
+2026-08-22 Chrome白画面追補指示:
+
+> Codex内部ブラウザでは表示できる一方、Chromeでは画面が白く固まる原因をコード側も含めて調査する。
+>
+> 最初の白画面報告は今日ではなく約1週間前のセッションであり、「何分くらい前」は時刻ではなく「何PR前」の音声認識誤変換である。過去会話とPR履歴から、どの修正以降に発生したかを確認する。
+>
+> 白画面診断修正を専用commitとして実装する。YES。
+
+2026-08-22 同行者乗車優先の受入修正指示:
+
+> 4秒で発車することは確認できたが、同行者がエレベーターへ乗らず、行き先へ急いで走っていった。
+>
+> 同行者は、同じ便に最大人数まで乗れる場合、Playerと一緒にエレベーターへ乗ることを最優先にする。時間予測による先回りは、同便へ乗れない場合の代替とする。
+
 ## 目的
 
 現行エレベーターの5秒待機とNPC利用policyを修正し、自律NPCとPlayer同行者が通常人口・定員競合下で呼出、乗車、搬送、降車、追跡継続できる状態を成立させる。
@@ -47,6 +61,7 @@
 - 定員6人はPlayer、未洗脳NPC、洗脳済みNPCを含む全Actorの先着順とし、Follower優先枠・優先予約を設けない。
 - 既存乗客と既存予約を維持し、空席数だけ新規Actorを受け付ける。
 - 満員・扉閉鎖・乗り遅れ時の同行者はFollowを解除せず、次便または階段のうち現行安全性・所要時間policyが選ぶ経路で追跡する。
+- Playerの既知便が乗車可能で空席もある場合、同行者は残り乗車時間と到達予測時間の比較より同便への接近を優先する。4秒発車、全Actor先着順、既存予約保持は変えず、実際に乗り遅れた場合だけ次便または階段へ再計画する。
 
 ## 自律NPC契約
 
@@ -65,6 +80,7 @@
 
 - 自律NPCが通常ゲームで1F↔4Fを呼出・乗車・搬送・降車し、目的地へ再接続する。
 - Player＋1～5同行者が空席まで先着順で乗り、満員競合・乗り遅れでもFollowを維持して次便または階段で追跡する。
+- 固定seedの通常ゲーム受入では、資産定義の待機位置へ同行者が実移動で合流してからPlayerが呼び出し、Player＋指定同行者が定員6人以内で同便へ乗車したことを記録する。NPCを検証用にteleportしない。
 - 全Actor合計6人を超えず、既存乗客・予約が後着Followerで置換されない。
 - 最初の乗客から発車まで4秒で、所要時間見積りも4秒を使用する。
 - 単体／複数NPCが屋上入口を双方向通過し、既存優先度を維持する。
@@ -76,6 +92,14 @@
 - 通常人口のWeb／Electronで同じシナリオを実行し、console警告・エラー0件を確認する。
 - T02、T04、T05、T06-3、T06-4の影響回帰と通常buildを通す。
 
+## Chrome白画面診断契約
+
+- `index.html`の通常入口を軽量bootstrapへ分離し、loading UIとCSSをBabylon、Recast、学校GLB、50 NPCの初期化より先に描画する。
+- bootstrap、Runtime module読込、Engine生成、学校資産、Character表示、Survival、Scene ready、visual準備、実行開始を同一の起動診断snapshotへ時系列で記録する。
+- 起動が非同期フェーズで停止した場合は、白画面のままにせず、現在フェーズと経過時間をタイトル画面へ表示する。例外はconsole、DOM、診断snapshotの同じfailureへ記録する。
+- ページ離脱時はブラウザ自身がWindow、Scene、WebGL contextを破棄するため、同期的なScene全破棄と直後のEngine破棄を重ねない。明示的なゲーム内セッション再構築では従来どおりdisposeを完了してから次Sessionを作る。
+- service worker、キャッシュfallback、旧入口互換、画像・音声fallback、GLB／NavMesh変更は追加しない。
+
 ## ステップ
 
 - [x] 現行5秒定数、所要時間見積り、予約・定員・Follower経路を監査する
@@ -85,6 +109,18 @@
 - [x] 必要な場合だけ屋上入口の複数NPC混雑を修正する
 - [x] T04、T05、T06、build、通常Web／Electronを検証する
 - [x] V3P第1磨き込み事前ゲートを通し、結果を更新してT06-4P-2差分だけをcommitする
+- [x] 過去セッション、PR #73～#76、Chromeのhost／port別再現から白画面条件を監査する
+- [x] 軽量bootstrapと起動フェーズ診断を実装する
+- [x] ページ離脱と明示的Session再構築の破棄責務を分離する
+- [x] typecheck、build、Web／Electron、Chrome再読込を検証する
+- [x] 実画面報告と同行者の時間比較policyから、空席があっても階段を選ぶ原因を特定する
+- [x] 同便に空席がある同行者は到達予測時間にかかわらずエレベーターを選ぶ失敗fixtureを追加する
+- [x] 同行者の同便優先を実装し、満員・安全性・先着順・4秒発車を維持する
+- [x] 固定seed受入が離れた同行者の合流前にPlayer便を即発車し、5人中0人乗車となることを診断する
+- [x] 乗場のPlayerが同行者1人の呼出マット進入を妨げ、5人中4人で停止する固定seed受入の経路振動を診断する
+- [x] 固定seed受入を待機位置への実合流後に呼び出す構造へ変更し、指定同行者全員の乗車を完了条件にする
+- [x] T04実学校、T05 Follow、通常Web／Electron受入と共通検証を再実行する
+- [x] 診断結果を更新し、白画面追補と同行者同便優先の差分を専用commitにする
 
 ## 結果
 
@@ -107,3 +143,27 @@ B06-4屋上入口は192経路fixtureで停止snapshotがなく、通常ゲーム
 通常人口Webはseed `20260821`、50 NPC、初期洗脳済み10、初期BIT 1、Follower 5人でPASSし、Player便の発車猶予3.985秒、自律`npc_20`の乗車・到着、Follower `npc_41`の同便乗車・降車、最大同時2人を記録した。Electronは発車猶予3.981秒、自律`npc_17`の乗車・到着を確認し、console、renderer、load、render-process-gone、unresponsiveは0件だった。
 
 `build:t02`、`build:t04`、`build:t05`、`build:t06-3`、`build:t06-4`、`build:electron`、`typecheck:v2`はPASSした。通常buildはrenderer生成と学校GLB catalog整合まで成功し、`origin/develop`から差分0のOFL／THIRD_PARTY_NOTICESがCRLF bytes／hashとなる既知2件だけで配布監査が停止した。学校`.blend`、GLB、3種NavMesh、生成器、監査器、catalogは`origin/develop`との差分0で、GLBと3種NavMeshのSHA-256はcatalogと一致した。B05実GLB監査42/42で5階Map、Barrier／Passage各5、53 Area／85 piece、25 Mission Location、通常版／荒れ版Anchor各25/25、異常0件を確認した。
+
+2026-08-22、過去セッションとGit履歴を再監査し、最初の白画面報告はPR #73 merge後、PR #74へ入るB06-3 commit `6f25faf`作成後の2026-08-17 15:11であると特定した。現行`develop`はPR #76まで統合済みであり、発生窓はPR #73直後からPR #74作業中である。現在のT06-4P-2より前から発生しているため、4秒定数やエレベーター受入追加は初発原因ではない。
+
+修正前はCodex内部ブラウザ、`localhost:5175`、`127.0.0.1:5176`では正常である一方、Chromeの`127.0.0.1:5175`だけが新規タブでも停止した。service worker、IndexedDB、sessionStorageは存在せず、音声・Character画像Junctionと代表HTTP応答は正常だった。単一の壊れた資産や決定的なRuntime例外ではなく、同originのrenderer／navigation／Vite文脈と、重い通常入口を初回描画前から一体初期化する構造の組合せを修正対象とした。
+
+通常入口を`src/v2/bootstrap.ts`へ変更し、CSSとloading UIを先に描画してから`src/v2/main.ts`をdynamic importする構造へ分離した。`src/v2/startupDiagnostics.ts`はbootstrap、初回描画、Runtime module、Engine、学校資産、Character表示、Survival、Scene ready、visual準備、Session ready、runningを時系列snapshotとして`window.__v2StartupDiagnostics`とDOM datasetへ公開する。15秒以上同じ非同期起動が継続した場合は現在フェーズと経過秒をタイトル画面へ表示し、起動例外は`failed` snapshot、console、読込エラー画面へ同じ原因を記録する。
+
+ゲーム内のEnterタイトル復帰は従来どおり旧Sessionをdisposeしてから再構築する。ページ離脱では`beforeunload`中にSession全破棄とEngine破棄を重ねず、終了フラグ、所有参照解除、render loop停止、診断更新だけを同期実行する。ブラウザ自身のWindow／WebGL context破棄へ責務を統一し、旧入口互換、キャッシュfallback、画像・音声fallbackは追加していない。
+
+Chromeの問題originでは、修正後の初回がloading UI 17ms、Engine 1.536秒、学校資産2.375秒、Character表示6.594秒、全起動7.341秒で`running`へ到達した。同一タブ3回連続再読込は7.005秒、7.133秒、7.099秒で全件成功し、最終コードでも5.968秒、console warning／error 0件だった。Codex内部ブラウザは9.354秒、production配信は1.889秒で`running`となり、いずれもwarning／error 0件だった。2026-08-22には、ユーザー自身のChromeで別タブから同じローカル入口を開き、問題なくタイトル画面へ到達したことも確認した。不正な`elevatorAcceptance`では142msで`failed`となり、白画面ではなく読込エラーと具体的原因を表示した。
+
+Electron通常入口の音声専用受入は初回Session所有root、BGM／SE／VOICE実再生、失敗0件、console／renderer／load／render-process-gone／unresponsive 0件でPASSした。受入完了後のElectron process終了時にChromiumの`GPU state invalid after WaitForGetOffsetInRange`がstderrへ1件出たが、render loop停止追加の前後で同じであり、稼働中診断、process-gone、unresponsiveには記録されない終了後メッセージだった。既存の通常人口エレベーター長時間受入は2回ともPlayer便の約3.98秒発車、1F搬送、降車と起動診断異常0件まで成立したが、変更していない自律NPC到着条件が180秒以内に成立せず未達だった。起動・離脱変更後もRuntime更新中のエレベーター／NPC policy差分はなく、追補commitの対象外である。
+
+最終`typecheck:v2`、V2依存監査、Vite production build、`build:electron`はPASSした。productionはbootstrap 3.37kB、main 415.81kB、Babylon 4,082.67kBへ分離された。`build:renderer`は生成まで成功し、変更前と同じOFL／THIRD_PARTY_NOTICESのCRLF bytes／hash 2件だけで配布監査が停止した。
+
+2026-08-22、ユーザー実画面で、4秒発車は成立する一方、同行者が同便へ乗らず目的階へ走る事象を確認した。原因は、Followerの既知Player便であっても乗車接近時間と残り4秒を比較し、間に合わない予測では階段を選べるpolicyと、別Actorが呼出済みの`departure-countdown`中に後着Followerの呼出入力を現在便へ接続できないCoordinator条件の組合せだった。Playerの既知便が開扉中かつ空席ありの場合は時間比較より同便接近を優先し、呼出マットがlockedでも現在停止階で実際に乗車可能なら同じ便の予約処理へ接続するよう変更した。満員、実際の乗り遅れ、安全性競合では従来どおり次便または階段を選び、Follow、全Actor先着順、定員6人、既存予約、4秒発車を変更していない。
+
+T04実学校fixtureでは、最初のActorが乗車して呼出マットが`departure-countdown`になった後も後着5人が同じ便へ参加し、6人満員まで受理、7・8人目を拒否、既存予約を保持する条件を追加した。Followerの接近予測4.001秒が4秒窓を超える場合でも、Playerの既知便に空席があればエレベーターを選ぶ条件も追加した。新規ブラウザタブで82/82件PASSし、同便優先、満員時の階段／次便、Follow維持、自律NPC、屋上入口192経路、console warning／error、Babylon Logger 0件を確認した。T05 NPC指示fixtureも27/27件PASSし、エレベーター搬送中のFollow継続、予約取消後の復帰、console／Babylon異常0件を確認した。
+
+固定seed通常人口受入は、同行者を単純なPlayer距離ではなく1階呼出マットまでの実NavMesh距離順で5人選び、全員に実位置でFollowを指示してからPlayerが1階で呼び出す構造へ変更した。最初の試行ではPlayerが呼出マット中央に残り、`npc_17`の接近回避がマット境界で振動して5人中4人で停止したため、Playerは予約成立直後に実際の車内へ入り入口を空けるよう修正した。再実行では`npc_10`、`npc_12`、`npc_17`、`npc_20`、`npc_47`の5人全員とPlayerが同じ便へ乗車し、最大予約・乗客6人、発車猶予3.9999～4.0000秒、1階から4階への搬送、5人全員の降車、Electronのconsole／renderer／load／render-process-gone／unresponsive 0件を2回確認した。検証用NPCのteleportや通常ゲームpolicyの選択強制は追加していない。
+
+Electron専用受入全体は、同行者便の完了後に別の自律NPCが180秒以内に自然利用する既存条件だけが2回とも成立せずtimeoutした。同行者修正前から残る既知未達であり、今回の同行者便は約21秒で完了している。自律NPCの呼出・乗車・搬送・降車は同一headのT04実学校fixtureでPASSしているが、通常人口での自律利用を再現可能にする別段階の明示化は未完としてcommit前に分離判断が必要である。
+
+最終`typecheck:v2`、V2依存監査、`typecheck:t04`、`build:t04`、`build:t05`、Vite production build、`build:electron`はPASSした。UTF-8 BOMなし、`git diff --check`、ローカル絶対パス混入なしを確認した。括弧対応はTypeScript型検査とbuildで確認した。白画面追補と同行者同便優先をT06-4P-2の単一commitとして確定した。

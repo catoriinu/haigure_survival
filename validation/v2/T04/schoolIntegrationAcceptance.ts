@@ -2227,16 +2227,41 @@ const runTraversalCoordinatorAcceptance = async (
           survival!.getNpcPosition(actorId)
         )
       );
-    elevatorActorIds.forEach((actorId) =>
+    survival!.enqueueElevatorCall(
+      elevatorActorIds[0],
+      route,
+      9
+    );
+    const firstCallAcceptedFrame = updateCoordinator(0);
+    const firstCallAcceptedActorIds =
+      survival.completeAllElevatorCallApproaches();
+    const firstReadyFrame = updateCoordinator(0);
+    survival!.enqueueElevatorBoard(
+      elevatorActorIds[0],
+      route,
+      9.5
+    );
+    const firstBoardingFrame = updateCoordinator(0);
+    const firstPassengerSnapshot = runtime
+      .getElevator(elevator.id)
+      .getSnapshot();
+    const lateJoinCallMatState = firstPassengerSnapshot.stops.find(
+      (stop) => stop.id === fromStop.id
+    )?.callMatState;
+    elevatorActorIds.slice(1).forEach((actorId) =>
       survival!.enqueueElevatorCall(
         actorId,
         route,
         10
       )
     );
-    const callAcceptedFrame = updateCoordinator(0);
-    const callAcceptedActorIds =
+    const lateCallAcceptedFrame = updateCoordinator(0);
+    const lateCallAcceptedActorIds =
       survival.completeAllElevatorCallApproaches();
+    const callAcceptedActorIds = [
+      ...firstCallAcceptedActorIds,
+      ...lateCallAcceptedActorIds
+    ];
     const readyFrame = updateCoordinator(0);
     const readyActorIds = elevatorActorIds.filter(
       (actorId) =>
@@ -2245,7 +2270,7 @@ const runTraversalCoordinatorAcceptance = async (
     );
     const allReady =
       readyActorIds.join("|") ===
-      elevatorActorIds.slice(0, 6).join("|");
+      elevatorActorIds.slice(1, 6).join("|");
     const reservationSnapshot =
       runtime.getElevator(elevator.id).getSnapshot();
     updateCoordinator(0);
@@ -2311,7 +2336,10 @@ const runTraversalCoordinatorAcceptance = async (
       })
     ).size;
     const traversalNotifications = [
-      ...callAcceptedFrame.notifications,
+      ...firstCallAcceptedFrame.notifications,
+      ...firstReadyFrame.notifications,
+      ...firstBoardingFrame.notifications,
+      ...lateCallAcceptedFrame.notifications,
       ...readyFrame.notifications,
       ...boardingFrame.notifications
     ];
@@ -2326,6 +2354,8 @@ const runTraversalCoordinatorAcceptance = async (
       checks,
       "ready時予約保持・実request/result経由の定員6・7人目拒否",
       allElevatorActorsOnCallMat &&
+        firstPassengerSnapshot.passengers.length === 1 &&
+        lateJoinCallMatState === "departure-countdown" &&
         callAcceptedActorIds.join("|") ===
           elevatorActorIds.join("|") &&
         elevatorActorIds.every(
@@ -2337,10 +2367,10 @@ const runTraversalCoordinatorAcceptance = async (
         ) &&
         allReady &&
         reservationSnapshot.reservations.length ===
-          ELEVATOR_CAPACITY &&
-        reservationSnapshot.passengers.length === 0 &&
+          ELEVATOR_CAPACITY - 1 &&
+        reservationSnapshot.passengers.length === 1 &&
         heldReservationSnapshot.reservations.length ===
-          ELEVATOR_CAPACITY &&
+          ELEVATOR_CAPACITY - 1 &&
         heldReservationSnapshot.carDoorState === "open" &&
         acceptedIds.join("|") ===
           elevatorActorIds.slice(0, 6).join("|") &&
@@ -2353,7 +2383,9 @@ const runTraversalCoordinatorAcceptance = async (
         acceptedSafeSlots &&
         uniqueAcceptedSlots === ELEVATOR_CAPACITY,
       `callMat=${allElevatorActorsOnCallMat} / accepted=` +
-        `${callAcceptedActorIds.length} / ready=${allReady} / ` +
+        `lateJoin=${firstPassengerSnapshot.passengers.length}@${lateJoinCallMatState}` +
+        `->${callAcceptedActorIds.length} / ` +
+        `ready=${allReady} / ` +
         `reserved=${reservationSnapshot.reservations.length}->` +
         `${heldReservationSnapshot.reservations.length}@` +
         `${heldReservationSnapshot.carDoorState} / ` +

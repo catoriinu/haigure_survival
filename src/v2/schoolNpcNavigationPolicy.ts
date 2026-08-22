@@ -490,7 +490,8 @@ const resolveTrackingTrip = (
     boardingMode:
       targetStillBoardable &&
       estimate.capacityAvailable &&
-      walkingSeconds <= estimate.boardingWindowSeconds
+      (followsKnownPlayerTrip ||
+        walkingSeconds <= estimate.boardingWindowSeconds)
         ? "same"
         : "next"
   });
@@ -684,7 +685,7 @@ export const createSchoolNpcNavigationPolicy = ({
           context.currentRouteKind === "link" &&
           context.currentRouteLinkId ===
             elevatorCandidate.transition.link.id;
-        const allowedByCallMat =
+        const callMatReadyOrTraversalContinuing =
           fromStopSnapshot.callMatState === "ready" ||
           continuesElevatorTraversal;
         const estimate =
@@ -708,6 +709,10 @@ export const createSchoolNpcNavigationPolicy = ({
           estimate,
           boardingApproachSeconds
         );
+        const allowedByCallMat =
+          callMatReadyOrTraversalContinuing ||
+          (context.commandMode === "follow" &&
+            trackingTrip?.boardingMode === "same");
         const boardingMode: SchoolNpcElevatorBoardingMode =
           trackingTrip?.boardingMode ??
           (estimate.capacityAvailable ? "same" : "next");

@@ -520,7 +520,8 @@ const run = async () => {
     assertCondition(
       elevatorReport.population.npcCount === 50 &&
         elevatorReport.followerIds.length === 5 &&
-        elevatorReport.followCommandAcceptedIds.length === 5,
+        elevatorReport.followCommandAcceptedIds.length === 5 &&
+        elevatorReport.ridingFollowerIds.length === 5,
       "エレベーターNPC専用受入の通常人口またはFollow受理数が不正です。"
     );
     assertCondition(

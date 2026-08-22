@@ -275,10 +275,13 @@ await assertRetiredArtifactsAbsent();
 
 const indexHtml = await readFile(indexHtmlPath, "utf8");
 if (
-  !indexHtml.includes('src="/src/v2/main.ts"') ||
+  !indexHtml.includes('src="/src/v2/bootstrap.ts"') ||
+  indexHtml.includes('src="/src/v2/main.ts"') ||
   indexHtml.includes('src="/src/main.ts"')
 ) {
-  throw new Error("通常Web入口は/src/v2/main.tsだけを参照する必要があります。");
+  throw new Error(
+    "通常Web入口は/src/v2/bootstrap.tsだけを参照する必要があります。"
+  );
 }
 
 const v2Seeds = await collectTypeScriptFiles(v2SourceRoot);
