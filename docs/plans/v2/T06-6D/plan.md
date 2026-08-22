@@ -1,65 +1,53 @@
 # HAIGURE SURVIVAL v2 T06-6D 静的学校資源再利用 計画
 
-更新日: 2026-08-10
+更新日: 2026-08-22
 
 ## プロンプト
 
-> 学校モデルそのものは読み込み済みだったら読み込まないようにし、キャラクター配置、開始位置、毎ゲーム変わる初期値だけを読み込み直せませんか。
-
-> 学校Scene／GLB／静的Registry／NavMesh bundleをアプリ終了まで保持し、ゲームごとには部屋Variant、Player、NPC、BIT、扉、エレベーター、Mission、開始位置等だけを初期化する。カタログ変更またはアプリ終了時のみ静的資源を破棄する。
+> 学校Scene／GLB／静的Registry／NavMesh bundleをアプリ終了まで保持し、ゲームごとには部屋Variant、Player、NPC、BIT、扉、エレベーター、Mission、開始位置など毎回変わる状態だけを初期化してください。
 
 ## 目的
 
-学校1ステージ固定のV2で、アプリ所有の静的学校資源とセッション所有の動的状態を別interfaceへ分離する。タイトル復帰・リプレイ・再開始で学校GLBと静的NavMesh bundleを再解析せず、動的状態だけを確実に初期化する。
+学校1ステージ固定のV2でアプリ所有の静的資源とsession所有の動的状態を別interfaceへ分離し、タイトル復帰・R再演・通常再開始でGLBとNavMeshを再解析しない。
 
 ## 開始条件
 
 - T06-6Cが独立レビュー後に`develop`へ統合済みである。
-- I4で静的／動的所有表、catalog identity、生成・再利用・破棄順、エラー時の所有移管が承認済みである。
-- `codex/v2-static-school-resource-reuse`の専用worktreeを使用する。
+- `codex/v2-static-school-resource-reuse`の専用worktreeを最新`origin/develop`から作成する。
 
 ## 公開interface契約
 
-- アプリ所有interfaceはBabylon `Scene`、学校GLB `AssetContainer`、作者Mesh／Material／Texture、静的Location registry、人間用NavMesh、BIT用NavMesh bundleと、それらのcatalog identityを所有する。
-- セッション所有interfaceは部屋variant、Player、NPC、BIT、扉、エレベーター、Mission、開始位置、予約、入力、HUD、Audio bridge、イベント購読を所有する。
-- 動的interfaceは静的interfaceへの非所有参照だけを受け取り、静的Mesh／Material／Texture／NavMeshを破棄しない。
-- 同じcatalog identityでの再開始は静的interface identityを維持する。catalog identity変更時は動的状態を破棄後、旧静的資源を完全破棄して新規読込する。
-- アプリ終了時は動的状態を先に、静的学校資源とSceneを後に1回だけ破棄する。
+- 静的interfaceは1つのBabylon `Scene`、学校GLB `AssetContainer`、作者Mesh／Material／Texture、不変Location registry、人間用NavMesh、Room Variant NavMesh bundle、BIT NavMesh bundle、catalog fingerprintを所有する。
+- 動的interfaceは選択room variantとactive set、Player、NPC、BIT、扉、エレベーター、Mission、開始地点、乱数系列、timer、予約、入力、HUD、Audio bridge、observer／subscriptionを所有する。
+- 動的interfaceは静的interfaceへの非所有参照だけを受け取り、静的Mesh、Material、Texture、NavMeshをdisposeしない。
+- 同じcatalog fingerprintでは静的interface identityを維持し、動的interfaceだけを毎session新規作成する。
 
-## セッション再初期化契約
+## 生成・破棄契約
 
-- 毎ゲーム、room variant、Player、NPC、BIT、扉、エレベーター、Mission、開始位置、乱数列、予約、HUD、入力、購読を新規生成する。
-- 前sessionのActor、Mesh instance、Sprite、予約、Mission、timer、observer、Audio node、入力購読を0件へ戻してから次sessionを公開する。
-- 失敗した新sessionの動的資源だけを破棄し、既存静的学校資源は有効なまま維持する。
-- 欠落静的資源を旧session値や座標で補うfallbackは追加しない。
+- タイトル復帰、通常R、即時公開処刑R、新規開始では旧動的状態を完全破棄してから新しい設定／scenario snapshotで動的状態を構築する。
+- catalog fingerprint変更時は動的状態、静的資源の順に各1回破棄し、新しい静的資源を読込後に動的状態を構築する。
+- アプリ終了時も動的状態、静的資源の順に各1回破棄する。
+- 動的構築失敗時は部分動的資源だけを破棄し、有効な静的資源を保持してタイトルへ明示エラーを表示する。旧session値、座標、欠落静的資源へのfallbackは作らない。
 
 ## 対象外
 
-- 学校バイナリ、生成器、NavMesh形状、Location内容、タイトル表示・ゲームオーバー演出、設定項目の変更。
-- 複数ステージcache、LRU、バックグラウンド先読み。V2学校1件の明示所有分離だけを行う。
-
-## 受入条件
-
-- 初回だけ学校GLBを解析し、タイトル復帰・Rリプレイ・再開始を複数回行っても静的Scene／AssetContainer／Location registry／NavMesh bundleのidentityが変わらない。
-- 毎session、room variant、Player、NPC、BIT、扉、エレベーター、Mission、開始位置、予約、購読が新しいidentityと初期値になる。
-- 前sessionのActor、購読、予約、Mission状態、timer、Audio、HUDが残留しない。
-- catalog identity変更時は旧静的資源を1回破棄して新規読込し、アプリ終了時に全資源を1回だけ破棄する。
-- 通常Web／Electronで複数回のタイトル復帰・再開始を行い、console警告・エラー0件、WASM／GPU資源の単調増加0件である。
+- 複数stage cache、LRU、background preload、学校バイナリ・NavMesh形状・Location内容の変更。
+- タイトル表示、responsive配置、ゲームオーバー演出、設定fieldの変更。
 
 ## 検証
 
-- GLB parse回数、静的／動的identity、dispose回数を専用fixtureで計測する。
-- タイトル→開始→ゲームオーバー→R→Enter→再開始を複数周実行し、動的状態だけが初期化されることを確認する。
-- T02、T04、T05、T06-3、T06-4、T06-6A～C、通常build、Web／Electron、consoleを回帰する。
-- 最終終了後にScene、AssetContainer、Material、Texture、NavMesh、Actor、購読、予約、Mission状態がすべて破棄されることを確認する。
+- GLB parse回数、catalog fingerprint、静的／動的identity、dispose回数を専用fixtureで計測する。
+- タイトル→開始→game over→R→Enter→再開始を複数周行い、静的identity不変、動的identity更新を確認する。
+- Actor、room active set、timer、予約、Mission、observer、Audio、HUD、入力の残留0件と、失敗した部分sessionの破棄を確認する。
+- catalog変更とアプリ終了で静的資源が各1回だけ破棄され、通常Web／ElectronでWASM／GPU資源が単調増加しないことを確認する。
 
 ## ステップ
 
-- [ ] 現行`createRuntimeSession()`／`disposeRuntime()`の所有グラフを固定する
-- [ ] 静的学校資源と動的session状態のinterfaceを実装する
-- [ ] タイトル復帰・リプレイ・再開始を動的再初期化へ切り替える
-- [ ] catalog identity変更とアプリ終了の完全破棄を実装する
-- [ ] identity、parse回数、残留、Web／Electronを検証する
+- [ ] 現行所有グラフとcatalog fingerprintをfixtureへ固定する
+- [ ] 静的／動的interfaceを実装する
+- [ ] タイトル復帰・R・再開始を動的再構築へ切り替える
+- [ ] 構築失敗、catalog変更、アプリ終了の破棄順を実装する
+- [ ] identity、parse、残留、Web／Electron回帰を完了する
 - [ ] 結果を更新してT06-6D差分だけをcommitする
 
 ## 結果
