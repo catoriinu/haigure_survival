@@ -496,6 +496,7 @@ export interface V2NpcSystem {
   applyTraversalResults(
     results: readonly V2NpcTraversalResult[]
   ): readonly V2NpcTraversalNotification[];
+  getNavigationRouteContext(npcId: string): V2NpcNavigationRouteContext;
   getTraversalState(npcId: string): V2NpcTraversalState;
   getNpcPosition(npcId: string): Vector3;
   setNpcTransportPosition(npcId: string, position: Vector3): void;
@@ -1596,7 +1597,11 @@ class SchoolV2NpcSystem implements V2NpcSystem {
         continue;
       }
       const state = npc.stateSnapshot.state;
-      if (this.hostileActionsSuspended && isV2BrainwashState(state)) {
+      if (
+        this.hostileActionsSuspended &&
+        isV2BrainwashState(state) &&
+        npc.locationMission === null
+      ) {
         this.clearNavigationAgent(npc);
         continue;
       }
@@ -2507,6 +2512,11 @@ class SchoolV2NpcSystem implements V2NpcSystem {
     return cloneV2NpcTraversalState(
       this.requireNpc(npcId).traversalState
     );
+  }
+
+  getNavigationRouteContext(npcId: string) {
+    this.assertActive();
+    return this.createNavigationRouteContext(this.requireNpc(npcId));
   }
 
   getNpcPosition(npcId: string) {

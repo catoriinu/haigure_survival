@@ -48,6 +48,7 @@
     "acceptance:t06-4:electron": "npm run acceptance:t06-4:normal:electron && node -e \"setTimeout(() => {}, 2000)\" && npm run acceptance:t06-4:haigure:electron",
     "acceptance:t06-4:normal:electron": "cross-env T06_ELECTRON_MISSION_ONLY=1 electron validation/v2/T06/electronAcceptance.cjs --url http://localhost:5175/?missionAcceptance=normal",
     "acceptance:t06-4:haigure:electron": "cross-env T06_ELECTRON_MISSION_ONLY=1 electron validation/v2/T06/electronAcceptance.cjs --url http://localhost:5175/?missionAcceptance=haigure",
+    "acceptance:t06-4p-2:electron": "cross-env T06_ELECTRON_ELEVATOR_ONLY=1 electron validation/v2/T06/electronAcceptance.cjs --url \"http://localhost:5175/?elevatorAcceptance=T06-4P-2&seed=20260821&followers=5\"",
     "acceptance:t06:character-visual:electron": "electron validation/v2/T06/electronCharacterVisualAcceptance.cjs --url http://localhost:5175/",
     "bake:v2:school-navmesh": "node scripts/v2/bake_school_room_variant_navmesh.mjs",
     "check:v2:school-navmesh": "node scripts/v2/bake_school_room_variant_navmesh.mjs --check",

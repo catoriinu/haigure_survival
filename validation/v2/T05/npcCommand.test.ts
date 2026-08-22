@@ -3488,7 +3488,7 @@ const testAutonomousCombatSuppression = async () => {
 
     placeNpcs(startupGraceFollowFixture.system, positions);
     const graceFollowPlayer = createPlayerTarget(
-      new Vector3(0, 0, -2),
+      new Vector3(-0.05, 0, -0.4),
       "brainwash-complete-gun"
     );
     const graceFollowerBefore =
@@ -3501,6 +3501,11 @@ const testAutonomousCombatSuppression = async () => {
         createCommandQuery(graceFollowPlayer)
       ),
       "開始猶予中の洗脳済みNPCへ同行指示が受理されません。"
+    );
+    startupGraceFollowFixture.system.update(
+      0,
+      graceFollowPlayer,
+      EMPTY_ALARM_EVENTS
     );
     startupGraceFollowFixture.system.update(
       1,

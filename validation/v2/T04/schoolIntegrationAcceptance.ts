@@ -2227,16 +2227,41 @@ const runTraversalCoordinatorAcceptance = async (
           survival!.getNpcPosition(actorId)
         )
       );
-    elevatorActorIds.forEach((actorId) =>
+    survival!.enqueueElevatorCall(
+      elevatorActorIds[0],
+      route,
+      9
+    );
+    const firstCallAcceptedFrame = updateCoordinator(0);
+    const firstCallAcceptedActorIds =
+      survival.completeAllElevatorCallApproaches();
+    const firstReadyFrame = updateCoordinator(0);
+    survival!.enqueueElevatorBoard(
+      elevatorActorIds[0],
+      route,
+      9.5
+    );
+    const firstBoardingFrame = updateCoordinator(0);
+    const firstPassengerSnapshot = runtime
+      .getElevator(elevator.id)
+      .getSnapshot();
+    const lateJoinCallMatState = firstPassengerSnapshot.stops.find(
+      (stop) => stop.id === fromStop.id
+    )?.callMatState;
+    elevatorActorIds.slice(1).forEach((actorId) =>
       survival!.enqueueElevatorCall(
         actorId,
         route,
         10
       )
     );
-    const callAcceptedFrame = updateCoordinator(0);
-    const callAcceptedActorIds =
+    const lateCallAcceptedFrame = updateCoordinator(0);
+    const lateCallAcceptedActorIds =
       survival.completeAllElevatorCallApproaches();
+    const callAcceptedActorIds = [
+      ...firstCallAcceptedActorIds,
+      ...lateCallAcceptedActorIds
+    ];
     const readyFrame = updateCoordinator(0);
     const readyActorIds = elevatorActorIds.filter(
       (actorId) =>
@@ -2245,7 +2270,7 @@ const runTraversalCoordinatorAcceptance = async (
     );
     const allReady =
       readyActorIds.join("|") ===
-      elevatorActorIds.slice(0, 6).join("|");
+      elevatorActorIds.slice(1, 6).join("|");
     const reservationSnapshot =
       runtime.getElevator(elevator.id).getSnapshot();
     updateCoordinator(0);
@@ -2311,7 +2336,10 @@ const runTraversalCoordinatorAcceptance = async (
       })
     ).size;
     const traversalNotifications = [
-      ...callAcceptedFrame.notifications,
+      ...firstCallAcceptedFrame.notifications,
+      ...firstReadyFrame.notifications,
+      ...firstBoardingFrame.notifications,
+      ...lateCallAcceptedFrame.notifications,
       ...readyFrame.notifications,
       ...boardingFrame.notifications
     ];
@@ -2326,6 +2354,8 @@ const runTraversalCoordinatorAcceptance = async (
       checks,
       "ready時予約保持・実request/result経由の定員6・7人目拒否",
       allElevatorActorsOnCallMat &&
+        firstPassengerSnapshot.passengers.length === 1 &&
+        lateJoinCallMatState === "departure-countdown" &&
         callAcceptedActorIds.join("|") ===
           elevatorActorIds.join("|") &&
         elevatorActorIds.every(
@@ -2337,10 +2367,10 @@ const runTraversalCoordinatorAcceptance = async (
         ) &&
         allReady &&
         reservationSnapshot.reservations.length ===
-          ELEVATOR_CAPACITY &&
-        reservationSnapshot.passengers.length === 0 &&
+          ELEVATOR_CAPACITY - 1 &&
+        reservationSnapshot.passengers.length === 1 &&
         heldReservationSnapshot.reservations.length ===
-          ELEVATOR_CAPACITY &&
+          ELEVATOR_CAPACITY - 1 &&
         heldReservationSnapshot.carDoorState === "open" &&
         acceptedIds.join("|") ===
           elevatorActorIds.slice(0, 6).join("|") &&
@@ -2353,7 +2383,9 @@ const runTraversalCoordinatorAcceptance = async (
         acceptedSafeSlots &&
         uniqueAcceptedSlots === ELEVATOR_CAPACITY,
       `callMat=${allElevatorActorsOnCallMat} / accepted=` +
-        `${callAcceptedActorIds.length} / ready=${allReady} / ` +
+        `lateJoin=${firstPassengerSnapshot.passengers.length}@${lateJoinCallMatState}` +
+        `->${callAcceptedActorIds.length} / ` +
+        `ready=${allReady} / ` +
         `reserved=${reservationSnapshot.reservations.length}->` +
         `${heldReservationSnapshot.reservations.length}@` +
         `${heldReservationSnapshot.carDoorState} / ` +
@@ -3375,7 +3407,7 @@ const runPlayerElevatorTraversalAcceptance = async (
       ) <= POSITION_EPSILON;
     pushCheck(
       checks,
-      "実プレイヤーを5+1+6+1秒で搬送し退出時に降車完了",
+      "実プレイヤーを4+1+6+1秒で搬送し退出時に降車完了",
       closingSnapshot.carDoorState === "closing" &&
         movingSnapshot.carState === "moving" &&
         destinationOpeningSnapshot.carDoorState ===
@@ -4157,16 +4189,13 @@ export const runSchoolIntegrationAcceptance = async (): Promise<
       fromStop.id,
       destinationStop.id
     );
-    const expectedRideSeconds =
-      ELEVATOR_FIRST_PASSENGER_WAIT_SECONDS +
-      ELEVATOR_DOOR_MOTION_SECONDS +
-      ELEVATOR_TRAVEL_SECONDS +
-      ELEVATOR_DOOR_MOTION_SECONDS;
+    const expectedRideSeconds = 12;
     pushCheck(
       checks,
       "現在状態を含むエレベーター所要時間予測",
       estimate.fromStopId === fromStop.id &&
         estimate.destinationStopId === destinationStop.id &&
+        Number(ELEVATOR_FIRST_PASSENGER_WAIT_SECONDS) === 4 &&
         estimate.capacityAvailable &&
         estimate.availableCapacity === ELEVATOR_CAPACITY &&
         estimate.waitSeconds === 0 &&
@@ -4222,8 +4251,35 @@ export const runSchoolIntegrationAcceptance = async (): Promise<
         `remaining=${fullEstimate.availableCapacity}`
     );
 
-    acceptedIds.forEach((actorId) =>
+    const firstAcceptedId = acceptedIds[0];
+    if (!firstAcceptedId) {
+      throw new Error("実学校エレベーターの先頭乗車Actorがありません。");
+    }
+    elevatorRuntime.completeBoarding(firstAcceptedId);
+    const firstBoardingSnapshot = elevatorRuntime.getSnapshot();
+    driver.update(3.999);
+    const beforeFourSeconds = elevatorRuntime.getSnapshot();
+    acceptedIds.slice(1).forEach((actorId) =>
       elevatorRuntime.completeBoarding(actorId)
+    );
+    const afterLaterBoarding = elevatorRuntime.getSnapshot();
+    pushCheck(
+      checks,
+      "最初の乗車から3.999秒待機し後続乗車で4秒発車を延長しない",
+      firstBoardingSnapshot.carDoorState === "open" &&
+        firstBoardingSnapshot.dwellRemainingSeconds === 4 &&
+        beforeFourSeconds.carDoorState === "open" &&
+        beforeFourSeconds.dwellRemainingSeconds !== null &&
+        Math.abs(beforeFourSeconds.dwellRemainingSeconds - 0.001) <=
+          POSITION_EPSILON &&
+        afterLaterBoarding.carDoorState === "open" &&
+        afterLaterBoarding.dwellRemainingSeconds ===
+          beforeFourSeconds.dwellRemainingSeconds,
+      `first=${firstBoardingSnapshot.dwellRemainingSeconds} / ` +
+        `at3.999=${beforeFourSeconds.carDoorState}:` +
+        `${beforeFourSeconds.dwellRemainingSeconds} / ` +
+        `later=${afterLaterBoarding.carDoorState}:` +
+        `${afterLaterBoarding.dwellRemainingSeconds}`
     );
     const boardedIntoSafeSlots = acceptedIds.every((actorId) => {
       const actor = requireActor(actors.actors, actorId);
@@ -4294,9 +4350,7 @@ export const runSchoolIntegrationAcceptance = async (): Promise<
           radii: rejectedBoardingActor.radii.clone()
         })
       );
-    const closingStartSnapshot = driver.update(
-      ELEVATOR_FIRST_PASSENGER_WAIT_SECONDS
-    );
+    const closingStartSnapshot = driver.update(0.001);
     const closingStart = elevatorRuntime.getSnapshot();
     rejectedBoardingActor.position.set(
       1_200,
@@ -4306,7 +4360,7 @@ export const runSchoolIntegrationAcceptance = async (): Promise<
     rejectedBoardingActor.radii.setAll(0.001);
     pushCheck(
       checks,
-      "呼出マット占有中でもエレベーターclosingを開始",
+      "最初の乗車から4秒で呼出マット占有中でもclosingを開始",
       callMatOccupiedBeforeClosing &&
         closingStart.carDoorState === "closing" &&
         closingStart.carState === "stopped" &&

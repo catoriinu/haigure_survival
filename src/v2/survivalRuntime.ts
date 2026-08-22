@@ -293,7 +293,16 @@ export interface V2SurvivalRuntime {
   requestNpcCommand(npcId: string, kind: V2NpcCommandKind): boolean;
   cancelNpcFollow(npcId: string): boolean;
   notifyPlayerElevatorStartedMoving(): void;
+  setHostileActionsSuspended(suspended: boolean): void;
   requestBroadcast(command: V2BroadcastCommand): boolean;
+  previewNpcLocationMissionRoute(
+    npcId: string,
+    locationId: string
+  ): NavigationRouteCandidate["kind"] | null;
+  requestNpcLocationMission(
+    npcId: string,
+    locationId: string
+  ): V2MissionView;
   getMissions(): readonly V2MissionView[];
   getHumanTargets(): readonly V2HumanTargetSnapshot[];
   getBitActors(): readonly V2ActorSphere[];
@@ -695,6 +704,7 @@ export const createV2SurvivalRuntime = ({
 
   let disposed = false;
   let phase: V2SurvivalPhase = "playing";
+  let hostileActionsSuspendedByRuntime = false;
   let frozenAssemblyVenue: StageAssemblyVenue | null = null;
   let missionFrame = missionRuntime.getFrame();
   let allDeadSeconds = 0;
@@ -1609,8 +1619,10 @@ export const createV2SurvivalRuntime = ({
       const updateStartedAtSeconds = elapsedSeconds - deltaSeconds;
       const hostileStartupGraceActive =
         updateStartedAtSeconds < V2_HOSTILE_STARTUP_GRACE_SECONDS;
-      npcSystem.setHostileActionsSuspended(hostileStartupGraceActive);
-      bitSystem.setHostileActionsSuspended(hostileStartupGraceActive);
+      const hostileActionsSuspended =
+        hostileStartupGraceActive || hostileActionsSuspendedByRuntime;
+      npcSystem.setHostileActionsSuspended(hostileActionsSuspended);
+      bitSystem.setHostileActionsSuspended(hostileActionsSuspended);
       npcSystem.setPlayerElevatorTraversalSnapshot(
         playerElevatorTraversal
       );
@@ -2343,6 +2355,12 @@ export const createV2SurvivalRuntime = ({
       minimapActorSnapshots = buildMinimapActorSnapshots();
       frame = buildFrame();
     },
+    setHostileActionsSuspended: (suspended) => {
+      assertActive();
+      hostileActionsSuspendedByRuntime = suspended;
+      npcSystem.setHostileActionsSuspended(suspended);
+      bitSystem.setHostileActionsSuspended(suspended);
+    },
     requestBroadcast: (command) => {
       assertActive();
       if (phase !== "playing") {
@@ -2361,6 +2379,54 @@ export const createV2SurvivalRuntime = ({
       minimapActorSnapshots = buildMinimapActorSnapshots();
       frame = buildFrame();
       return true;
+    },
+    previewNpcLocationMissionRoute: (npcId, locationId) => {
+      assertActive();
+      const location = locationAssets.getMissionLocationById(locationId);
+      if (!location) {
+        throw new Error(`未登録のMission Locationです: ${locationId}`);
+      }
+      const currentContext = npcSystem.getNavigationRouteContext(npcId);
+      const missionContext = Object.freeze({
+        ...currentContext,
+        behavior: "mission" as const,
+        targetId: null,
+        playerElevatorTraversal: null,
+        targetProvenance: null,
+        targetSelectionPersonality: null,
+        targetSightClear: false
+      });
+      const path = stage.navigation.findPath(
+        missionContext.location,
+        location.navigationLocation,
+        "npc",
+        Object.freeze({
+          selectRoute: (candidates: readonly NavigationRouteCandidate[]) =>
+            selectNavigationRoute(missionContext, candidates)
+        })
+      );
+      if (path === null) {
+        return null;
+      }
+      return path.steps.some((step) => step.kind === "transition")
+        ? "link"
+        : "surface";
+    },
+    requestNpcLocationMission: (npcId, locationId) => {
+      assertActive();
+      if (phase !== "playing") {
+        throw new Error("NPC Location Missionはplaying中だけ要求できます。");
+      }
+      const mission = missionRuntime.assignNpcLocationMission(
+        npcId,
+        locationId,
+        buildMissionNpcSnapshots()
+      );
+      rebuildHumanTargets();
+      missionFrame = missionRuntime.getFrame();
+      minimapActorSnapshots = buildMinimapActorSnapshots();
+      frame = buildFrame();
+      return mission;
     },
     getMissions: () => {
       assertActive();

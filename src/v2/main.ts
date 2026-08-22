@@ -1,5 +1,3 @@
-import "../style.css";
-
 import {
   Color3,
   Color4,
@@ -45,6 +43,7 @@ import {
   createSchoolStageDynamicSpatialInitializer,
   type SchoolStageDynamicRuntime
 } from "../world/schoolStageDynamicRuntime";
+import { ELEVATOR_FIRST_PASSENGER_WAIT_SECONDS } from "../world/stageElevatorRuntime";
 import {
   loadStageSpatialContext,
   type StageSpatialContext
@@ -112,6 +111,10 @@ import {
 } from "./runtimeStressScenario";
 import { resolveV2RoomVariantLevel } from "./roomVariantVisualReview";
 import { selectV2PlayerSpawn } from "./schoolSpawnSelection";
+import {
+  markV2PageUnloading,
+  markV2StartupPhase
+} from "./startupDiagnostics";
 
 const V2_GAMEPLAY_HELP_TEXT =
   "操作説明\n" +
@@ -168,6 +171,35 @@ const missionAcceptanceScenario = (() => {
     "missionAcceptanceにはnormalまたはhaigureが必要です。"
   );
 })();
+const elevatorNpcAcceptanceScenario = (() => {
+  const parameters = new URLSearchParams(location.search);
+  const requested = parameters.get("elevatorAcceptance");
+  if (requested === null) {
+    return null;
+  }
+  if (requested !== "T06-4P-2") {
+    throw new Error(
+      "elevatorAcceptanceにはT06-4P-2が必要です。"
+    );
+  }
+  const seed = Number(parameters.get("seed") ?? "20260821");
+  if (!Number.isSafeInteger(seed) || seed < 0) {
+    throw new Error(
+      "elevatorAcceptanceのseedには0以上の安全な整数が必要です。"
+    );
+  }
+  const followerCount = Number(parameters.get("followers") ?? "5");
+  if (
+    !Number.isSafeInteger(followerCount) ||
+    followerCount < 1 ||
+    followerCount > 5
+  ) {
+    throw new Error(
+      "elevatorAcceptanceのfollowersには1以上5以下の整数が必要です。"
+    );
+  }
+  return Object.freeze({ id: requested, seed, followerCount });
+})();
 const rampValidationTarget = (() => {
   const requested = new URLSearchParams(location.search).get(
     "rampValidation"
@@ -182,11 +214,12 @@ if (
     performanceScenario,
     runtimeStressScenario,
     missionAcceptanceScenario,
+    elevatorNpcAcceptanceScenario,
     rampValidationTarget
   ].filter((scenario) => scenario !== null).length > 1
 ) {
   throw new Error(
-    "performance、schoolStress、missionAcceptance、rampValidationは同時に実行できません。"
+    "performance、schoolStress、missionAcceptance、elevatorAcceptance、rampValidationは同時に実行できません。"
   );
 }
 if (
@@ -195,6 +228,7 @@ if (
     performanceScenario,
     runtimeStressScenario,
     missionAcceptanceScenario,
+    elevatorNpcAcceptanceScenario,
     rampValidationTarget
   ].some((scenario) => scenario !== null)
 ) {
@@ -206,7 +240,9 @@ const fixedRuntimeSeed =
   performanceScenario?.seed ??
   runtimeStressScenario?.seed ??
   schoolVisualAcceptanceScenario?.seed ??
-  (missionAcceptanceScenario === null && rampValidationTarget === null
+  elevatorNpcAcceptanceScenario?.seed ??
+  (missionAcceptanceScenario === null &&
+  rampValidationTarget === null
     ? null
     : 0);
 const nextRuntimeSessionSeed = () => {
@@ -250,6 +286,7 @@ if (performanceScenario) {
   canvas.style.height = "1080px";
 }
 const engine = new Engine(canvas, true);
+markV2StartupPhase("engine-created");
 
 type V2RuntimeSession = Readonly<{
   dispose(): Promise<void>;
@@ -259,6 +296,7 @@ const createRuntimeSession = async (
   sessionSeed: number,
   requestSessionRebuild: () => void
 ): Promise<V2RuntimeSession> => {
+markV2StartupPhase("runtime-session-creating");
 const roomVariantSelections = createSchoolRoomVariantSelections(
   createSchoolRuntimeSettings(roomVariantLevel),
   sessionSeed
@@ -388,6 +426,7 @@ const initializeRuntime = async () => {
     null;
 
   try {
+    markV2StartupPhase("school-stage-loading");
     ownedStage = await loadStageSpatialContext(
       scene,
       SCHOOL_STAGE,
@@ -400,6 +439,7 @@ const initializeRuntime = async () => {
         roomVariantSelections
       }
     );
+    markV2StartupPhase("school-stage-loaded");
     if (ownedStage.worldBoundary === null) {
       throw new Error("学校ステージのworld boundaryがありません");
     }
@@ -452,6 +492,7 @@ const initializeRuntime = async () => {
         "character-assignment"
       )
     });
+    markV2StartupPhase("character-visuals-loading");
     ownedCharacterVisuals = await createV2CharacterVisualRuntime({
       scene,
       assignments: characterAssignments,
@@ -460,6 +501,7 @@ const initializeRuntime = async () => {
           ? "upright"
           : "camera-facing"
     });
+    markV2StartupPhase("character-visuals-loaded");
     const characterVisuals = ownedCharacterVisuals;
     ownedSurvival = createV2SurvivalRuntime({
       scene,
@@ -530,6 +572,7 @@ const initializeRuntime = async () => {
         return selectNavigationRoute(context, candidates);
       }
     });
+    markV2StartupPhase("survival-runtime-created");
     const survivalRuntime = ownedSurvival;
     const initialNpcTargets = Object.freeze(
       survivalRuntime
@@ -637,10 +680,12 @@ const initializeRuntime = async () => {
       }
     }
     await scene.whenReadyAsync();
+    markV2StartupPhase("scene-ready");
     const visualPreparation =
       ownedSurvival.prepareVisualResources();
     scene.render();
     await visualPreparation;
+    markV2StartupPhase("visual-resources-ready");
     return {
       stage: ownedStage,
       dynamicRuntime: ownedDynamicRuntime,
@@ -742,9 +787,10 @@ const disposeRuntime = async () => {
   delete document.body.dataset.v2MissionAcceptanceScenario;
   delete document.body.dataset.v2MissionAcceptancePlacement;
   delete document.body.dataset.v2MissionAcceptanceSnapshot;
+  delete document.body.dataset.v2ElevatorNpcAcceptanceReport;
   delete document.body.dataset.v2SchoolVisualAcceptance;
   delete window.__v2SchoolVisualAcceptance;
-  if (runtimeStressScenario) {
+  if (runtimeStressScenario || elevatorNpcAcceptanceScenario) {
     delete document.documentElement.dataset.validationStatus;
   }
   traversalCoordinator.dispose();
@@ -1004,6 +1050,248 @@ let runtimeStressStatus: V2RuntimeStressReport["status"] =
   "running";
 let missionAcceptanceLookAtPosition: Vector3 | null = null;
 
+type ElevatorNpcAcceptancePhase =
+  | "positioning"
+  | "commanding"
+  | "gathering"
+  | "calling"
+  | "boarding"
+  | "riding"
+  | "disembarking"
+  | "autonomous"
+  | "passed";
+
+const elevatorNpcAcceptanceAsset = (() => {
+  if (elevatorNpcAcceptanceScenario === null) {
+    return null;
+  }
+  if (stage.elevatorAssets.all.length !== 1) {
+    throw new Error(
+      `エレベーターNPC受入には実学校エレベーター1基が必要です: ${stage.elevatorAssets.all.length}`
+    );
+  }
+  return stage.elevatorAssets.all[0]!;
+})();
+const elevatorNpcAcceptanceRuntime =
+  elevatorNpcAcceptanceAsset === null
+    ? null
+    : dynamicRuntime.getElevator(elevatorNpcAcceptanceAsset.id);
+const elevatorNpcAcceptanceDepartureStop = (() => {
+  if (elevatorNpcAcceptanceAsset === null) {
+    return null;
+  }
+  const stop = elevatorNpcAcceptanceAsset.stops.find(
+    (candidate) => candidate !== elevatorNpcAcceptanceAsset.initialStop
+  );
+  if (!stop) {
+    throw new Error(
+      "エレベーターNPC受入の初期停止階と異なる出発階がありません。"
+    );
+  }
+  return stop;
+})();
+const elevatorNpcAcceptanceFollowerIds: readonly string[] = (() => {
+  if (
+    elevatorNpcAcceptanceScenario === null ||
+    elevatorNpcAcceptanceDepartureStop === null
+  ) {
+    return Object.freeze([]);
+  }
+  elevatorNpcAcceptanceDepartureStop.callMat.mesh.computeWorldMatrix(
+    true
+  );
+  const callMatBounds =
+    elevatorNpcAcceptanceDepartureStop.callMat.mesh.getBoundingInfo()
+      .boundingBox;
+  const callMatProjection = stage.navigation.projectPoint(
+    callMatBounds.centerWorld,
+    Math.max(
+      callMatBounds.extendSizeWorld.x,
+      callMatBounds.extendSizeWorld.y,
+      callMatBounds.extendSizeWorld.z
+    )
+  );
+  if (callMatProjection === null) {
+    throw new Error(
+      "エレベーターNPC受入の初期呼出マットをNavMeshへ投影できません。"
+    );
+  }
+  const ids = survival
+    .getHumanTargets()
+    .filter(
+      (target) =>
+        target.kind === "npc" &&
+        !target.brainwashed &&
+        target.state === "normal"
+    )
+    .map((target) => {
+      const start = stage.navigation.projectPoint(
+        target.footPosition,
+        0.1
+      );
+      if (start === null) {
+        throw new Error(
+          `エレベーターNPC受入の同行候補をNavMeshへ投影できません: ${target.id}`
+        );
+      }
+      const path = stage.navigation.findSurfacePath(
+        start,
+        callMatProjection
+      );
+      return Object.freeze({
+        id: target.id,
+        distance: path?.distance ?? Number.POSITIVE_INFINITY
+      });
+    })
+    .filter((target) => Number.isFinite(target.distance))
+    .sort(
+      (left, right) =>
+        left.distance - right.distance ||
+        left.id.localeCompare(right.id)
+    )
+    .map((target) => target.id)
+    .slice(0, elevatorNpcAcceptanceScenario.followerCount);
+  if (ids.length !== elevatorNpcAcceptanceScenario.followerCount) {
+    throw new Error(
+      `エレベーターNPC受入の同行者が不足しています: ${ids.length}/${elevatorNpcAcceptanceScenario.followerCount}`
+    );
+  }
+  return Object.freeze(ids);
+})();
+let elevatorNpcAcceptancePhase: ElevatorNpcAcceptancePhase =
+  "positioning";
+let elevatorNpcAcceptanceFromStopId: string | null = null;
+let elevatorNpcAcceptanceDestinationStopId: string | null = null;
+let elevatorNpcAcceptanceFirstPassengerAtSeconds: number | null = null;
+let elevatorNpcAcceptanceClosingAtSeconds: number | null = null;
+let elevatorNpcAcceptanceMaximumCommittedActorCount = 0;
+let elevatorNpcAcceptanceMaximumPassengerCount = 0;
+let elevatorNpcAcceptancePlayerCompleted = false;
+let elevatorNpcAcceptancePreviousSignature: string | null = null;
+let elevatorNpcAcceptanceCommandIndex = 0;
+let elevatorNpcAcceptanceAutonomousNpcId: string | null = null;
+let elevatorNpcAcceptanceAutonomousMissionId: string | null = null;
+const elevatorNpcAcceptanceAutonomousFixedNpcId = "npc_7";
+const elevatorNpcAcceptanceAutonomousLocationId = "f04-music";
+const elevatorNpcAcceptanceFollowCommandIds = new Set<string>();
+const elevatorNpcAcceptanceRidingFollowerIds = new Set<string>();
+const elevatorNpcAcceptanceLeavingFollowerIds = new Set<string>();
+const elevatorNpcAcceptanceAutonomousRidingIds = new Set<string>();
+const elevatorNpcAcceptanceAutonomousArrivedIds = new Set<string>();
+const elevatorNpcAcceptanceTransitions: Array<
+  Readonly<{
+    elapsedSeconds: number;
+    phase: ElevatorNpcAcceptancePhase;
+    carState: string;
+    carDoorState: string;
+    currentStopId: string | null;
+    reservationIds: readonly string[];
+    passengerIds: readonly string[];
+    followerTraversal: readonly string[];
+  }>
+> = [];
+
+const requireElevatorAcceptanceMeshCenter = (
+  label: string,
+  mesh: AbstractMesh
+) => {
+  mesh.computeWorldMatrix(true);
+  const center = mesh.getBoundingInfo().boundingBox.centerWorld.clone();
+  if (
+    !Number.isFinite(center.x) ||
+    !Number.isFinite(center.y) ||
+    !Number.isFinite(center.z)
+  ) {
+    throw new Error(`${label}の正本中心座標が有限値ではありません。`);
+  }
+  return center;
+};
+
+const publishElevatorNpcAcceptanceReport = (
+  status: "running" | "passed",
+  elevatorSnapshot: ReturnType<
+    NonNullable<typeof elevatorNpcAcceptanceRuntime>["getSnapshot"]
+  >
+) => {
+  if (elevatorNpcAcceptanceScenario === null) {
+    return;
+  }
+  const survivalFrame = survival.getFrame();
+  const departureDelaySeconds =
+    elevatorNpcAcceptanceFirstPassengerAtSeconds === null ||
+    elevatorNpcAcceptanceClosingAtSeconds === null
+      ? null
+      : elevatorNpcAcceptanceClosingAtSeconds -
+        elevatorNpcAcceptanceFirstPassengerAtSeconds;
+  document.body.dataset.v2ElevatorNpcAcceptanceReport = JSON.stringify({
+    status,
+    scenario: elevatorNpcAcceptanceScenario.id,
+    seed: elevatorNpcAcceptanceScenario.seed,
+    population: {
+      npcCount: survivalFrame.npcCount,
+      brainwashedNpcCount: survivalFrame.brainwashedNpcCount,
+      bitCount: survivalFrame.bitCount
+    },
+    hostileActionsSuspended: true,
+    followerIds: elevatorNpcAcceptanceFollowerIds,
+    followCommandAcceptedIds: [
+      ...elevatorNpcAcceptanceFollowCommandIds
+    ].sort(),
+    phase: elevatorNpcAcceptancePhase,
+    fromStopId: elevatorNpcAcceptanceFromStopId,
+    destinationStopId: elevatorNpcAcceptanceDestinationStopId,
+    firstPassengerAtSeconds:
+      elevatorNpcAcceptanceFirstPassengerAtSeconds,
+    closingAtSeconds: elevatorNpcAcceptanceClosingAtSeconds,
+    departureDelaySeconds,
+    expectedDepartureDelaySeconds:
+      ELEVATOR_FIRST_PASSENGER_WAIT_SECONDS,
+    maximumCommittedActorCount:
+      elevatorNpcAcceptanceMaximumCommittedActorCount,
+    maximumPassengerCount:
+      elevatorNpcAcceptanceMaximumPassengerCount,
+    elevator: {
+      id: elevatorSnapshot.id,
+      elapsedSeconds: elevatorSnapshot.elapsedSeconds,
+      carState: elevatorSnapshot.carState,
+      carDoorState: elevatorSnapshot.carDoorState,
+      currentStopId: elevatorSnapshot.currentStopId,
+      targetStopId: elevatorSnapshot.targetStopId,
+      dwellRemainingSeconds:
+        elevatorSnapshot.dwellRemainingSeconds,
+      reservationIds: elevatorSnapshot.reservations.map(
+        (reservation) => reservation.actorId
+      ),
+      passengers: elevatorSnapshot.passengers.map((passenger) => ({
+        actorId: passenger.actorId,
+        state: passenger.state
+      }))
+    },
+    followerTraversal: elevatorNpcAcceptanceFollowerIds.map(
+      (npcId) => ({
+        npcId,
+        kind: survival.getNpcTraversalState(npcId).kind,
+        position: survival.getNpcPosition(npcId).asArray()
+      })
+    ),
+    ridingFollowerIds: [...elevatorNpcAcceptanceRidingFollowerIds].sort(),
+    leavingFollowerIds: [...elevatorNpcAcceptanceLeavingFollowerIds].sort(),
+    autonomousScenario: {
+      npcId: elevatorNpcAcceptanceAutonomousNpcId,
+      locationId: elevatorNpcAcceptanceAutonomousLocationId,
+      missionId: elevatorNpcAcceptanceAutonomousMissionId
+    },
+    autonomousRidingIds: [
+      ...elevatorNpcAcceptanceAutonomousRidingIds
+    ].sort(),
+    autonomousArrivedIds: [
+      ...elevatorNpcAcceptanceAutonomousArrivedIds
+    ].sort(),
+    transitions: elevatorNpcAcceptanceTransitions
+  });
+  document.documentElement.dataset.validationStatus = status;
+};
+
 if (missionAcceptanceScenario !== null) {
   const broadcastConsole = locationAssets.broadcastConsole;
   broadcastConsole.markerNode.computeWorldMatrix(true);
@@ -1150,6 +1438,408 @@ if (rampValidationTarget) {
     "W: 登坂  Shift: ダッシュ";
 }
 
+const positionElevatorNpcAcceptanceActors = () => {
+  if (
+    elevatorNpcAcceptanceScenario === null ||
+    elevatorNpcAcceptanceAsset === null ||
+    elevatorNpcAcceptanceRuntime === null
+  ) {
+    return;
+  }
+  survival.setHostileActionsSuspended(true);
+  selectElevatorNpcAcceptanceAutonomousCandidate();
+  startElevatorNpcAcceptanceAutonomousMission();
+  elevatorNpcAcceptancePhase = "commanding";
+  publishElevatorNpcAcceptanceReport(
+    "running",
+    elevatorNpcAcceptanceRuntime.getSnapshot()
+  );
+};
+
+const selectElevatorNpcAcceptanceAutonomousCandidate = () => {
+  if (
+    elevatorNpcAcceptanceAsset === null ||
+    elevatorNpcAcceptanceRuntime === null
+  ) {
+    return;
+  }
+  const autonomousCandidate = survival
+    .getHumanTargets()
+    .find(
+      (target) =>
+        target.id === elevatorNpcAcceptanceAutonomousFixedNpcId &&
+        target.kind === "npc" &&
+        (target.state === "brainwash-complete-gun" ||
+          target.state === "brainwash-complete-no-gun") &&
+        target.brainwashed &&
+        !elevatorNpcAcceptanceFollowerIds.includes(target.id)
+    );
+  if (
+    !autonomousCandidate ||
+    survival.previewNpcLocationMissionRoute(
+      autonomousCandidate.id,
+      elevatorNpcAcceptanceAutonomousLocationId
+    ) !== "link"
+  ) {
+    throw new Error(
+      `固定自律NPCが4Fへのエレベーター経路を選びません: ${elevatorNpcAcceptanceAutonomousFixedNpcId}`
+    );
+  }
+  elevatorNpcAcceptanceAutonomousNpcId = autonomousCandidate.id;
+};
+
+const startElevatorNpcAcceptanceAutonomousMission = () => {
+  if (elevatorNpcAcceptanceAutonomousNpcId === null) {
+    throw new Error(
+      "エレベーターNPC受入の自律NPC候補が選択されていません。"
+    );
+  }
+  const mission = survival.requestNpcLocationMission(
+    elevatorNpcAcceptanceAutonomousNpcId,
+    elevatorNpcAcceptanceAutonomousLocationId
+  );
+  elevatorNpcAcceptanceAutonomousMissionId = mission.id;
+};
+
+const positionElevatorNpcAcceptancePlayer = () => {
+  if (
+    elevatorNpcAcceptanceAsset === null ||
+    elevatorNpcAcceptanceRuntime === null ||
+    elevatorNpcAcceptanceDepartureStop === null
+  ) {
+    return;
+  }
+  const fromStop = elevatorNpcAcceptanceDepartureStop;
+  const destinationStop = elevatorNpcAcceptanceAsset.initialStop;
+  const callMatCenter = requireElevatorAcceptanceMeshCenter(
+    "エレベーターNPC受入の呼出マット",
+    fromStop.callMat.mesh
+  );
+  fromStop.callMat.mesh.computeWorldMatrix(true);
+  const callMatExtent = fromStop.callMat.mesh.getBoundingInfo()
+    .boundingBox.extendSizeWorld;
+  const projectedCallMat = stage.navigation.projectPoint(
+    callMatCenter,
+    Math.max(callMatExtent.x, callMatExtent.y, callMatExtent.z)
+  );
+  if (
+    projectedCallMat === null ||
+    !stage.queries.containsVolumeById(
+      fromStop.callMat.id,
+      projectedCallMat.position
+    )
+  ) {
+    throw new Error(
+      `エレベーターNPC受入の呼出マットにNavMesh位置がありません: ${fromStop.callMat.id}`
+    );
+  }
+
+  player.setTransportFootPosition(projectedCallMat.position);
+  survival.relocateTargetNavigationArea(
+    "player",
+    projectedCallMat.position
+  );
+  elevatorNpcAcceptanceFromStopId = fromStop.id;
+  elevatorNpcAcceptanceDestinationStopId = destinationStop.id;
+};
+
+const updateElevatorNpcAcceptanceBeforeTraversal = () => {
+  if (
+    elevatorNpcAcceptanceScenario === null ||
+    elevatorNpcAcceptanceAsset === null ||
+    elevatorNpcAcceptanceRuntime === null
+  ) {
+    return;
+  }
+  if (elevatorNpcAcceptancePhase === "positioning") {
+    positionElevatorNpcAcceptanceActors();
+    return;
+  }
+  if (elevatorNpcAcceptancePhase === "commanding") {
+    const npcId =
+      elevatorNpcAcceptanceFollowerIds[
+        elevatorNpcAcceptanceCommandIndex
+      ]!;
+    const target = survival
+      .getHumanTargets()
+      .find((candidate) => candidate.id === npcId)!;
+    const commandPosition = stage.navigation.projectPoint(
+      target.footPosition,
+      0.03
+    );
+    if (commandPosition === null) {
+      throw new Error(
+        `エレベーターNPC受入の指示位置をNavMeshへ投影できません: ${npcId}`
+      );
+    }
+    player.setTransportFootPosition(commandPosition.position);
+    survival.relocateTargetNavigationArea(
+      "player",
+      commandPosition.position
+    );
+    camera.setTarget(target.aimPosition);
+    camera.getViewMatrix(true);
+    if (
+      !survival
+        .getNpcCommandCandidates()
+        .some((candidate) => candidate.npcId === npcId)
+    ) {
+      throw new Error(
+        `エレベーターNPC受入の同行指示候補になりません: ${npcId}`
+      );
+    }
+    if (!survival.requestNpcCommand(npcId, "follow")) {
+      throw new Error(
+        `エレベーターNPC受入のFollow指示が拒否されました: ${npcId}`
+      );
+    }
+    elevatorNpcAcceptanceFollowCommandIds.add(npcId);
+    elevatorNpcAcceptanceCommandIndex += 1;
+    if (
+      elevatorNpcAcceptanceCommandIndex <
+      elevatorNpcAcceptanceFollowerIds.length
+    ) {
+      return;
+    }
+    elevatorNpcAcceptancePhase = "autonomous";
+    return;
+  }
+  if (elevatorNpcAcceptancePhase === "gathering") {
+    const playerTraversal =
+      traversalCoordinator.getPlayerElevatorTraversalSnapshot();
+    if (playerTraversal?.phase !== "reserved") {
+      return;
+    }
+    elevatorNpcAcceptanceAsset.car.passengerOriginNode.computeWorldMatrix(
+      true
+    );
+    player.setTransportFootPosition(
+      elevatorNpcAcceptanceAsset.car.passengerOriginNode
+        .getAbsolutePosition()
+        .clone()
+    );
+    elevatorNpcAcceptancePhase = "boarding";
+    return;
+  }
+
+  const playerTraversal =
+    traversalCoordinator.getPlayerElevatorTraversalSnapshot();
+  const elevatorSnapshot = elevatorNpcAcceptanceRuntime.getSnapshot();
+  if (
+    elevatorNpcAcceptancePhase === "calling" &&
+    playerTraversal?.phase === "reserved"
+  ) {
+    elevatorNpcAcceptanceAsset.car.passengerOriginNode.computeWorldMatrix(
+      true
+    );
+    player.setTransportFootPosition(
+      elevatorNpcAcceptanceAsset.car.passengerOriginNode
+        .getAbsolutePosition()
+        .clone()
+    );
+    elevatorNpcAcceptancePhase = "boarding";
+    return;
+  }
+  if (
+    (elevatorNpcAcceptancePhase === "boarding" ||
+      elevatorNpcAcceptancePhase === "riding") &&
+    playerTraversal?.phase === "riding"
+  ) {
+    elevatorNpcAcceptancePhase = "riding";
+    const playerPassenger = elevatorSnapshot.passengers.find(
+      (passenger) => passenger.actorId === "player"
+    );
+    if (
+      playerPassenger?.state === "arrived" &&
+      elevatorSnapshot.currentStopId ===
+        elevatorNpcAcceptanceDestinationStopId &&
+      elevatorSnapshot.carDoorState === "open"
+    ) {
+      const destinationStop = elevatorNpcAcceptanceAsset.stops.find(
+        (stop) => stop.id === elevatorNpcAcceptanceDestinationStopId
+      );
+      if (!destinationStop) {
+        throw new Error(
+          `エレベーターNPC受入の降車停止階がありません: ${elevatorNpcAcceptanceDestinationStopId}`
+        );
+      }
+      destinationStop.wait.node.computeWorldMatrix(true);
+      player.setTransportFootPosition(
+        destinationStop.wait.node.getAbsolutePosition().clone()
+      );
+      elevatorNpcAcceptancePhase = "disembarking";
+    }
+  }
+};
+
+const updateElevatorNpcAcceptanceAfterTraversal = () => {
+  if (
+    elevatorNpcAcceptanceScenario === null ||
+    elevatorNpcAcceptanceRuntime === null
+  ) {
+    return;
+  }
+  const elevatorSnapshot = elevatorNpcAcceptanceRuntime.getSnapshot();
+  const committedActorCount =
+    elevatorSnapshot.reservations.length +
+    elevatorSnapshot.passengers.length;
+  elevatorNpcAcceptanceMaximumCommittedActorCount = Math.max(
+    elevatorNpcAcceptanceMaximumCommittedActorCount,
+    committedActorCount
+  );
+  elevatorNpcAcceptanceMaximumPassengerCount = Math.max(
+    elevatorNpcAcceptanceMaximumPassengerCount,
+    elevatorSnapshot.passengers.length
+  );
+  if (
+    elevatorNpcAcceptanceFirstPassengerAtSeconds === null &&
+    elevatorSnapshot.passengers.length > 0
+  ) {
+    elevatorNpcAcceptanceFirstPassengerAtSeconds =
+      elevatorSnapshot.elapsedSeconds;
+  }
+  if (
+    elevatorNpcAcceptanceFirstPassengerAtSeconds !== null &&
+    elevatorNpcAcceptanceClosingAtSeconds === null &&
+    elevatorSnapshot.carDoorState === "closing"
+  ) {
+    elevatorNpcAcceptanceClosingAtSeconds =
+      elevatorSnapshot.elapsedSeconds;
+  }
+  const followerTraversal = elevatorNpcAcceptanceFollowerIds.map(
+    (npcId) => {
+      const kind = survival.getNpcTraversalState(npcId).kind;
+      if (kind === "riding-elevator") {
+        elevatorNpcAcceptanceRidingFollowerIds.add(npcId);
+      }
+      if (kind === "leaving-elevator") {
+        elevatorNpcAcceptanceLeavingFollowerIds.add(npcId);
+      }
+      return `${npcId}:${kind}`;
+    }
+  );
+  for (const passenger of elevatorSnapshot.passengers) {
+    if (
+      passenger.actorId === "player" ||
+      elevatorNpcAcceptanceFollowerIds.includes(passenger.actorId)
+    ) {
+      continue;
+    }
+    elevatorNpcAcceptanceAutonomousRidingIds.add(passenger.actorId);
+    if (passenger.state === "arrived") {
+      elevatorNpcAcceptanceAutonomousArrivedIds.add(passenger.actorId);
+    }
+  }
+  if (
+    traversalCoordinator.getPlayerElevatorTraversalSnapshot()?.phase ===
+    "completed"
+  ) {
+    elevatorNpcAcceptancePlayerCompleted = true;
+  }
+  if (
+    elevatorNpcAcceptancePhase === "autonomous" &&
+    elevatorNpcAcceptanceAutonomousNpcId !== null &&
+    elevatorNpcAcceptanceAutonomousArrivedIds.has(
+      elevatorNpcAcceptanceAutonomousNpcId
+    ) &&
+    !elevatorSnapshot.passengers.some(
+      (passenger) =>
+        passenger.actorId === elevatorNpcAcceptanceAutonomousNpcId
+    ) &&
+    survival.getNpcTraversalState(
+      elevatorNpcAcceptanceAutonomousNpcId
+    ).kind === "walking"
+  ) {
+    positionElevatorNpcAcceptancePlayer();
+    elevatorNpcAcceptanceFirstPassengerAtSeconds = null;
+    elevatorNpcAcceptanceClosingAtSeconds = null;
+    elevatorNpcAcceptancePhase = "gathering";
+  }
+  const signature = [
+    elevatorNpcAcceptancePhase,
+    elevatorSnapshot.carState,
+    elevatorSnapshot.carDoorState,
+    elevatorSnapshot.currentStopId,
+    elevatorSnapshot.reservations
+      .map((reservation) => reservation.actorId)
+      .join(","),
+    elevatorSnapshot.passengers
+      .map((passenger) => `${passenger.actorId}:${passenger.state}`)
+      .join(","),
+    followerTraversal.join(",")
+  ].join("|");
+  if (signature !== elevatorNpcAcceptancePreviousSignature) {
+    elevatorNpcAcceptancePreviousSignature = signature;
+    elevatorNpcAcceptanceTransitions.push(
+      Object.freeze({
+        elapsedSeconds: elevatorSnapshot.elapsedSeconds,
+        phase: elevatorNpcAcceptancePhase,
+        carState: elevatorSnapshot.carState,
+        carDoorState: elevatorSnapshot.carDoorState,
+        currentStopId: elevatorSnapshot.currentStopId,
+        reservationIds: Object.freeze(
+          elevatorSnapshot.reservations.map(
+            (reservation) => reservation.actorId
+          )
+        ),
+        passengerIds: Object.freeze(
+          elevatorSnapshot.passengers.map(
+            (passenger) => passenger.actorId
+          )
+        ),
+        followerTraversal: Object.freeze(followerTraversal)
+      })
+    );
+  }
+  const departureDelaySeconds =
+    elevatorNpcAcceptanceFirstPassengerAtSeconds === null ||
+    elevatorNpcAcceptanceClosingAtSeconds === null
+      ? null
+      : elevatorNpcAcceptanceClosingAtSeconds -
+        elevatorNpcAcceptanceFirstPassengerAtSeconds;
+  const partyDisembarked =
+    elevatorNpcAcceptancePhase === "disembarking" &&
+    elevatorNpcAcceptancePlayerCompleted &&
+    elevatorNpcAcceptanceRidingFollowerIds.size ===
+      elevatorNpcAcceptanceFollowerIds.length &&
+    elevatorNpcAcceptanceLeavingFollowerIds.size ===
+      elevatorNpcAcceptanceFollowerIds.length &&
+    elevatorSnapshot.reservations.length === 0 &&
+    elevatorSnapshot.passengers.length === 0;
+  if (
+    partyDisembarked &&
+    elevatorNpcAcceptanceFollowCommandIds.size ===
+      elevatorNpcAcceptanceFollowerIds.length &&
+    elevatorNpcAcceptanceRidingFollowerIds.size ===
+      elevatorNpcAcceptanceFollowerIds.length &&
+    elevatorNpcAcceptanceAutonomousNpcId !== null &&
+    elevatorNpcAcceptanceAutonomousMissionId !== null &&
+    elevatorNpcAcceptanceAutonomousRidingIds.has(
+      elevatorNpcAcceptanceAutonomousNpcId
+    ) &&
+    elevatorNpcAcceptanceAutonomousArrivedIds.has(
+      elevatorNpcAcceptanceAutonomousNpcId
+    ) &&
+    !elevatorSnapshot.passengers.some(
+      (passenger) => passenger.actorId === "player"
+    ) &&
+    !elevatorSnapshot.reservations.some(
+      (reservation) => reservation.actorId === "player"
+    ) &&
+    departureDelaySeconds !== null &&
+    Math.abs(
+      departureDelaySeconds - ELEVATOR_FIRST_PASSENGER_WAIT_SECONDS
+    ) <= 0.051 &&
+    elevatorNpcAcceptanceMaximumCommittedActorCount <= 6
+  ) {
+    elevatorNpcAcceptancePhase = "passed";
+  }
+  publishElevatorNpcAcceptanceReport(
+    elevatorNpcAcceptancePhase === "passed" ? "passed" : "running",
+    elevatorSnapshot
+  );
+};
+
 const publishRuntimeStressReport = (
   status: V2RuntimeStressReport["status"],
   error: string | null
@@ -1282,6 +1972,7 @@ const updateGameplayHelp = (phase: ReturnType<typeof survival.getFrame>["phase"]
     performanceScenario !== null ||
     runtimeStressScenario !== null ||
     rampValidationTarget !== null ||
+    elevatorNpcAcceptanceScenario !== null ||
     schoolVisualAcceptanceScenario !== null
   ) {
     return;
@@ -1364,6 +2055,29 @@ if (schoolVisualAcceptanceScenario) {
     `seed ${schoolVisualAcceptanceScenario.seed}\n` +
     "座標・向き・FOVを証拠JSONへ固定";
 }
+if (elevatorNpcAcceptanceScenario) {
+  const initialFrame = survival.getFrame();
+  if (
+    initialFrame.npcCount !== V2_TEST_SURVIVAL_POPULATION.npcCount ||
+    initialFrame.brainwashedNpcCount !==
+      V2_TEST_SURVIVAL_POPULATION.initialBrainwashedNpcCount ||
+    initialFrame.bitCount !==
+      V2_TEST_SURVIVAL_POPULATION.initialBitCount
+  ) {
+    throw new Error(
+      "エレベーターNPC受入の初期人口が通常ゲーム設定と一致しません。"
+    );
+  }
+  started = true;
+  titleOverlay.style.display = "none";
+  statusInfo.style.display = "block";
+  helpPanel.style.display = "block";
+  helpPanel.textContent =
+    `エレベーターNPC受入 ${elevatorNpcAcceptanceScenario.id}\n` +
+    `seed ${elevatorNpcAcceptanceScenario.seed}\n` +
+    `Player＋同行者${elevatorNpcAcceptanceScenario.followerCount}人 / ` +
+    "通常人口を維持して自動実行";
+}
 
 const renderScene = () => {
   playerCharacterVisual.getCameraRenderOffsetToRef(cameraRenderOffset);
@@ -1404,6 +2118,7 @@ engine.runRenderLoop(() => {
     const delta = performanceScenario
       ? V2_PERFORMANCE_TARGET_FRAME_INTERVAL_MS / 1000
       : Math.min(engine.getDeltaTime() / 1000, 0.05);
+    updateElevatorNpcAcceptanceBeforeTraversal();
     const traversalFrame = traversalCoordinator.update(delta);
     const playerElevatorTraversal =
       traversalCoordinator.getPlayerElevatorTraversalSnapshot();
@@ -1459,6 +2174,7 @@ engine.runRenderLoop(() => {
             traversalFrame.runtimeSnapshot.elevators
           );
     }
+    updateElevatorNpcAcceptanceAfterTraversal();
     const executionReplayResult = dispatchV2RuntimeExecutionReplay({
       actions,
       frame: survivalFrame,
@@ -1846,18 +2562,19 @@ try {
     nextRuntimeSessionSeed(),
     rebuildSession
   );
-} catch {
+  markV2StartupPhase("runtime-session-ready");
+} catch (error) {
   activeSession = null;
+  throw error;
 }
 
 window.addEventListener(
   "beforeunload",
   () => {
     runtimeTerminated = true;
-    const session = activeSession;
     activeSession = null;
-    void session?.dispose();
-    engine.dispose();
+    engine.stopRenderLoop();
+    markV2PageUnloading();
   },
   { once: true }
 );
