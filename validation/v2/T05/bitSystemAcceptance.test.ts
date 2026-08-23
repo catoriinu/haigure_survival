@@ -525,6 +525,7 @@ const createSystem = (
   const system = createV2BitSystem(scene, stage, {
     combatEnabled: false,
     modeMuzzleColorEnabled: false,
+    showGroundShadows: false,
     initialBitCount,
     reinforcementIntervalSeconds: 10,
     maximumBitCount: initialBitCount,

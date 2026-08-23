@@ -27,6 +27,7 @@ import {
 } from "../audio/v2AudioRuntime";
 import { V2_PORTRAIT_ASSET_INVENTORY } from "../ui/v2CharacterSettings";
 import { createV2TitleSettingsPanel } from "../ui/v2TitleSettingsPanel";
+import { createTitleOverlayController } from "../ui/titleOverlayController";
 import {
   createBrowserV2TitleSettingsStore,
   createV2FixtureTitleSettingsSnapshot,
@@ -265,16 +266,24 @@ const helpPanel = document.getElementById("helpPanel") as HTMLDivElement;
 const staminaGauge = document.getElementById("staminaGauge") as HTMLDivElement;
 const titleOverlay = document.getElementById("titleOverlay") as HTMLDivElement;
 const titleHeading = document.getElementById("titleHeading") as HTMLDivElement;
-const titleStartHint = document.getElementById("titleStartHint") as HTMLDivElement;
-const titleMessage = document.getElementById("titleMessage") as HTMLDivElement;
 const titleMode = document.getElementById("titleMode") as HTMLDivElement;
 const titleVersion = document.getElementById("titleVersion") as HTMLDivElement;
+const enableNoGunTouchBrainwashConfirmMessage =
+  "「銃なしに触れたら洗脳」をオンにすると、ゲーム起動時の読み込み時間が長くなります。\n" +
+  "OKを押すと、オンにしてゲームを再読み込みします。よろしいですか？";
 const audioAssets = V2_AUDIO_ASSET_CATALOG;
 const titleSettingsStore = createBrowserV2TitleSettingsStore({
   portraitDirectories: V2_PORTRAIT_ASSET_INVENTORY.directories,
   voiceDirectories: audioAssets.voiceDirectories
 });
 titleSettingsStore.load();
+const titleOverlayController = createTitleOverlayController({
+  defaultModeMessage: "学校3Dサバイバル基盤",
+  instantModeMessage: "学校3Dサバイバル基盤",
+  startHintMessage: "左クリック：開始",
+  loadingMessageBase: "NOW LOADING",
+  loadingDotIntervalMs: 300
+});
 
 const createSessionSettingsSnapshot = (): V2TitleSettingsSnapshot => {
   const storedSettings = titleSettingsStore.get();
@@ -331,6 +340,8 @@ const createRuntimeSession = async (
   startImmediately: boolean
 ): Promise<V2RuntimeSession> => {
 markV2StartupPhase("runtime-session-creating");
+titleOverlayController.clearError();
+const loadingSession = titleOverlayController.createLoadingSession(6);
 const roomVariantSelections = createSchoolRoomVariantSelections(
   createSchoolRuntimeSettings(settingsSnapshot.school.roomDisorderLevel),
   sessionSeed
@@ -426,8 +437,6 @@ ambientLight.intensity = 0.9;
 ambientLight.groundColor = new Color3(0.16, 0.2, 0.22);
 
 titleHeading.textContent = "HAIGURE SURVIVAL V2";
-titleStartHint.textContent = "";
-titleMessage.textContent = "NOW LOADING";
 titleMode.textContent = "学校3Dサバイバル基盤";
 titleVersion.textContent = "V2 3D SPATIAL RUNTIME";
 titleOverlay.style.display = "flex";
@@ -472,6 +481,7 @@ const initializeRuntime = async () => {
       }
     );
     markV2StartupPhase("school-stage-loaded");
+    loadingSession.advance();
     if (ownedStage.worldBoundary === null) {
       throw new Error("学校ステージのworld boundaryがありません");
     }
@@ -525,12 +535,15 @@ const initializeRuntime = async () => {
       scene,
       assignments: characterAssignments,
       showGroundShadows: settingsSnapshot.display.showGroundShadows,
+      includeNoGunTouchBlendFrames:
+        settingsSnapshot.brainwash.brainwashOnNoGunTouch,
       orientationMode:
         settingsSnapshot.display.enableCharacterSpriteVerticalAngle
           ? "upright"
           : "camera-facing"
     });
     markV2StartupPhase("character-visuals-loaded");
+    loadingSession.advance();
     const characterVisuals = ownedCharacterVisuals;
     ownedSurvival = createV2SurvivalRuntime({
       scene,
@@ -544,6 +557,7 @@ const initializeRuntime = async () => {
             ? "brainwash-complete-gun"
             : "normal",
       characterVisuals,
+      showGroundShadows: settingsSnapshot.display.showGroundShadows,
       random: createSchoolRuntimeRandom(sessionSeed, "core"),
       npcSpawnRandom: createSchoolRuntimeRandom(
         sessionSeed,
@@ -611,6 +625,7 @@ const initializeRuntime = async () => {
       }
     });
     markV2StartupPhase("survival-runtime-created");
+    loadingSession.advance();
     const survivalRuntime = ownedSurvival;
     const initialNpcTargets = Object.freeze(
       survivalRuntime
@@ -719,11 +734,13 @@ const initializeRuntime = async () => {
     }
     await scene.whenReadyAsync();
     markV2StartupPhase("scene-ready");
+    loadingSession.advance();
     const visualPreparation =
       ownedSurvival.prepareVisualResources();
     scene.render();
     await visualPreparation;
     markV2StartupPhase("visual-resources-ready");
+    loadingSession.advance();
     return {
       stage: ownedStage,
       dynamicRuntime: ownedDynamicRuntime,
@@ -738,8 +755,6 @@ const initializeRuntime = async () => {
     };
   } catch (error) {
     console.error("V2実行環境の初期化に失敗しました。", error);
-    titleStartHint.textContent = "読込エラー";
-    titleMessage.textContent = formatLoadError(error);
     performanceDiagnostics?.dispose();
     ownedTraversalCoordinator?.dispose();
     ownedDynamicRuntime?.dispose();
@@ -998,7 +1013,10 @@ const titleSettingsPanel = createV2TitleSettingsPanel({
   parent: titleOverlay,
   store: titleSettingsStore,
   portraitDirectories: V2_PORTRAIT_ASSET_INVENTORY.directories,
-  voiceDirectories: audioAssets.voiceDirectories
+  voiceDirectories: audioAssets.voiceDirectories,
+  confirmEnableNoGunTouch: () =>
+    window.confirm(enableNoGunTouchBrainwashConfirmMessage),
+  onNoGunTouchEnabled: () => requestSessionRebuild()
 });
 ownedTitleSettingsPanel = titleSettingsPanel;
 const gameplayAudioBridge = createV2GameplayAudioBridge({
@@ -1023,16 +1041,14 @@ const voiceRuntime = createV2VoiceRuntime({
   })
 });
 ownedVoiceRuntime = voiceRuntime;
+loadingSession.advance();
 const bgmUrl = audioAssets.selectBgmUrl(
   SCHOOL_STAGE.label,
   Math.random
 );
 let audioActivated = false;
 canvas.tabIndex = 0;
-titleMessage.textContent = "学校3D空間 読込完了";
-titleStartHint.textContent = "左クリック：開始";
-titleStartHint.style.display = "block";
-titleMessage.style.display = "none";
+loadingSession.finish();
 
 let started = false;
 let statusTimer = 0;
@@ -2228,6 +2244,8 @@ engine.runRenderLoop(() => {
     playerCharacterVisual.update({
       active: started,
       state: survivalFrame.playerState,
+      noGunTouchBrainwashProgress:
+        survivalFrame.playerNoGunTouchBrainwashProgress,
       footPosition: currentPlayerTarget.footPosition,
       viewForward: characterViewForward,
       facingYaw: characterFacingYaw
@@ -2533,8 +2551,8 @@ return Object.freeze({
     "V2 Runtime sessionの構築に失敗しました。",
     error
   );
-  titleStartHint.textContent = "読込エラー";
-  titleMessage.textContent = formatLoadError(error);
+  loadingSession.finish();
+  titleOverlayController.setError(formatLoadError(error));
   await disposeRuntime();
   throw error;
 }
@@ -2546,9 +2564,6 @@ let runtimeTerminated = false;
 
 const showSessionLoading = () => {
   titleOverlay.style.display = "flex";
-  titleStartHint.style.display = "none";
-  titleMessage.style.display = "block";
-  titleMessage.textContent = "NOW LOADING";
   statusInfo.style.display = "none";
   helpPanel.style.display = "none";
   minimapCanvas.style.display = "none";

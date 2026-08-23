@@ -192,6 +192,7 @@ export type V2SurvivalFrame = Readonly<{
   assemblyVenueId: string;
   mission: V2MissionFrame;
   playerState: V2CharacterState;
+  playerNoGunTouchBrainwashProgress: number | null;
   playerCompletionUnlocked: boolean;
   playerCanMove: boolean;
   npcCount: number;
@@ -357,6 +358,7 @@ export type V2SurvivalRuntimeOptions = Readonly<{
   player: V2PlayerController;
   initialPlayerState: V2CharacterState;
   characterVisuals: V2CharacterVisualRuntime;
+  showGroundShadows: boolean;
   random: () => number;
   npcSpawnRandom: () => number;
   bitSpawnRandom: () => number;
@@ -456,6 +458,7 @@ export const createV2SurvivalRuntime = ({
   player,
   initialPlayerState,
   characterVisuals,
+  showGroundShadows,
   random,
   npcSpawnRandom,
   bitSpawnRandom,
@@ -613,6 +616,7 @@ export const createV2SurvivalRuntime = ({
       spawnProjectionMaxDistance: 0.75,
       combatEnabled: true,
       modeMuzzleColorEnabled: false,
+      showGroundShadows,
       random,
       spawnRandom: bitSpawnRandom,
       playerSpawn,
@@ -1282,8 +1286,8 @@ export const createV2SurvivalRuntime = ({
       });
       const accepted =
         impact.targetId === PLAYER_ID
-          ? playerCombat.applyImpact(source)
-          : npcSystem.applyBeamImpacts(
+          ? playerCombat.applyNoGunTouchBrainwash(source)
+          : npcSystem.applyNoGunTouchBrainwashImpacts(
               Object.freeze([
                 Object.freeze({
                   npcId: impact.targetId,
@@ -1296,13 +1300,6 @@ export const createV2SurvivalRuntime = ({
         continue;
       }
       playerImpactAccepted ||= impact.targetId === PLAYER_ID;
-      audioEventQueue.enqueue(
-        Object.freeze({
-          kind: "character-hit" as const,
-          position: target.aimPosition.clone()
-        })
-      );
-      hitEffectSystem.start(target);
     }
     if (playerImpactAccepted) {
       npcSystem.notifyPlayerImpactAccepted();
@@ -1561,6 +1558,8 @@ export const createV2SurvivalRuntime = ({
       assemblyVenueId: currentAssemblyVenue.id,
       mission: missionFrame,
       playerState: playerStateSnapshot.state,
+      playerNoGunTouchBrainwashProgress:
+        playerStateSnapshot.noGunTouchBrainwashProgress,
       playerCompletionUnlocked:
         playerStateSnapshot.playerCompletionUnlocked,
       playerCanMove: canPlayerMove(),

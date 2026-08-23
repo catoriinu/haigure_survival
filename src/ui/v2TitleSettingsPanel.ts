@@ -21,6 +21,8 @@ export type V2TitleSettingsPanelOptions = Readonly<{
   store: V2TitleSettingsStore;
   portraitDirectories: readonly string[];
   voiceDirectories: readonly string[];
+  confirmEnableNoGunTouch(): boolean;
+  onNoGunTouchEnabled(): void;
 }>;
 
 type EventSubscription = Readonly<{
@@ -122,7 +124,9 @@ export const createV2TitleSettingsPanel = ({
   parent,
   store,
   portraitDirectories,
-  voiceDirectories
+  voiceDirectories,
+  confirmEnableNoGunTouch,
+  onNoGunTouchEnabled
 }: V2TitleSettingsPanelOptions): V2TitleSettingsPanel => {
   const root = document.createElement("div");
   root.className = "v2-title-settings";
@@ -225,7 +229,7 @@ export const createV2TitleSettingsPanel = ({
   characterSection.append(portraitRow.row, voiceRow.row);
   mainGrid.append(populationSection, bitSection, displaySection, brainwashSection, characterSection);
 
-  const schoolSection = createSection("学校", "v2-settings-school", "stage");
+  const schoolSection = createSection("ステージ", "v2-settings-school", "stage");
   const stageRow = createRow("ステージ");
   const stage = document.createElement("strong");
   stage.dataset.ui = "v2-settings-fixed-stage";
@@ -400,10 +404,19 @@ export const createV2TitleSettingsPanel = ({
     save({ ...settings, brainwash: { ...settings.brainwash, instantBrainwash: instant.checked } });
   });
   listen(touch, "change", () => {
+    const enabling =
+      touch.checked && !settings.brainwash.brainwashOnNoGunTouch;
+    if (enabling && !confirmEnableNoGunTouch()) {
+      touch.checked = false;
+      return;
+    }
     save({
       ...settings,
       brainwash: { ...settings.brainwash, brainwashOnNoGunTouch: touch.checked }
     });
+    if (enabling) {
+      onNoGunTouchEnabled();
+    }
   });
   listen(gunRatio, "input", () => {
     const gunPercent = numberValue(gunRatio);

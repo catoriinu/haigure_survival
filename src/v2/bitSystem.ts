@@ -11,6 +11,11 @@ import {
 } from "@babylonjs/core";
 
 import {
+  createGroundShadowManager,
+  type GroundShadowHandle
+} from "../game/groundShadows";
+
+import {
   createBitFlightAgent,
   type BitFlightAgent,
   type BitFlightAgentState
@@ -261,6 +266,7 @@ export type V2BitSystemConfig = Readonly<{
   spawnProjectionMaxDistance: number;
   combatEnabled: boolean;
   modeMuzzleColorEnabled: boolean;
+  showGroundShadows: boolean;
   random: () => number;
   spawnRandom: () => number;
   playerSpawn: StagePlayerSpawn;
@@ -434,6 +440,10 @@ type RuntimeBit = {
   root: TransformNode;
   body: InstancedMesh;
   muzzle: InstancedMesh;
+  groundShadows: Readonly<{
+    shape: GroundShadowHandle;
+    circle: GroundShadowHandle;
+  }> | null;
   profile: V2BitCombatProfile;
   flightAgent: BitFlightAgent;
   navigationLocation: BitFlightLocation | null;
@@ -619,6 +629,9 @@ const assertConfig = (config: V2BitSystemConfig) => {
   }
   if (typeof config.spawnRandom !== "function") {
     throw new Error("spawnRandomには0以上1未満を返す関数が必要です。");
+  }
+  if (typeof config.showGroundShadows !== "boolean") {
+    throw new Error("showGroundShadowsにはbooleanが必要です。");
   }
   if (typeof config.resolveTargetNavigationArea !== "function") {
     throw new Error(
@@ -1744,6 +1757,9 @@ export const createV2BitSystem = (
       throw error;
     }
   })();
+  const groundShadowManager = config.showGroundShadows
+    ? createGroundShadowManager(scene)
+    : null;
   const bits: RuntimeBit[] = [];
   const bitsById = new Map<string, RuntimeBit>();
   const carpetFollowersByLeaderId = new Map<string, Set<RuntimeBit>>();
@@ -1790,6 +1806,74 @@ export const createV2BitSystem = (
       config.modeMuzzleColorEnabled
     );
     bit.renderedMuzzleColorMode = renderedMode;
+  };
+
+  const syncBitGroundShadows = (bit: RuntimeBit): void => {
+    if (groundShadowManager === null || bit.groundShadows === null) {
+      return;
+    }
+    const floor = spatial.queries.sampleGround(
+      bit.root.position,
+      HEIGHT_PROBE_DISTANCE
+    );
+    if (floor === null) {
+      throw new Error(`BITの影を投影する床がありません: ${bit.id}`);
+    }
+    const heightAboveFloor = Math.max(
+      0,
+      bit.root.position.y - floor.point.y
+    );
+    const heightScale =
+      1 + Math.min(0.7, heightAboveFloor * 0.35);
+    const forward = bit.root.getDirection(Vector3.Forward());
+    const horizontalForwardLengthSquared =
+      forward.x * forward.x + forward.z * forward.z;
+    const yaw =
+      horizontalForwardLengthSquared > 0.0001
+        ? Math.atan2(forward.x, forward.z)
+        : 0;
+    const baseWidth =
+      Math.max(BIT_BODY_DIAMETER, BIT_MUZZLE_DIAMETER) * 1.35;
+    const baseDepth =
+      (BIT_BODY_HEIGHT * 0.5 +
+        BIT_MUZZLE_OFFSET +
+        BIT_MUZZLE_DIAMETER * 0.5) *
+      1.42;
+    const circleDiameter = Math.sqrt(baseWidth * baseDepth);
+    const circleBlend =
+      bit.spawnPhase !== "done"
+        ? 1
+        : Math.min(1, Math.max(0, -forward.y));
+    const visibility =
+      Math.max(0.22, 0.7 - heightAboveFloor * 0.25) *
+      (bit.spawnPhase === "fade-in"
+        ? bit.spawnEffectMaterial!.alpha
+        : bit.body.visibility);
+    const visible =
+      bit.root.isEnabled() &&
+      (bit.body.isVisible || bit.spawnPhase !== "done");
+    groundShadowManager.syncGroundShadow(bit.groundShadows.shape, {
+      positionX: bit.root.position.x,
+      positionY: floor.point.y,
+      positionZ: bit.root.position.z,
+      width: baseWidth * heightScale,
+      depth: baseDepth * heightScale,
+      yaw,
+      visibility: visibility * (1 - circleBlend),
+      visible,
+      layerMask: bit.body.layerMask
+    });
+    groundShadowManager.syncGroundShadow(bit.groundShadows.circle, {
+      positionX: bit.root.position.x,
+      positionY: floor.point.y,
+      positionZ: bit.root.position.z,
+      width: circleDiameter * heightScale,
+      depth: circleDiameter * heightScale,
+      yaw,
+      visibility: visibility * circleBlend,
+      visible,
+      layerMask: bit.body.layerMask
+    });
   };
 
   const isBitReadyForAi = (bit: RuntimeBit) =>
@@ -1869,6 +1953,19 @@ export const createV2BitSystem = (
       id,
       profile.isRed
     );
+    const groundShadows =
+      groundShadowManager === null
+        ? null
+        : Object.freeze({
+            shape: groundShadowManager.createGroundShadow(
+              `${id}_shadow`,
+              "bit"
+            ),
+            circle: groundShadowManager.createGroundShadow(
+              `${id}_shadow_circle`,
+              "bit-circle"
+            )
+          });
     let flightAgent: BitFlightAgent | null = null;
     try {
       flightAgent = createBitFlightAgent(
@@ -1886,6 +1983,7 @@ export const createV2BitSystem = (
         id,
         populationKind,
         ...visual,
+        groundShadows,
         profile,
         flightAgent,
         navigationLocation,
@@ -1968,10 +2066,13 @@ export const createV2BitSystem = (
       bits.push(bit);
       bitsById.set(bit.id, bit);
       syncBitMuzzleColor(bit);
+      syncBitGroundShadows(bit);
       invalidateFrameViews();
       return bit;
     } catch (error) {
       flightAgent?.dispose();
+      groundShadowManager?.disposeGroundShadow(groundShadows?.shape ?? null);
+      groundShadowManager?.disposeGroundShadow(groundShadows?.circle ?? null);
       visual.spawnEffect.dispose(false, false);
       visual.spawnEffectMaterial.dispose();
       visual.root.dispose(false);
@@ -1982,6 +2083,8 @@ export const createV2BitSystem = (
   const disposeRuntimeBit = (bit: RuntimeBit) => {
     bit.flightAgent.dispose();
     disposeBitSpawnVisual(bit);
+    groundShadowManager?.disposeGroundShadow(bit.groundShadows?.shape ?? null);
+    groundShadowManager?.disposeGroundShadow(bit.groundShadows?.circle ?? null);
     bit.root.dispose(false);
   };
 
@@ -2004,6 +2107,7 @@ export const createV2BitSystem = (
     materials.muzzle.dispose();
     materials.redBody.dispose();
     materials.body.dispose();
+    groundShadowManager?.dispose();
     throw error;
   }
 
@@ -6247,6 +6351,7 @@ export const createV2BitSystem = (
       }
       for (const bit of bits) {
         syncBitMuzzleColor(bit);
+        syncBitGroundShadows(bit);
       }
     },
     getFrameView,
@@ -6375,6 +6480,7 @@ export const createV2BitSystem = (
     setVisible: (visible) => {
       for (const bit of bits) {
         bit.root.setEnabled(visible);
+        syncBitGroundShadows(bit);
       }
       for (const follower of fadingCarpetFollowers) {
         follower.root.setEnabled(visible);
@@ -6593,6 +6699,7 @@ export const createV2BitSystem = (
         routeSafetyCache: createRouteSafetyCacheDiagnostics()
       });
       materials.muzzle.dispose();
+      groundShadowManager?.dispose();
     }
   };
 };

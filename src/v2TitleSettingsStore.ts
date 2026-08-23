@@ -78,7 +78,7 @@ export const V2_DEFAULT_TITLE_SETTINGS: V2TitleSettings = Object.freeze({
   }),
   audio: Object.freeze({ bgm: 5, se: 5, voice: 5 }),
   display: Object.freeze({
-    eyeHeightScale: 1.2,
+    eyeHeightScale: 1.15,
     showGroundShadows: true,
     enableCharacterSpriteVerticalAngle: true
   }),

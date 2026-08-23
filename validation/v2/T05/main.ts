@@ -898,6 +898,7 @@ const runValidation = async () => {
     const bitSystem = createV2BitSystem(scene, runtimeStage, {
       combatEnabled: false,
       modeMuzzleColorEnabled: false,
+      showGroundShadows: false,
       initialBitCount: 99,
       reinforcementIntervalSeconds: 10,
       maximumBitCount: 99,
@@ -1102,6 +1103,7 @@ const runValidation = async () => {
       {
         combatEnabled: false,
         modeMuzzleColorEnabled: false,
+        showGroundShadows: false,
         initialBitCount: 1,
         reinforcementIntervalSeconds: 10,
         maximumBitCount: 1,

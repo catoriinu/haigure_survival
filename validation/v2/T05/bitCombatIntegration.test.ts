@@ -603,6 +603,7 @@ const createHarness = (
   const system = createV2BitSystem(scene, spatial, {
     combatEnabled: true,
     modeMuzzleColorEnabled,
+    showGroundShadows: false,
     initialBitCount,
     reinforcementIntervalSeconds: 1_000_000,
     maximumBitCount: initialBitCount + 1,
@@ -1790,6 +1791,7 @@ const runRedTransitionSpeedCheck = (
   const system = createV2BitSystem(fixture.scene, spatial, {
     combatEnabled: true,
     modeMuzzleColorEnabled: false,
+    showGroundShadows: false,
     initialBitCount: 1,
     reinforcementIntervalSeconds: 10,
     maximumBitCount: 1,

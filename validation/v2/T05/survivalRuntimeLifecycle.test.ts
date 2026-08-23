@@ -264,6 +264,7 @@ const createRuntime = async (
         playerSpawn,
         player,
         initialPlayerState: "normal",
+        showGroundShadows: false,
         characterVisuals,
         random: createV2SeededRandom(V2_PERFORMANCE_DEFAULT_SEED),
         npcSpawnRandom: createV2SeededRandom(
@@ -719,6 +720,7 @@ export const runSurvivalRuntimeLifecycleTests = async (
         playerSpawn,
         player: commandPlayer,
         initialPlayerState: "normal",
+        showGroundShadows: false,
         characterVisuals: commandCharacterVisuals,
         random: gunNpcRandom,
         npcSpawnRandom: createV2SeededRandom(

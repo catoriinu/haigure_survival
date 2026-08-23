@@ -2020,7 +2020,7 @@ export const runBeamCombatTests =
 
     results.push(
       executeTest(
-        "V1相当のテーパ本体・後端alpha・先端・trail・反射球profileを共有する",
+        "V1相当のテーパ本体・後端alpha・発射点を包む先端・trail・反射球profileを共有する",
         () => {
           const fixture = createBeamFixture([]);
           const system = createV2BeamSystem({
@@ -2242,7 +2242,11 @@ export const runBeamCombatTests =
                 1e-6
               ) &&
               approximately(bodyFrontX, tipBackX, 1e-6) &&
-              approximately(tipFrontX, activeBeam.position.x, 1e-6) &&
+              approximately(
+                tipInstance.position.x,
+                activeBeam.position.x,
+                1e-6
+              ) &&
               approximately(trail?.scaling.x ?? -1, 0.03, 1e-6);
             return {
               ok: profileOk,

@@ -2,6 +2,7 @@ export const CHARACTER_SPRITE_CELL_SIZE = 128;
 export const CHARACTER_SPRITE_FRAME_COUNT = 6;
 export const CHARACTER_SPRITE_IMAGE_WIDTH = 330;
 export const CHARACTER_SPRITE_IMAGE_HEIGHT = 700;
+export const NO_GUN_TOUCH_BRAINWASH_BLEND_STEP_COUNT = 16;
 
 export const NPC_SPRITE_WIDTH = 0.2;
 export const NPC_SPRITE_HEIGHT =
@@ -48,9 +49,16 @@ export const PLAYER_SPRITE_MODES = [
   "haigure"
 ] as const;
 
-export const createDefaultCharacterSpritesheet = () => {
+export const createDefaultCharacterSpritesheet = (
+  includeNoGunTouchBlendFrames = false
+) => {
+  const totalFrameCount = includeNoGunTouchBlendFrames
+    ? CHARACTER_SPRITE_FRAME_COUNT +
+      NO_GUN_TOUCH_BRAINWASH_BLEND_STEP_COUNT +
+      1
+    : CHARACTER_SPRITE_FRAME_COUNT;
   const canvas = document.createElement("canvas");
-  canvas.width = CHARACTER_SPRITE_CELL_SIZE * CHARACTER_SPRITE_FRAME_COUNT;
+  canvas.width = CHARACTER_SPRITE_CELL_SIZE * totalFrameCount;
   canvas.height = CHARACTER_SPRITE_CELL_SIZE;
   const ctx = canvas.getContext("2d") as CanvasRenderingContext2D;
 
@@ -81,6 +89,57 @@ export const createDefaultCharacterSpritesheet = () => {
   drawFrame(3, "#5c5c5c", "#c7c7c7", true);
   drawFrame(4, "#315f72", "#b9e2ec");
   drawFrame(5, "#713c78", "#ebc7f0");
+
+  if (includeNoGunTouchBlendFrames) {
+    const hitASourceX = CHARACTER_SPRITE_CELL_SIZE;
+    const hitBSourceX = CHARACTER_SPRITE_CELL_SIZE * 2;
+    for (
+      let blendIndex = 0;
+      blendIndex <= NO_GUN_TOUCH_BRAINWASH_BLEND_STEP_COUNT;
+      blendIndex += 1
+    ) {
+      const progress =
+        blendIndex / NO_GUN_TOUCH_BRAINWASH_BLEND_STEP_COUNT;
+      const destinationX =
+        (CHARACTER_SPRITE_FRAME_COUNT + blendIndex) *
+        CHARACTER_SPRITE_CELL_SIZE;
+      ctx.drawImage(
+        canvas,
+        hitBSourceX,
+        0,
+        CHARACTER_SPRITE_CELL_SIZE,
+        CHARACTER_SPRITE_CELL_SIZE,
+        destinationX,
+        0,
+        CHARACTER_SPRITE_CELL_SIZE,
+        CHARACTER_SPRITE_CELL_SIZE
+      );
+      const revealedHeight = Math.round(
+        CHARACTER_SPRITE_CELL_SIZE * progress
+      );
+      if (revealedHeight === 0) {
+        continue;
+      }
+      const sourceY = CHARACTER_SPRITE_CELL_SIZE - revealedHeight;
+      ctx.clearRect(
+        destinationX,
+        sourceY,
+        CHARACTER_SPRITE_CELL_SIZE,
+        revealedHeight
+      );
+      ctx.drawImage(
+        canvas,
+        hitASourceX,
+        sourceY,
+        CHARACTER_SPRITE_CELL_SIZE,
+        revealedHeight,
+        destinationX,
+        sourceY,
+        CHARACTER_SPRITE_CELL_SIZE,
+        revealedHeight
+      );
+    }
+  }
 
   return canvas.toDataURL("image/png");
 };

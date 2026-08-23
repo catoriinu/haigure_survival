@@ -39,6 +39,7 @@ export type V2PlayerGunFireEvent = Readonly<{
 export interface V2PlayerCombatSystem {
   update(deltaSeconds: number): V2CharacterStateSnapshot;
   applyImpact(source: V2CharacterImpactSource): boolean;
+  applyNoGunTouchBrainwash(source: V2CharacterImpactSource): boolean;
   setAliveBehaviorState(state: V2AliveBehaviorState): boolean;
   selectCompletion(state: V2PlayerCompletionState): void;
   enterFormationState(): boolean;
@@ -99,6 +100,8 @@ export const createV2PlayerCombatSystem = ({
   return {
     update: (deltaSeconds) => stateSystem.update(deltaSeconds),
     applyImpact: (source) => stateSystem.applyImpact(source),
+    applyNoGunTouchBrainwash: (source) =>
+      stateSystem.applyNoGunTouchBrainwash(source),
     setAliveBehaviorState: (state) =>
       stateSystem.setAliveBehaviorState(state),
     selectCompletion: (state) =>

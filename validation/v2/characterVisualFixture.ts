@@ -26,6 +26,7 @@ export const createDefaultV2CharacterVisualRuntime = async (
     scene,
     assignments,
     showGroundShadows: false,
-    orientationMode: "camera-facing"
+    orientationMode: "camera-facing",
+    includeNoGunTouchBlendFrames: false
   });
 };

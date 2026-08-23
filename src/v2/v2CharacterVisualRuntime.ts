@@ -15,6 +15,7 @@ import {
   CHARACTER_SPRITE_FRAME_COUNT,
   CHARACTER_SPRITE_IMAGE_HEIGHT,
   CHARACTER_SPRITE_IMAGE_WIDTH,
+  NO_GUN_TOUCH_BRAINWASH_BLEND_STEP_COUNT,
   createDefaultCharacterSpritesheet,
 } from "../game/characterSprites";
 import {
@@ -74,7 +75,11 @@ export type V2CharacterVisualSpriteHandle = Readonly<{
   presentationMesh: Mesh | null;
   width: number;
   height: number;
-  setState(state: V2CharacterState, temporaryGunActive: boolean): void;
+  setState(
+    state: V2CharacterState,
+    temporaryGunActive: boolean,
+    noGunTouchBrainwashProgress: number | null
+  ): void;
   syncPresentation(): void;
   dispose(): void;
 }>;
@@ -95,6 +100,7 @@ export type V2CharacterVisualRuntimeOptions = Readonly<{
   assignments: V2CharacterAssignments;
   orientationMode: V2CharacterVisualOrientationMode;
   showGroundShadows: boolean;
+  includeNoGunTouchBlendFrames: boolean;
 }>;
 
 type V2CharacterVisualSheet = Readonly<{
@@ -196,7 +202,21 @@ export const getV2CharacterVisualCellIndex = (
   state: V2CharacterState,
   temporaryGunActive: boolean,
   source: V2CharacterVisualSpriteSource,
+  noGunTouchBrainwashProgress: number | null,
 ): number => {
+  if (noGunTouchBrainwashProgress !== null) {
+    const baseFrameCount =
+      source === "default"
+        ? CHARACTER_SPRITE_FRAME_COUNT
+        : V2_PORTRAIT_IMAGE_BASE_NAMES.length;
+    return (
+      baseFrameCount +
+      Math.floor(
+        Math.min(1, Math.max(0, noGunTouchBrainwashProgress)) *
+          NO_GUN_TOUCH_BRAINWASH_BLEND_STEP_COUNT
+      )
+    );
+  }
   if (source === "default") {
     if (state === "hit-a") {
       return 1;
@@ -277,6 +297,7 @@ const createPortraitSheet = async (
   directory: string,
   files: V2ResolvedPortraitFiles,
   baseUrl: string,
+  includeNoGunTouchBlendFrames: boolean,
 ): Promise<V2CharacterVisualSheet> => {
   const images = await Promise.all(
     V2_PORTRAIT_IMAGE_BASE_NAMES.map((baseName) =>
@@ -292,7 +313,10 @@ const createPortraitSheet = async (
     );
   }
   const canvas = document.createElement("canvas");
-  canvas.width = cellWidth * images.length;
+  const blendFrameCount = includeNoGunTouchBlendFrames
+    ? NO_GUN_TOUCH_BRAINWASH_BLEND_STEP_COUNT + 1
+    : 0;
+  canvas.width = cellWidth * (images.length + blendFrameCount);
   canvas.height = cellHeight;
   const context = canvas.getContext("2d");
   if (context === null) {
@@ -307,13 +331,56 @@ const createPortraitSheet = async (
       cellHeight,
     );
   }
+  if (includeNoGunTouchBlendFrames) {
+    const hitAImage = images[2] as HTMLImageElement;
+    const hitBImage = images[3] as HTMLImageElement;
+    for (
+      let blendIndex = 0;
+      blendIndex <= NO_GUN_TOUCH_BRAINWASH_BLEND_STEP_COUNT;
+      blendIndex += 1
+    ) {
+      const progress =
+        blendIndex / NO_GUN_TOUCH_BRAINWASH_BLEND_STEP_COUNT;
+      const destinationX = (images.length + blendIndex) * cellWidth;
+      context.drawImage(
+        hitBImage,
+        0,
+        0,
+        cellWidth,
+        cellHeight,
+        destinationX,
+        0,
+        cellWidth,
+        cellHeight
+      );
+      const revealedHeight = Math.round(cellHeight * progress);
+      if (revealedHeight > 0) {
+        const sourceY = cellHeight - revealedHeight;
+        context.clearRect(destinationX, sourceY, cellWidth, revealedHeight);
+        context.drawImage(
+          hitAImage,
+          0,
+          sourceY,
+          cellWidth,
+          revealedHeight,
+          destinationX,
+          sourceY,
+          cellWidth,
+          revealedHeight
+        );
+      }
+      if ((blendIndex + 1) % 2 === 0) {
+        await new Promise<void>((resolve) => window.setTimeout(resolve, 0));
+      }
+    }
+  }
   const blobUrl = await createBlobUrl(canvas);
   const size = calculateV2CharacterVisualSize(cellWidth, cellHeight);
   return Object.freeze({
     url: blobUrl,
     cellWidth,
     cellHeight,
-    frameCount: V2_PORTRAIT_IMAGE_BASE_NAMES.length,
+    frameCount: V2_PORTRAIT_IMAGE_BASE_NAMES.length + blendFrameCount,
     width: size.width,
     height: size.height,
     source: "portrait",
@@ -321,16 +388,22 @@ const createPortraitSheet = async (
   });
 };
 
-const createDefaultSheet = (): V2CharacterVisualSheet => {
+const createDefaultSheet = (
+  includeNoGunTouchBlendFrames: boolean
+): V2CharacterVisualSheet => {
   const size = calculateV2CharacterVisualSize(
     CHARACTER_SPRITE_IMAGE_WIDTH,
     CHARACTER_SPRITE_IMAGE_HEIGHT,
   );
   return Object.freeze({
-    url: createDefaultCharacterSpritesheet(),
+    url: createDefaultCharacterSpritesheet(includeNoGunTouchBlendFrames),
     cellWidth: CHARACTER_SPRITE_CELL_SIZE,
     cellHeight: CHARACTER_SPRITE_CELL_SIZE,
-    frameCount: CHARACTER_SPRITE_FRAME_COUNT,
+    frameCount:
+      CHARACTER_SPRITE_FRAME_COUNT +
+      (includeNoGunTouchBlendFrames
+        ? NO_GUN_TOUCH_BRAINWASH_BLEND_STEP_COUNT + 1
+        : 0),
     width: size.width,
     height: size.height,
     source: "default",
@@ -522,6 +595,7 @@ export const createV2CharacterVisualRuntime = async ({
   assignments,
   orientationMode,
   showGroundShadows,
+  includeNoGunTouchBlendFrames,
 }: V2CharacterVisualRuntimeOptions): Promise<V2CharacterVisualRuntime> => {
   assertAssignments(assignments);
   const assignmentsByActorId = new Map(
@@ -554,11 +628,12 @@ export const createV2CharacterVisualRuntime = async ({
     for (const directory of directories) {
       const sheet =
         directory === V2_DEFAULT_PORTRAIT_DIRECTORY
-          ? createDefaultSheet()
+          ? createDefaultSheet(includeNoGunTouchBlendFrames)
           : await createPortraitSheet(
               directory,
               resolveV2PortraitFiles(directory, inventory),
               import.meta.env.BASE_URL,
+              includeNoGunTouchBlendFrames,
             );
       if (sheet.blobUrl !== null) {
         blobUrls.add(sheet.blobUrl);
@@ -688,6 +763,7 @@ export const createV2CharacterVisualRuntime = async ({
         "normal",
         false,
         managerResource.sheet.source,
+        null,
       );
       const presentation =
         orientationMode === "upright"
@@ -725,7 +801,11 @@ export const createV2CharacterVisualRuntime = async ({
         presentationMesh: presentation?.mesh ?? null,
         width: managerResource.sheet.width,
         height: managerResource.sheet.height,
-        setState: (state, temporaryGunActive) => {
+        setState: (
+          state,
+          temporaryGunActive,
+          noGunTouchBrainwashProgress
+        ) => {
           assertActive();
           if (record.disposed) {
             throw new Error(
@@ -736,6 +816,7 @@ export const createV2CharacterVisualRuntime = async ({
             state,
             temporaryGunActive,
             managerResource.sheet.source,
+            noGunTouchBrainwashProgress,
           );
         },
         syncPresentation: () => {
@@ -760,7 +841,7 @@ export const createV2CharacterVisualRuntime = async ({
               positionZ: sprite.position.z,
               width: sprite.width * 0.72,
               depth: sprite.width * 0.42,
-              yaw: 0,
+              yaw: facingYaw,
               visibility: sprite.color.a,
               visible: sprite.isVisible,
               layerMask:

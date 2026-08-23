@@ -40,7 +40,7 @@ const createStorage = (initial: Readonly<Record<string, string>> = {}) => {
 
 export const runTitleSettingsTests = async () => [
   await executeTest("既定値・境界値・派生人口", () => {
-    assert(V2_DEFAULT_TITLE_SETTINGS.display.eyeHeightScale === 1.2, "視点高さ既定値が1.20ではありません。");
+    assert(V2_DEFAULT_TITLE_SETTINGS.display.eyeHeightScale === 1.15, "視点高さ既定値が1.15ではありません。");
     const normalized = normalizeV2TitleSettings({
       ...V2_DEFAULT_TITLE_SETTINGS,
       population: { npcCount: 99.7, initialBrainwashedNpcPercent: 66.6, startPlayerBrainwashed: true },
@@ -60,7 +60,7 @@ export const runTitleSettingsTests = async () => [
     const population = createV2SurvivalPopulationFromTitleSettings(normalized);
     assert(population.initialBrainwashedNpcCount === Math.floor(99 * 67 / 100), "初期洗脳人数が切り捨てではありません。");
     assert(population.initialBitCount === 0 && population.maximumBitCount === 0, "BIT無効時人口が0ではありません。");
-    return "視点高さ1.20／0.05刻み、NPC・BIT境界、G/N/H=100、人数切り捨て";
+    return "視点高さ1.15／0.05刻み、NPC・BIT境界、G/N/H=100、人数切り捨て";
   }),
   await executeTest("version不一致・未知field・canonical保存", () => {
     const memory = createStorage({
@@ -140,11 +140,17 @@ export const runTitleSettingsTests = async () => [
     const store = createV2TitleSettingsStore(memory.storage, CATALOGS);
     store.load();
     const writesBeforeUi = memory.writes.length;
+    let confirmNoGunTouch = false;
+    let noGunTouchReloadCount = 0;
     const panel = createV2TitleSettingsPanel({
       parent: host,
       store,
       portraitDirectories: CATALOGS.portraitDirectories,
-      voiceDirectories: CATALOGS.voiceDirectories
+      voiceDirectories: CATALOGS.voiceDirectories,
+      confirmEnableNoGunTouch: () => confirmNoGunTouch,
+      onNoGunTouchEnabled: () => {
+        noGunTouchReloadCount += 1;
+      }
     });
     const npcInput = panel.root.querySelector<HTMLInputElement>('[data-ui="v2-settings-npc-count"]')!;
     npcInput.value = "23";
@@ -187,6 +193,7 @@ export const runTitleSettingsTests = async () => [
     assert(panel.root.querySelectorAll("section").length === 7, "semantic sectionが7個ではありません。");
     assert(panel.root.querySelector<HTMLElement>('[data-ui="v2-settings-fixed-stage"]')!.textContent === "学校", "固定学校表示がありません。");
     assert(panel.root.querySelector<HTMLElement>(".v2-title-settings__stage-host") !== null, "学校設定が左上hostへ分離されていません。");
+    assert(panel.root.querySelector<HTMLElement>(".v2-title-settings__stage-host h2")?.textContent === "ステージ", "左上設定名がステージではありません。");
     assert(panel.root.querySelector<HTMLElement>(".v2-title-settings__audio-host") !== null, "音量設定が左下hostへ分離されていません。");
     for (const uiId of [
       "v2-settings-brainwashed-percent",
@@ -202,7 +209,17 @@ export const runTitleSettingsTests = async () => [
     assert(panel.root.querySelectorAll<HTMLButtonElement>('[data-audio-channel]').length === 9, "V1相当の音量操作ボタンがありません。");
     const modeButton = panel.root.querySelector<HTMLButtonElement>('[data-ui="title-instant-execution-toggle-button"]')!;
     assert(modeButton.disabled && modeButton.textContent === "いきなり公開処刑モードに変更", "操作不能な公開処刑modeボタンがありません。");
+    const noGunTouch = panel.root.querySelector<HTMLInputElement>('[data-ui="v2-settings-no-gun-touch"]')!;
+    noGunTouch.checked = true;
+    noGunTouch.dispatchEvent(new Event("change", { bubbles: true }));
+    assert(!noGunTouch.checked && !store.get().brainwash.brainwashOnNoGunTouch, "確認取消後も銃なし接触洗脳がONです。");
+    assert(noGunTouchReloadCount === 0, "確認取消時に再読み込みを要求しました。");
+    confirmNoGunTouch = true;
+    noGunTouch.checked = true;
+    noGunTouch.dispatchEvent(new Event("change", { bubbles: true }));
+    assert(noGunTouch.checked && store.get().brainwash.brainwashOnNoGunTouch, "確認後に銃なし接触洗脳が保存されません。");
+    assert(Number(noGunTouchReloadCount) === 1, "確認後の画像合成用再読み込み要求が1回ではありません。");
     panel.dispose();
-    return "V1操作部品、独立配置、無効modeボタン、変更保存、Pointer Lockなし";
+    return "V1操作部品、独立配置、銃なし接触確認、無効modeボタン、変更保存、Pointer Lockなし";
   })
 ];

@@ -1070,7 +1070,7 @@ export const createV2BeamSystem = (
           beam.direction.scale(beam.retractLeadRemaining)
         )
       : beam.position.subtract(
-          beam.direction.scale(V2_NORMAL_BEAM_TIP_DIAMETER)
+          beam.direction.scale(V2_NORMAL_BEAM_TIP_DIAMETER / 2)
         );
   const getTailPosition = (beam: ActiveBeam): Vector3 =>
     getBodyFrontPosition(beam).subtract(
@@ -1078,11 +1078,7 @@ export const createV2BeamSystem = (
     );
 
   const updateBeamVisual = (beam: ActiveBeam): void => {
-    beam.tipMesh.position.copyFrom(
-      beam.position.subtract(
-        beam.direction.scale(V2_NORMAL_BEAM_TIP_DIAMETER / 2)
-      )
-    );
+    beam.tipMesh.position.copyFrom(beam.position);
     const opacity =
       beam.phase === "world-boundary-fading"
         ? Math.max(
