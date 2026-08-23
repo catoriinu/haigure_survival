@@ -185,6 +185,40 @@ const freezeCandidate = (
   });
 };
 
+export const createV2PublicExecutionCandidate = (
+  targets: V2ExecutionCandidate["targets"],
+  playerRole: V2ExecutionPlayerRole,
+  usesNpcVolley: boolean
+): V2ExecutionCandidate => {
+  if (
+    targets.length === 0 ||
+    targets.length > V2_PUBLIC_EXECUTION_MAXIMUM_TARGETS
+  ) {
+    throw new Error(
+      `公開処刑対象数は1以上${V2_PUBLIC_EXECUTION_MAXIMUM_TARGETS}以下が必要です: ${targets.length}`
+    );
+  }
+  const hasPlayerTarget = targets.some((target) => target.id === "player");
+  if ((playerRole === "target") !== hasPlayerTarget) {
+    throw new Error("公開処刑のPlayer roleと対象構成が一致しません。");
+  }
+  const variant: V2ExecutionVariant =
+    playerRole === "target"
+      ? "player-survivor"
+      : playerRole === "shooter"
+        ? "npc-survivor-player-block"
+        : "npc-survivor-npc-block";
+  const blockKind: V2ExecutionBlockKind =
+    playerRole === "shooter" ? "player" : "npc";
+  return freezeCandidate(
+    variant,
+    targets,
+    Object.fromEntries(targets.map((target) => [target.id, blockKind])),
+    playerRole,
+    usesNpcVolley
+  );
+};
+
 const clonePlacement = (
   placement: V2ExecutionPlacement
 ): V2ExecutionPlacement =>

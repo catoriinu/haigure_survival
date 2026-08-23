@@ -6,7 +6,6 @@ import {
   V2_DEFAULT_TITLE_SETTINGS,
   V2_TITLE_SETTINGS_STORAGE_KEY,
   createV2SurvivalPopulationFromTitleSettings,
-  createV2TitleSettingsSnapshot,
   createV2TitleSettingsStore,
   hasV2NeverGameOverRisk,
   normalizeV2TitleSettings,
@@ -14,7 +13,10 @@ import {
 } from "../../../src/v2TitleSettingsStore";
 import { createV2TitleSettingsPanel } from "../../../src/ui/v2TitleSettingsPanel";
 import { V2_DEFAULT_PORTRAIT_DIRECTORY } from "../../../src/v2/v2CharacterAssignments";
-import { doV2TitleSettingsSnapshotsMatch } from "../../../src/v2/titleSettingsSession";
+import {
+  createV2SessionStartSnapshot,
+  doV2SessionStartSnapshotsMatch
+} from "../../../src/v2/titleSettingsSession";
 import type { V2HumanTargetSnapshot } from "../../../src/v2/combatTypes";
 import { selectV2PlayerNoGunTouchTargetIds } from "../../../src/v2/survivalRuntime";
 import type { StagePlayerSpawn } from "../../../src/world/stageSpatialContext";
@@ -140,25 +142,34 @@ export const runTitleSettingsTests = async () => [
     const memory = createStorage();
     const store = createV2TitleSettingsStore(memory.storage, CATALOGS);
     store.load();
-    const snapshot = store.createSnapshot();
+    const snapshot = createV2SessionStartSnapshot({
+      startMode: "normal",
+      settings: store.get(),
+      venueRandom: () => 0
+    });
     store.save({ ...store.get(), population: { ...store.get().population, npcCount: 1 } });
-    assert(Object.isFrozen(snapshot) && Object.isFrozen(snapshot.population) && Object.isFrozen(snapshot.runtimePopulation), "snapshotがdeep freezeされていません。");
-    assert(snapshot.population.npcCount === 50 && snapshot.runtimePopulation.npcCount === 50, "開始後変更がsnapshotへ反映されました。");
+    assert(Object.isFrozen(snapshot) && Object.isFrozen(snapshot.settings.population) && Object.isFrozen(snapshot.runtimePopulation), "snapshotがdeep freezeされていません。");
+    assert(snapshot.settings.population.npcCount === 50 && snapshot.runtimePopulation.npcCount === 50, "開始後変更がsnapshotへ反映されました。");
     return "root／nested／runtimePopulation frozen、開始後変更非反映";
   }),
   await executeTest("開始時snapshot差分判定", () => {
-    const active = createV2TitleSettingsSnapshot(V2_DEFAULT_TITLE_SETTINGS);
-    const same = createV2TitleSettingsSnapshot(V2_DEFAULT_TITLE_SETTINGS);
-    const changed = createV2TitleSettingsSnapshot({
-      ...V2_DEFAULT_TITLE_SETTINGS,
-      population: { ...V2_DEFAULT_TITLE_SETTINGS.population, npcCount: 23 }
+    const build = (npcCount: number) => createV2SessionStartSnapshot({
+      startMode: "normal",
+      settings: {
+        ...V2_DEFAULT_TITLE_SETTINGS,
+        population: { ...V2_DEFAULT_TITLE_SETTINGS.population, npcCount }
+      },
+      venueRandom: () => 0
     });
+    const active = build(50);
+    const same = build(50);
+    const changed = build(23);
     assert(
-      doV2TitleSettingsSnapshotsMatch(active, same),
+      doV2SessionStartSnapshotsMatch(active, same),
       "同一設定を差分ありと判定しました。"
     );
     assert(
-      !doV2TitleSettingsSnapshotsMatch(active, changed),
+      !doV2SessionStartSnapshotsMatch(active, changed),
       "変更設定を差分なしと判定しました。"
     );
     return "同一snapshotは再構築不要、変更snapshotだけ開始時再構築";
@@ -299,7 +310,9 @@ export const runTitleSettingsTests = async () => [
       confirmEnableNoGunTouch: () => confirmNoGunTouch,
       onNoGunTouchEnabled: () => {
         noGunTouchReloadCount += 1;
-      }
+      },
+      startMode: "normal",
+      onStartModeChanged: () => {}
     });
     const npcInput = panel.root.querySelector<HTMLInputElement>('[data-ui="v2-settings-npc-count"]')!;
     npcInput.value = "23";
@@ -356,7 +369,7 @@ export const runTitleSettingsTests = async () => [
     panel.root.querySelector<HTMLButtonElement>('[data-ui="v2-settings-reset-all"]')!.click();
     assert(store.get().population.npcCount === 50, "UI全resetが保存されません。");
     assert(document.pointerLockElement === null, "設定操作中にPointer Lockを取得しました。");
-    assert(panel.root.querySelectorAll("section").length === 7, "semantic sectionが7個ではありません。");
+    assert(panel.root.querySelectorAll("section").length === 9, "T06-6B追加後のsemantic sectionが9個ではありません。");
     assert(panel.root.querySelector<HTMLElement>('[data-ui="v2-settings-fixed-stage"]')!.textContent === "学校", "固定学校表示がありません。");
     assert(panel.root.querySelector<HTMLElement>(".v2-title-settings__stage-host") !== null, "学校設定が左上hostへ分離されていません。");
     assert(panel.root.querySelector<HTMLElement>(".v2-title-settings__stage-host h2")?.textContent === "ステージ", "左上設定名がステージではありません。");
@@ -374,7 +387,7 @@ export const runTitleSettingsTests = async () => [
     assert(brainwashText.includes("ポーズ") && brainwashText.includes("銃あり") && brainwashText.includes("銃なし") && !brainwashText.includes("G比率"), "V1相当の洗脳完了表示名ではありません。");
     assert(panel.root.querySelectorAll<HTMLButtonElement>('[data-audio-channel]').length === 9, "V1相当の音量操作ボタンがありません。");
     const modeButton = panel.root.querySelector<HTMLButtonElement>('[data-ui="title-instant-execution-toggle-button"]')!;
-    assert(modeButton.disabled && modeButton.textContent === "いきなり公開処刑モードに変更", "操作不能な公開処刑modeボタンがありません。");
+    assert(!modeButton.disabled && modeButton.textContent === "いきなり公開処刑モードに変更", "実動作する公開処刑modeボタンがありません。");
     const noGunTouch = panel.root.querySelector<HTMLInputElement>('[data-ui="v2-settings-no-gun-touch"]')!;
     noGunTouch.checked = true;
     noGunTouch.dispatchEvent(new Event("change", { bubbles: true }));
@@ -386,7 +399,7 @@ export const runTitleSettingsTests = async () => [
     assert(noGunTouch.checked && store.get().brainwash.brainwashOnNoGunTouch, "確認後に銃なし接触洗脳が保存されません。");
     assert(Number(noGunTouchReloadCount) === 1, "確認後の画像合成用再読み込み要求が1回ではありません。");
     panel.dispose();
-    return "V1操作部品、独立配置、銃なし接触確認、無効modeボタン、変更保存、Pointer Lockなし";
+    return "V1操作部品、独立配置、銃なし接触確認、実動作modeボタン、変更保存、Pointer Lockなし";
   })
 ];
 import { Vector3 } from "@babylonjs/core";

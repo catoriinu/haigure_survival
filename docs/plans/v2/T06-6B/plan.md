@@ -6,14 +6,26 @@
 
 > 通常モードとV1相当のいきなり公開処刑を用意し、ON／OFFはMissionとAlarmだけにしてください。ミニマップ、校内放送、早期自動公開処刑は常時有効で、反射設定は追加しないでください。
 
+2026-08-23 実装開始指示:
+
+> PLEASE IMPLEMENT THIS PLAN:
+>
+> # T06-6B「開始モード・Mission／Alarm」実装計画
+>
+> - T06-6AがPR #79で統合済みの最新`origin/develop`から`codex/v2-title-modes`と専用worktreeを作成し、既存の未追跡差分を保持する。
+> - `V2TitleSettings`へMission／Alarmと5方式の即時公開処刑設定をschema version 1のcanonical fieldとして追加し、開始モードだけは保存から分離する。
+> - 通常／即時公開処刑の開始snapshot、決定的な校庭／体育館、方式別roleと人数、R再演、公開処刑設定だけのresetを実装する。
+> - Mission OFFではMission Runtime、scheduler、HUD、marker、結果集計を生成せず、放送、Follow／Leave、Location registryは維持する。Alarm OFFではAlarm床、判定、通知、強制追跡を生成・実行しない。ミニマップ、放送、早期自動公開処刑、全human洗脳済み終了は常時有効とする。
+> - T06-6B専用fixture、T05／T06／T06-4／T06-6A回帰、通常Web／Electron、テキスト配布検査を完了し、T06-6B差分だけをcommitする。push、Pull Request、レビュー、merge、worktree整理は行わない。
+
 ## 目的
 
 T06-6AのV2専用`V2TitleSettings` snapshotへ即時公開処刑設定、Mission、Alarmを追加し、通常開始と5方式の直接開始を同じ明示契約へ接続する。
 
 ## 開始条件
 
-- T06-6Aが独立レビュー後に`develop`へ統合済みである。
-- `codex/v2-title-modes`の専用worktreeを最新`origin/develop`から作成する。
+- [x] T06-6Aが独立レビュー後にPR #79で`develop=0416bb72d49b68e3c46f08611fd1ed301afae924`へ統合済みである。
+- [x] 共有`develop`の未追跡`docs/plans/skills/`と`scripts/v2/__pycache__/`を変更せず、`codex/v2-title-modes`の専用worktreeを最新`origin/develop`から作成した。
 
 ## 公開契約
 
@@ -44,13 +56,22 @@ T06-6AのV2専用`V2TitleSettings` snapshotへ即時公開処刑設定、Mission
 
 ## ステップ
 
-- [ ] 開始モードのアプリ内状態と公開処刑用V2 fieldを実装する
-- [ ] 5方式、人数、会場snapshot、R再演を接続する
-- [ ] Mission／AlarmだけのON／OFFをRuntime生成・破棄へ接続する
-- [ ] 公開処刑設定resetと組合せfixtureを追加する
-- [ ] V3C対象回帰、typecheck、build、Web／Electronを完了する
-- [ ] 結果を更新してT06-6B差分だけをcommitする
+- [x] 開始モードのアプリ内状態と公開処刑用V2 fieldを実装する
+- [x] 5方式、人数、会場snapshot、R再演を接続する
+- [x] Mission／AlarmだけのON／OFFをRuntime生成・破棄へ接続する
+- [x] 公開処刑設定resetと組合せfixtureを追加する
+- [x] V3C対象回帰、typecheck、build、Web／Electronを完了する
+- [x] 結果を更新してT06-6B差分だけをcommitする
 
 ## 結果
 
-未着手。T06-6Aの`develop`統合後に開始する。
+`origin/develop=0416bb72d49b68e3c46f08611fd1ed301afae924`をbaseとする専用worktreeで、次を完了した。
+
+- V2 schema version 1へMission／Alarmと即時公開処刑4項目を統合し、方式別上限をcanonical正規化した。開始モードは非保存のアプリ内状態とし、通常resetと公開処刑設定resetを分離した。
+- deep-frozenな`V2SessionStartSnapshot`へ保存設定、人口、決定的な会場と5方式のrole構成を固定した。即時開始とR再演を同じscenarioへ接続し、NPC 99／BIT 50／中心対象6／会場100人の上限を維持した。
+- Mission OFF時はMission Runtime、scheduler、HUD、marker、結果集計を生成せず、独立放送Runtimeで3放送と集合会場を維持した。Alarm OFF時は候補provider、Alarm System、床表示、更新、通知音、NPC強制追跡を生成・実行しない構成へ変更した。
+- T06-6B fixtureは13/13、T06-6A回帰は12/12、T06回帰は70/70、T06-4回帰は37/37、T05回帰は322/322を実ブラウザでPASSし、各fixtureのconsole warning／errorは0件だった。
+- 実Web画面で通常／即時公開処刑の右側切替、ステージ・音量表示、開始、R再演を確認した。Electronでは5方式、同一scenario再演、Mission／Alarm 4組合せをPASSし、console／load／process異常は0件だった。
+- `audit:v2:dependencies`、関連typecheck、T05／T06／T06-4／T06-6A／T06-6B build、通常renderer／Electron build、Web配布監査をPASSした。
+- `verify-text-delivery.ps1 -Repository`、`git diff --check`、UTF-8（BOMなし）、ローカル絶対パス0件、学校バイナリ／NavMesh／生成器差分0件を確認した。
+- 視点高さ既定値1.15を維持し、V1保存キーの読込・変更・削除、旧schema互換、汎用feature flag、反射設定は追加していない。

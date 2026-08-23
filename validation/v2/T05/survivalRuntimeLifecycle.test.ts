@@ -284,6 +284,11 @@ const createRuntime = async (
         ),
         getOrbVisibilityPredicate,
         population: V2_PERFORMANCE_ACCEPTANCE_POPULATION,
+        features: Object.freeze({
+          missionEnabled: true,
+          alarmEnabled: true
+        }),
+        startupScenario: null,
         brainwashSettings: Object.freeze({
           instantBrainwash: false,
           brainwashOnNoGunTouch: false,
@@ -750,6 +755,11 @@ export const runSurvivalRuntimeLifecycleTests = async (
           bitReinforcementIntervalSeconds: 10,
           maximumBitCount: 0
         }),
+        features: Object.freeze({
+          missionEnabled: true,
+          alarmEnabled: true
+        }),
+        startupScenario: null,
         brainwashSettings: Object.freeze({
           instantBrainwash: false,
           brainwashOnNoGunTouch: false,

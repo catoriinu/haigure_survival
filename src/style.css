@@ -794,6 +794,10 @@ body {
   pointer-events: none;
 }
 
+.v2-title-settings [hidden] {
+  display: none !important;
+}
+
 .v2-title-settings__stage-host,
 .v2-title-settings__audio-host,
 .v2-title-settings__main-host {
@@ -994,6 +998,8 @@ body {
   padding: 8px 14px;
   color: #a8a8a8;
   opacity: 0.8;
+  pointer-events: auto;
+  cursor: pointer;
 }
 
 .v2-title-settings__mode-placeholder-note {

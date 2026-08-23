@@ -57,7 +57,8 @@ export const SCHOOL_RUNTIME_RANDOM_SERIES = [
   "follower-fire",
   "mission-player",
   "mission-npc",
-  "mission-broadcast"
+  "mission-broadcast",
+  "instant-execution-venue"
 ] as const;
 
 export type SchoolRuntimeRandomSeries =

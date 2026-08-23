@@ -503,6 +503,9 @@ export interface V2NpcSystem {
   prepareExecutionRoles(
     assignments: readonly V2NpcExecutionRoleAssignment[]
   ): void;
+  prepareInstantExecutionRoles(
+    assignments: readonly V2NpcExecutionRoleAssignment[]
+  ): void;
   enterFormationStates(
     npcIds: readonly string[]
   ): readonly V2NpcStateChangeResult[];
@@ -2374,6 +2377,36 @@ class SchoolV2NpcSystem implements V2NpcSystem {
         assignment.npc.stateSystem.prepareExecutionAudience();
       } else {
         assignment.npc.stateSystem.prepareExecutionShooter();
+      }
+      this.finishScriptedStateChange(assignment.npc);
+    }
+    if (resolvedAssignments.length > 0) {
+      this.rebuildFrameViewPreservingThreats();
+    }
+  }
+
+  prepareInstantExecutionRoles(
+    assignments: readonly V2NpcExecutionRoleAssignment[]
+  ) {
+    this.assertActive();
+    const resolvedAssignments = assignments.map((assignment) => {
+      if (!V2_NPC_EXECUTION_ROLES.includes(assignment.role)) {
+        throw new Error(
+          `未登録のNPC即時公開処刑役割です: ${assignment.role}`
+        );
+      }
+      return Object.freeze({
+        npc: this.requireNpc(assignment.npcId),
+        role: assignment.role
+      });
+    });
+    for (const assignment of resolvedAssignments) {
+      if (assignment.role === "target") {
+        assignment.npc.stateSystem.prepareExecutionTarget();
+      } else if (assignment.role === "audience") {
+        assignment.npc.stateSystem.prepareInstantExecutionAudience();
+      } else {
+        assignment.npc.stateSystem.prepareInstantExecutionShooter();
       }
       this.finishScriptedStateChange(assignment.npc);
     }
