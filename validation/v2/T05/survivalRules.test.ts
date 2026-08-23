@@ -84,6 +84,7 @@ export const runSurvivalRulesTests =
             phase: "playing",
             playerState,
             playerCaptured: false,
+            assemblyPlayerControlReleased: false,
             executionPlayerRole: null
           })
         );
@@ -93,6 +94,7 @@ export const runSurvivalRulesTests =
               phase: "playing",
               playerState,
               playerCaptured: false,
+              assemblyPlayerControlReleased: false,
               executionPlayerRole: null
             })
         );
@@ -102,6 +104,7 @@ export const runSurvivalRulesTests =
               phase: "playing",
               playerState,
               playerCaptured: true,
+              assemblyPlayerControlReleased: false,
               executionPlayerRole: null
             })
         );
@@ -114,12 +117,20 @@ export const runSurvivalRulesTests =
       }
     ),
     executeTest(
-      "assemblyでは停止し、execution系ではplayer対象だけ停止する",
+      "assemblyはWASD解放後に移動し、execution系ではplayer対象だけ停止する",
       () => {
         const assemblyStopped = !canV2SurvivalPlayerMove({
           phase: "assembly",
-          playerState: "normal",
-          playerCaptured: false,
+          playerState: "brainwash-complete-haigure-formation",
+          playerCaptured: true,
+          assemblyPlayerControlReleased: false,
+          executionPlayerRole: "observer"
+        });
+        const assemblyReleased = canV2SurvivalPlayerMove({
+          phase: "assembly",
+          playerState: "brainwash-complete-haigure-formation",
+          playerCaptured: true,
+          assemblyPlayerControlReleased: true,
           executionPlayerRole: "observer"
         });
         const executionTargetStopped = [
@@ -134,6 +145,7 @@ export const runSurvivalRulesTests =
                   : "execution-complete",
               playerState: "hit-a",
               playerCaptured: true,
+              assemblyPlayerControlReleased: false,
               executionPlayerRole: "target"
             })
         );
@@ -148,16 +160,18 @@ export const runSurvivalRulesTests =
               phase: "execution",
               playerState: "hit-a",
               playerCaptured: true,
+              assemblyPlayerControlReleased: false,
               executionPlayerRole
             })
         );
         return {
           ok:
             assemblyStopped &&
+            assemblyReleased &&
             executionTargetStopped &&
             nonTargetsMove,
           detail:
-            `assembly=${assemblyStopped} / ` +
+            `assembly=${assemblyStopped}->${assemblyReleased} / ` +
             `target=${executionTargetStopped} / ` +
             `nonTarget=${nonTargetsMove}`
         };

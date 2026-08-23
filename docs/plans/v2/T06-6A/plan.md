@@ -52,6 +52,10 @@
 
 > NPCを99人にするとゲーム自体（カメラの動きなど）は重くないのに、NPCの動きがカクカクする問題について、描画位置の補間だけを対策としないでください。計算負荷や更新間引きを含む原因を計測・特定し、計算側の根本対策を行ってください。
 
+2026-08-23 整列ハイグレ時の追加修正指示:
+
+> ゲームオーバーで体育館に全員が整列してハイグレしているときに、プレイヤーが動くことができません。整列ハイグレ時はプレイヤーが動けるというV1の仕様を確認し、V2でも移動できるように修正してください。
+
 ## 目的
 
 I4で確定した基本設定を`V2TitleSettings`へ統一し、V1から独立した保存、正規化、全設定reset、タイトルUI、Runtime開始snapshotまで実装する。開始モード、即時公開処刑、Mission／Alarm、最終レイアウトは後続へ分離する。
@@ -121,6 +125,10 @@ I4で確定した基本設定を`V2TitleSettings`へ統一し、V1から独立�
 - [x] 99 NPC時の処理を項目別に計測し、論理移動が間欠化する原因を計算側で解消する
 - [x] 専用fixture、描画回帰、通常Web／Electron、静的監査を完了する
 - [x] 最新結果を記録し、今回の追加差分だけをcommitする
+- [x] V1の`assemblyMove／assemblyHold／assemblyFree`とWASD解放条件を確認する
+- [x] 整列開始後のWASD新規押下でPlayer操作を解放する
+- [x] 入力、移動ルール、Runtime lifecycle、通常ゲームを回帰する
+- [x] 最新結果を記録し、整列移動修正だけをcommitする
 
 ## 結果
 
@@ -143,3 +151,7 @@ BIT本体・先端球・BIT影・Character影・窓・カーテンを同じ空�
 99 NPCの再調査では、カメラ描画自体ではなく、重いNavMesh経路再計算を1 frame最大4件へ制限した結果、同時追跡時に最大95体が`waiting-for-path`となり、論理位置まで停止することを原因として特定した。描画補間を根本対策とはせず、同一Navigation Areaかつ近距離追跡中の待機NPCは、NavMeshへ拘束した1 stepの直接移動と衝突segment検査を行い、重い経路計算の順番待ち中も論理移動を継続させた。T05最悪条件では99／99体が初回frameから移動し、直接待機移動1275回、重い経路再計算上限4件／frameを維持し、NPC更新最大1.3msとなった。
 
 最新差分でT06-6A専用fixture 11／11、T05総合fixture 322／322、T06描画fixture 70／70を実ブラウザでPASSした。通常Electron受入はPointer Lock、Enter復帰、再開始、BGM／SE／VOICE実読込、console／renderer／load異常0件を確認した。99 NPC／50 BITの高負荷profileは120秒、1852 frame、99 NPC維持、洗脳済み98体、renderer異常0件で完走した。`typecheck:v2`、T05／T06／T06-6A build、通常buildとWeb配布監査をPASSした。変更17ファイルについて`git diff --check`、UTF-8 BOMなし、追加ローカル絶対path 0件、RuntimeのlocalStorage／URL直接参照追加0件、保護学校資産差分0件を確認した。
+
+整列ハイグレ時の追加修正では、V1の`assemblyMove／assemblyHold`中にWASDを新規押下すると`assemblyFree`へ移る仕様と、整列開始前から押しっぱなしのキーでは解除せず全キーを離した後の次の押下だけで解除する条件を確認した。V2入力へ非repeatのWASD edge actionを追加し、`assembly`へ入った時点ではPlayerを停止したまま、整列後の新規WASD actionを受けたframeで操作を一度だけ解放して、通常のPlayer衝突移動へ渡すようにした。会場IDに分岐しないため、体育館と校庭の両方で同じ契約になる。
+
+最新差分でT05総合fixture 322／322、T06 fixture 70／70を実ブラウザでPASSした。T05実Runtime遷移では`phase=assembly`、移動可否`false→true`、最初の解放受理、二重解放拒否、資源破棄一致を確認した。T05／T06／T06-6A build、通常buildとWeb配布監査をPASSした。通常Electron受入は初回だけランダムなPlayer洗脳前提が制限時間内に成立しなかったが、その実行でもconsole／renderer／load異常0件であり、再実行は13項目すべてと診断0件でPASSした。テキスト配布検査は変更9ファイルのUTF-8 BOMなし、`git diff --check`、ローカル絶対path追加なしを確認した。

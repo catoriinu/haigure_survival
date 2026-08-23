@@ -2186,6 +2186,12 @@ engine.runRenderLoop(() => {
         player.getFootPosition()
       )
     );
+    if (
+      started &&
+      actions.includes("release-assembly-control")
+    ) {
+      survival.releaseAssemblyPlayerControl();
+    }
     const playerFrame = performanceDiagnostics
       ? performanceDiagnostics.measure("player", () =>
           player.update(

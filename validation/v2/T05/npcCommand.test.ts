@@ -640,6 +640,14 @@ const testPlayerActions = async () => {
     "drain後にactionが残っています。"
   );
 
+  dispatchKey("KeyW");
+  dispatchKey("KeyW", true);
+  assert(
+    input.drainPressedActions().join("|") ===
+      "release-assembly-control",
+    "WASDの新規押下だけを整列操作解放actionとして取得できません。"
+  );
+
   dispatchKey("KeyF");
   input.reset();
   assert(
@@ -661,7 +669,7 @@ const testPlayerActions = async () => {
     () => input.drainPressedActions(),
     "dispose後の入力参照が拒否されません。"
   );
-  return "7 actionを発生順に一度だけdrainし、repeat/reset/blur/disposeを確認";
+  return "7 actionとWASD整列解放edgeを一度だけdrainし、repeat/reset/blur/disposeを確認";
 };
 
 const testPlayerGunFireEventSnapshot = async () => {

@@ -318,6 +318,7 @@ export interface V2SurvivalRuntime {
   getFrame(): V2SurvivalFrame;
   drainAudioEvents(): readonly V2GameplayAudioEvent[];
   canPlayerMove(): boolean;
+  releaseAssemblyPlayerControl(): boolean;
   selectPlayerCompletion(state: V2PlayerCompletionState): void;
   getNpcCommandCandidates(): readonly V2NpcCommandCandidate[];
   requestNpcCommand(npcId: string, kind: V2NpcCommandKind): boolean;
@@ -750,6 +751,7 @@ export const createV2SurvivalRuntime = ({
 
   let disposed = false;
   let phase: V2SurvivalPhase = "playing";
+  let assemblyPlayerControlReleased = false;
   let hostileActionsSuspendedByRuntime = false;
   let frozenAssemblyVenue: StageAssemblyVenue | null = null;
   let missionFrame = missionRuntime.getFrame();
@@ -941,6 +943,7 @@ export const createV2SurvivalRuntime = ({
         .getFrameView()
         .captures
         .some((capture) => capture.targetId === PLAYER_ID),
+      assemblyPlayerControlReleased,
       executionPlayerRole:
         executionSystem.getFrame().candidate?.playerRole ?? null
     });
@@ -1011,6 +1014,7 @@ export const createV2SurvivalRuntime = ({
     freezeAssemblyVenue();
     clearCombatForPhaseTransition();
     executionSystem.reset();
+    assemblyPlayerControlReleased = false;
     phase = "assembly";
     placeHumansForAssembly();
   };
@@ -2414,6 +2418,15 @@ export const createV2SurvivalRuntime = ({
     canPlayerMove: () => {
       assertActive();
       return canPlayerMove();
+    },
+    releaseAssemblyPlayerControl: () => {
+      assertActive();
+      if (phase !== "assembly" || assemblyPlayerControlReleased) {
+        return false;
+      }
+      assemblyPlayerControlReleased = true;
+      frame = buildFrame();
+      return true;
     },
     selectPlayerCompletion: (state) => {
       assertActive();

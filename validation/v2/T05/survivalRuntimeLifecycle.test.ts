@@ -699,6 +699,10 @@ export const runSurvivalRuntimeLifecycleTests = async (
     let followVisibleBeforeTransition = false;
     let fireAccepted = false;
     let phaseAfterTransition = "playing";
+    let assemblyMovementBeforeRelease = false;
+    let assemblyReleaseAccepted = false;
+    let assemblyMovementAfterRelease = false;
+    let duplicateAssemblyReleaseRejected = false;
     let activeBeamCountAfterTransition = -1;
     let phaseGuardedCandidateCount = -1;
     let phaseGuardedRequestAccepted = true;
@@ -865,6 +869,12 @@ export const runSurvivalRuntimeLifecycleTests = async (
         elevatorSnapshots
       );
       phaseAfterTransition = transitionFrame.phase;
+      assemblyMovementBeforeRelease = commandRuntime.canPlayerMove();
+      assemblyReleaseAccepted =
+        commandRuntime.releaseAssemblyPlayerControl();
+      assemblyMovementAfterRelease = commandRuntime.canPlayerMove();
+      duplicateAssemblyReleaseRejected =
+        !commandRuntime.releaseAssemblyPlayerControl();
       activeBeamCountAfterTransition =
         transitionFrame.activeBeamCount;
       phaseGuardedCandidateCount =
@@ -904,6 +914,10 @@ export const runSurvivalRuntimeLifecycleTests = async (
           followVisibleBeforeTransition &&
           fireAccepted &&
           phaseAfterTransition === "assembly" &&
+          !assemblyMovementBeforeRelease &&
+          assemblyReleaseAccepted &&
+          assemblyMovementAfterRelease &&
+          duplicateAssemblyReleaseRejected &&
           scriptedPhaseTraversalReleaseCount === 1 &&
           activeBeamCountAfterTransition === 0 &&
           phaseGuardedCandidateCount === 0 &&
@@ -918,6 +932,8 @@ export const runSurvivalRuntimeLifecycleTests = async (
           `follow=${followVisible}->${followVisibleBeforeTransition} / ` +
           `fire=${fireAccepted} / ` +
           `phase=${phaseAfterTransition} / ` +
+          `move=${assemblyMovementBeforeRelease}->${assemblyMovementAfterRelease} / ` +
+          `release=${assemblyReleaseAccepted}/${duplicateAssemblyReleaseRejected} / ` +
           `traversalRelease=${scriptedPhaseTraversalReleaseCount} / ` +
           `beams=${activeBeamCountAfterTransition} / ` +
           `guardCandidates=${phaseGuardedCandidateCount} / ` +
