@@ -27,6 +27,7 @@ import {
 } from "../audio/v2AudioRuntime";
 import { V2_PORTRAIT_ASSET_INVENTORY } from "../ui/v2CharacterSettings";
 import { createV2TitleSettingsPanel } from "../ui/v2TitleSettingsPanel";
+import { createV2TitleLayoutController } from "../ui/v2TitleLayoutController";
 import { createTitleOverlayController } from "../ui/titleOverlayController";
 import {
   createBrowserV2TitleSettingsStore,
@@ -71,13 +72,14 @@ import {
   type V2PlayerInput
 } from "./playerInput";
 import {
-  dispatchV2RuntimeExecutionReplay,
   dispatchV2RuntimeInteractions,
   resolveV2BroadcastInteractionCandidate,
   resolveV2HorizontalSpeedScale,
   V2_BROADCAST_INTERACTION_DISTANCE,
   type V2RuntimeInteractionFeedback
 } from "./runtimeInteraction";
+import { dispatchV2RuntimeEndFlow } from "./runtimeEndFlow";
+import { resolveV2MissionHudMode } from "./runtimePresentation";
 import {
   createV2RuntimeSessionEventScope,
   transitionV2RuntimeSession
@@ -122,14 +124,10 @@ import {
   markV2StartupPhase
 } from "./startupDiagnostics";
 
-const V2_GAMEPLAY_HELP_TEXT =
+const V2_GAMEPLAY_BASE_HELP_TEXT =
   "操作説明\n" +
   "WASD: 移動  Shift: ダッシュ\n" +
-  "F: 主操作  E: 副操作  C: 扉\n" +
-  "G：銃あり  N：銃なし  H：ハイグレ\n" +
-  "Enter: タイトルへ戻る";
-const V2_GAMEPLAY_EXECUTION_HELP_TEXT =
-  `${V2_GAMEPLAY_HELP_TEXT}\nR: リプレイ`;
+  "F: 主操作  E: 副操作  C: 扉";
 const EMPTY_NPC_COMMAND_CANDIDATES: ReturnType<
   V2SurvivalRuntime["getNpcCommandCandidates"]
 > = Object.freeze([]);
@@ -268,6 +266,7 @@ const statusInfo = document.getElementById("statusInfo") as HTMLDivElement;
 const helpPanel = document.getElementById("helpPanel") as HTMLDivElement;
 const staminaGauge = document.getElementById("staminaGauge") as HTMLDivElement;
 const titleOverlay = document.getElementById("titleOverlay") as HTMLDivElement;
+const titleCenterBlock = document.getElementById("titleCenterBlock") as HTMLDivElement;
 const titleHeading = document.getElementById("titleHeading") as HTMLDivElement;
 const titleVersion = document.getElementById("titleVersion") as HTMLDivElement;
 const enableNoGunTouchBrainwashConfirmMessage =
@@ -326,6 +325,20 @@ const createSessionStartSnapshot = (
   });
 };
 
+const createRetriedSessionStartSnapshot = (
+  sessionSeed: number,
+  source: V2SessionStartSnapshot
+): V2SessionStartSnapshot =>
+  createV2SessionStartSnapshot({
+    startMode: source.startMode,
+    settings: source.settings,
+    runtimePopulation: source.runtimePopulation,
+    venueRandom: createSchoolRuntimeRandom(
+      sessionSeed,
+      "instant-execution-venue"
+    )
+  });
+
 if (performanceScenario) {
   canvas.style.width = "1920px";
   canvas.style.height = "1080px";
@@ -334,12 +347,14 @@ const engine = new Engine(canvas, true);
 markV2StartupPhase("engine-created");
 
 type V2RuntimeSession = Readonly<{
+  deactivate(): Promise<void>;
   dispose(): Promise<void>;
 }>;
 
 type V2RuntimeSessionRebuildOptions = Readonly<{
   startAfterCreate: boolean;
   preservePointerLock: boolean;
+  retrySnapshot: V2SessionStartSnapshot | null;
 }>;
 
 const createRuntimeSession = async (
@@ -453,7 +468,7 @@ ambientLight.groundColor = new Color3(0.16, 0.2, 0.22);
 
 titleHeading.textContent = "HAIGURE SURVIVAL V2";
 titleVersion.textContent = "ver.2.0.0";
-titleOverlay.style.display = "flex";
+titleOverlay.style.display = "grid";
 minimapCanvas.style.display = "none";
 minimapReadout.style.display = "none";
 staminaGauge.style.display = "none";
@@ -820,6 +835,9 @@ let ownedAudio: AudioManager | null = null;
 let ownedTitleSettingsPanel: ReturnType<
   typeof createV2TitleSettingsPanel
 > | null = null;
+let ownedTitleLayoutController: ReturnType<
+  typeof createV2TitleLayoutController
+> | null = null;
 let ownedGameplayAudioBridge: ReturnType<
   typeof createV2GameplayAudioBridge
 > | null = null;
@@ -828,18 +846,35 @@ let ownedVoiceRuntime: ReturnType<
 > | null = null;
 let ownedPlayerCharacterVisual: V2PlayerCharacterVisual | null = null;
 let ownedSchoolVisualAcceptanceBridge: HTMLTextAreaElement | null = null;
+let started = false;
+let deactivated = false;
 let disposed = false;
+const deactivateRuntime = async () => {
+  if (deactivated) {
+    return;
+  }
+  deactivated = true;
+  engine.stopRenderLoop();
+  started = false;
+  input.reset();
+  eventScope.dispose();
+  ownedRuntimeHud?.clear();
+  ownedMissionHud?.clear();
+  ownedMinimap?.clear();
+  ownedVoiceRuntime?.stopAll();
+  ownedAudio?.stopBgm();
+};
 const disposeRuntime = async () => {
   if (disposed) {
     return;
   }
   disposed = true;
-  engine.stopRenderLoop();
-  eventScope.dispose();
+  await deactivateRuntime();
   ownedRuntimeHud?.dispose();
   ownedMissionHud?.dispose();
   ownedMinimap?.dispose();
   ownedPlayerCharacterVisual?.dispose();
+  ownedTitleLayoutController?.dispose();
   ownedTitleSettingsPanel?.dispose();
   ownedGameplayAudioBridge?.dispose();
   ownedVoiceRuntime?.dispose();
@@ -1053,6 +1088,14 @@ const titleSettingsPanel = createV2TitleSettingsPanel({
   }
 });
 ownedTitleSettingsPanel = titleSettingsPanel;
+const titleLayoutController = createV2TitleLayoutController({
+  overlay: titleOverlay,
+  center: titleCenterBlock,
+  settingsRoot: titleSettingsPanel.root,
+  settingsViewport: titleSettingsPanel.layoutElements.mainHost,
+  settingsContent: titleSettingsPanel.layoutElements.mainContent
+});
+ownedTitleLayoutController = titleLayoutController;
 const gameplayAudioBridge = createV2GameplayAudioBridge({
   audio,
   assets: audioAssets,
@@ -1084,7 +1127,6 @@ let audioActivated = false;
 canvas.tabIndex = 0;
 loadingSession.finish();
 
-let started = false;
 let statusTimer = 0;
 let elapsedSeconds = 0;
 let playerElevatorMoving = false;
@@ -2020,14 +2062,14 @@ const startPlay = (requestPointerLock: boolean) => {
     titleOverlay.style.display = "none";
     statusInfo.style.display = "block";
     helpPanel.style.display = "block";
-    helpPanel.textContent = V2_GAMEPLAY_HELP_TEXT;
+    helpPanel.textContent = V2_GAMEPLAY_BASE_HELP_TEXT;
   }
   if (requestPointerLock) {
     requestCanvasPointerLock();
   }
 };
 
-const updateGameplayHelp = (phase: ReturnType<typeof survival.getFrame>["phase"]) => {
+const updateGameplayHelp = (frame: ReturnType<typeof survival.getFrame>) => {
   if (
     performanceScenario !== null ||
     runtimeStressScenario !== null ||
@@ -2037,10 +2079,16 @@ const updateGameplayHelp = (phase: ReturnType<typeof survival.getFrame>["phase"]
   ) {
     return;
   }
-  const nextText =
-    phase === "execution" || phase === "execution-complete"
-      ? V2_GAMEPLAY_EXECUTION_HELP_TEXT
-      : V2_GAMEPLAY_HELP_TEXT;
+  let nextText = V2_GAMEPLAY_BASE_HELP_TEXT;
+  if (frame.phase === "playing" && frame.playerCompletionUnlocked) {
+    nextText +=
+      "\nG：銃あり  N：銃なし  H：ハイグレ" +
+      "\nR: リトライ  Enter: エピローグへ";
+  } else if (frame.phase === "assembly") {
+    nextText += "\nEnter: タイトルへ戻る";
+  } else if (frame.phase === "execution-complete") {
+    nextText += "\nR: リプレイ  Enter: タイトルへ戻る";
+  }
   if (helpPanel.textContent !== nextText) {
     helpPanel.textContent = nextText;
   }
@@ -2061,7 +2109,8 @@ const handleCanvasClick: EventListener = () => {
     requestSessionRebuild(
       Object.freeze({
         startAfterCreate: true,
-        preservePointerLock: true
+        preservePointerLock: true,
+        retrySnapshot: null
       })
     );
     return;
@@ -2261,13 +2310,29 @@ engine.runRenderLoop(() => {
           );
     }
     updateElevatorNpcAcceptanceAfterTraversal();
-    const executionReplayResult = dispatchV2RuntimeExecutionReplay({
-      actions,
-      frame: survivalFrame,
-      survival
-    });
-    if (executionReplayResult === "execution-replayed") {
+    const endFlowDecision = started
+      ? dispatchV2RuntimeEndFlow(actions, survivalFrame)
+      : "ignored";
+    if (endFlowDecision === "enter-epilogue") {
+      survival.enterEpilogue();
       survivalFrame = survival.getFrame();
+    } else if (endFlowDecision === "replay-execution") {
+      survival.replayExecution();
+      survivalFrame = survival.getFrame();
+    } else if (endFlowDecision === "retry-normal-session") {
+      started = false;
+      input.reset();
+      requestSessionRebuild(
+        Object.freeze({
+          startAfterCreate: true,
+          preservePointerLock: false,
+          retrySnapshot: sessionStartSnapshot
+        })
+      );
+    } else if (endFlowDecision === "return-to-title") {
+      started = false;
+      input.reset();
+      requestSessionRebuild();
     }
     if (missionAcceptanceLookAtPosition !== null) {
       camera.setTarget(missionAcceptanceLookAtPosition);
@@ -2290,7 +2355,7 @@ engine.runRenderLoop(() => {
       viewForward: characterViewForward,
       facingYaw: characterFacingYaw
     });
-    updateGameplayHelp(survivalFrame.phase);
+    updateGameplayHelp(survivalFrame);
     const interactionActive =
       started &&
       document.pointerLockElement ===
@@ -2356,13 +2421,7 @@ engine.runRenderLoop(() => {
     });
     if (missionHud !== null && survivalFrame.mission !== null) {
       missionHud.update({
-        mode: !started
-          ? "hidden"
-          : survivalFrame.phase === "playing"
-            ? "missions"
-            : survivalFrame.phase === "execution-complete"
-              ? "results"
-              : "hidden",
+        mode: resolveV2MissionHudMode(started, survivalFrame.phase),
         frame: survivalFrame.mission
       });
     }
@@ -2582,14 +2641,8 @@ engine.runRenderLoop(() => {
 const resize = () => engine.resize();
 eventScope.listen(window, "resize", resize);
 
-const handleReturnToTitleKey: EventListener = (event) => {
-  if ((event as KeyboardEvent).code === "Enter" && started) {
-    requestSessionRebuild();
-  }
-};
-eventScope.listen(window, "keydown", handleReturnToTitleKey);
-
 return Object.freeze({
+  deactivate: deactivateRuntime,
   dispose: disposeRuntime
 });
 } catch (error) {
@@ -2609,7 +2662,7 @@ let sessionTransition: Promise<void> | null = null;
 let runtimeTerminated = false;
 
 const showSessionLoading = () => {
-  titleOverlay.style.display = "flex";
+  titleOverlay.style.display = "grid";
   statusInfo.style.display = "none";
   helpPanel.style.display = "none";
   minimapCanvas.style.display = "none";
@@ -2620,7 +2673,8 @@ const showSessionLoading = () => {
 const rebuildSession = (
   options: V2RuntimeSessionRebuildOptions = Object.freeze({
     startAfterCreate: false,
-    preservePointerLock: false
+    preservePointerLock: false,
+    retrySnapshot: null
   })
 ) => {
   if (sessionTransition !== null || runtimeTerminated) {
@@ -2642,7 +2696,12 @@ const rebuildSession = (
       createSession: (sessionSeed) =>
         createRuntimeSession(
           sessionSeed,
-          createSessionStartSnapshot(sessionSeed),
+          options.retrySnapshot === null
+            ? createSessionStartSnapshot(sessionSeed)
+            : createRetriedSessionStartSnapshot(
+                sessionSeed,
+                options.retrySnapshot
+              ),
           rebuildSession,
           options.startAfterCreate
         )

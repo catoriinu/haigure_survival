@@ -193,7 +193,7 @@ export const reportV2StartupFailure = (error: unknown) => {
   const titleMessage = document.getElementById(
     "titleMessage"
   ) as HTMLDivElement;
-  titleOverlay.style.display = "flex";
+  titleOverlay.style.display = "grid";
   titleStartHint.style.display = "block";
   titleStartHint.textContent = "読込エラー";
   titleMessage.style.display = "block";

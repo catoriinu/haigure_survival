@@ -359,6 +359,7 @@ export interface V2SurvivalRuntime {
   updateTargetNavigationAreaTransportPosition(targetId: string, position: Vector3): void;
   relocateTargetNavigationArea(targetId: string, position: Vector3): void;
   requestPlayerGunFire(direction: Vector3): boolean;
+  enterEpilogue(): void;
   replayExecution(): void;
   dispose(): void;
 }
@@ -2877,12 +2878,9 @@ export const createV2SurvivalRuntime = ({
     },
     replayExecution: () => {
       assertActive();
-      if (
-        phase !== "execution" &&
-        phase !== "execution-complete"
-      ) {
+      if (phase !== "execution-complete") {
         throw new Error(
-          "公開処刑リプレイは処刑中または完了後に開始してください。"
+          "公開処刑リプレイは処刑完了後に開始してください。"
         );
       }
       const candidate = executionSystem.getFrame().candidate;
@@ -2900,6 +2898,19 @@ export const createV2SurvivalRuntime = ({
       applyExecutionPlacements(replayFrame);
       phase = "execution";
       rebuildHumanTargets();
+      frame = buildFrame();
+    },
+    enterEpilogue: () => {
+      assertActive();
+      if (
+        phase !== "playing" ||
+        !playerCombat.getStateSnapshot().playerCompletionUnlocked
+      ) {
+        throw new Error(
+          "エピローグはPlayer洗脳開始後の通常ゲームから開始してください。"
+        );
+      }
+      enterAssembly();
       frame = buildFrame();
     },
     dispose: () => {

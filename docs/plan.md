@@ -425,9 +425,9 @@ HAIGURE SURVIVAL v2は、大規模な一括実装を行わず、1タスク＝1�
 - [x] T06-4P-2 エレベーター・NPC: 4秒発車、全Actor先着順6人、自律NPCとFollowerの呼出・乗降・追跡を実装・検証し、PR #77で`develop=154da024`へ統合した
 - [x] I3 キャラクター表示終了判断: 最大構成の負荷実測からリアルタイム鏡面反射と追加表示仕上げを不採用とし、現行一人称表示を維持してT06-5を省略する
 - [x] I4 タイトル設定設計: I3終了記録を吸収し、V1と分離した`V2TitleSettings`、Mission／Alarm、5方式の即時公開処刑、V1相当終了導線、responsive表示、静的資源再利用を確定する
-- [ ] T06-6A タイトル基本設定: I4で承認された人数、初期状態、BIT、荒れ度、開始地点などの基本設定と保存・起動時snapshotを実装する
-- [ ] T06-6B タイトルモード・Mission／Alarm: 通常／即時公開処刑と、Mission／Alarmだけの機能切替を実装する
-- [ ] T06-6C V1タイトル・ゲームオーバー・responsive表示: V1相当表示、5基準点、折り返し、縮小、scroll、終了遷移、リプレイ、タイトル復帰を実装する
+- [x] T06-6A タイトル基本設定: I4で承認された人数、初期状態、BIT、荒れ度、開始地点などの基本設定と保存・起動時snapshotを実装し、PR #79で統合済み
+- [x] T06-6B タイトルモード・Mission／Alarm: 通常／即時公開処刑と、Mission／Alarmだけの機能切替を実装し、PR #80で`develop=2b3cc8f`へ統合済み
+- [x] T06-6C V1タイトル・ゲームオーバー・responsive表示: 5基準点Grid、wide／compact／stacked、全設定scroll、通常game over、R再試行、Enter epilogue／タイトル復帰を実装・検証した
 - [ ] T06-6D 静的学校資源再利用: Scene／GLB／静的Registry／NavMesh bundleをアプリ終了まで保持し、ゲーム単位では動的状態だけを初期化する
 - [ ] P2 最終微修正整理: タイトル設定統合後の既知問題を再確認し、リリース必須修正を個別branchへ切り出して必要件数0まで閉じる
 - [ ] T07: 1080p既定通常構成の60fps目標と、リアルタイム鏡面反射なしの99 NPC／50 BIT・120秒安定性stressを分けて性能調整、学校回帰、仕様書更新を行う
@@ -954,3 +954,10 @@ HAIGURE SURVIVAL v2は、大規模な一括実装を行わず、1タスク＝1�
 - I4で`V2TitleSettings`、V2専用保存キー、schema version 1、視点高さ既定1.20、NPC／BIT／音量／表示／洗脳／荒れ度／11開始地点、Mission／Alarm、5方式の即時公開処刑、V1相当ゲームオーバー、2種類のreset、静的／動的資源境界を確定した。
 - タイトル画面は中央と四隅を基準点とし、wide／compact／stacked、折り返し、最低12px、設定領域scrollを使用する。640×480を通常対応、480×360を全設定scroll到達対応とする。
 - 中央ロードマップ、ブランチ戦略、個別計画一覧、T06-6A～D、T07、ゲーム仕様を同期した。コード、CSS、画像、音声、学校資産、生成器、commit、push、Pull Request、レビュー、mergeは実施していない。
+
+### 2026-08-24 T06-6C V1タイトル・ゲームオーバー・responsive表示
+
+- `origin/develop=2b3cc8f`から専用branch／worktreeで実装し、タイトルをsafe-area対応の5基準点Gridと`wide`／`compact`／`stacked`へ統合した。設定DOMを再生成せず、値、開始モード、focus、scroll位置を維持し、警告／保存済みstatusと設定scroll外のversionを配置した。
+- 通常ゲームはPlayer洗脳後だけRで同一設定・新seed再試行、Enterでepilogueへ進む。epilogue Enterはタイトル復帰、公開処刑完了後のRは同一scenario再演、Enterはタイトル復帰とし、進行中の誤操作を無効化した。Mission結果とphase別helpも終了状態へ接続した。
+- sessionの非活性化と破棄を分離し、Pointer Lock、入力、HUD、Mission、ミニマップ、Audio、購読、動的sessionの停止順を固定した。静的学校資源再利用はT06-6Dのまま残した。
+- 6 viewportの通常／即時公開処刑、連続resize、実アプリの通常retry／epilogue／公開処刑再演／タイトル復帰をWeb・Electronで検証した。関連typecheck・build、通常build、Web配布監査、console／load／process診断0件、差分監査に合格し、学校資産、GLB、NavMesh、生成器は変更していない。
