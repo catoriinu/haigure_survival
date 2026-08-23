@@ -98,6 +98,7 @@ import {
   type V2BitPostAlertMode
 } from "./bitCombatProfile";
 import { createV2HumanTargetSpatialIndex } from "./humanTargetSpatialIndex";
+import { V2_TRANSPARENT_ALPHA_INDEX_SPATIAL } from "./v2TransparentRenderingOrder";
 
 const BIT_BODY_HEIGHT = 0.15;
 const BIT_BODY_DIAMETER = 0.12;
@@ -234,6 +235,7 @@ export type V2BitMode =
   | "carpet-follower";
 
 const V2_BIT_MUZZLE_BLACK = new Color4(0, 0, 0, 1);
+export const V2_BIT_MUZZLE_RED = new Color4(0.92, 0.04, 0.06, 1);
 export const V2_BIT_MUZZLE_COLOR_BY_MODE = Object.freeze({
   search: V2_BIT_MUZZLE_BLACK,
   chase: new Color4(0.18, 0.9, 0.28, 1),
@@ -248,11 +250,14 @@ export const V2_BIT_MUZZLE_COLOR_BY_MODE = Object.freeze({
 
 export const resolveV2BitMuzzleColor = (
   mode: V2BitMode,
-  modeMuzzleColorEnabled: boolean
+  modeMuzzleColorEnabled: boolean,
+  isRed: boolean
 ): Color4 =>
-  (modeMuzzleColorEnabled
-    ? V2_BIT_MUZZLE_COLOR_BY_MODE[mode]
-    : V2_BIT_MUZZLE_BLACK
+  (isRed
+    ? V2_BIT_MUZZLE_RED
+    : modeMuzzleColorEnabled
+      ? V2_BIT_MUZZLE_COLOR_BY_MODE[mode]
+      : V2_BIT_MUZZLE_BLACK
   ).clone();
 
 type V2BitSpawnPhase = "fade-in" | "hold" | "shrink" | "done";
@@ -688,16 +693,19 @@ const createSharedMaterials = (scene: Scene) => {
     body = new StandardMaterial("v2BitBodyMaterial", scene);
     body.diffuseColor = new Color3(0.08, 0.08, 0.09);
     body.specularColor = new Color3(0.35, 0.35, 0.4);
+    body.forceDepthWrite = true;
 
     redBody = new StandardMaterial("v2RedBitBodyMaterial", scene);
     redBody.diffuseColor = new Color3(0.72, 0.04, 0.06);
     redBody.emissiveColor = new Color3(0.24, 0.01, 0.01);
     redBody.specularColor = new Color3(0.55, 0.18, 0.18);
+    redBody.forceDepthWrite = true;
 
     muzzle = new StandardMaterial("v2BitMuzzleMaterial", scene);
     muzzle.diffuseColor = Color3.White();
     muzzle.emissiveColor = Color3.Black();
     muzzle.specularColor = Color3.Black();
+    muzzle.forceDepthWrite = true;
 
     return { body, redBody, muzzle };
   } catch (error) {
@@ -735,6 +743,7 @@ const createSharedVisualSources = (
     body.isPickable = false;
     body.isVisible = false;
     body.hasVertexAlpha = true;
+    body.alphaIndex = V2_TRANSPARENT_ALPHA_INDEX_SPATIAL;
     body.registerInstancedBuffer("color", 4);
 
     redBody = new Mesh("v2RedBitBodySource", scene);
@@ -744,6 +753,7 @@ const createSharedVisualSources = (
     redBody.isPickable = false;
     redBody.isVisible = false;
     redBody.hasVertexAlpha = true;
+    redBody.alphaIndex = V2_TRANSPARENT_ALPHA_INDEX_SPATIAL;
     redBody.registerInstancedBuffer("color", 4);
 
     muzzle = MeshBuilder.CreateSphere(
@@ -756,6 +766,7 @@ const createSharedVisualSources = (
     muzzle.isPickable = false;
     muzzle.isVisible = false;
     muzzle.hasVertexAlpha = true;
+    muzzle.alphaIndex = V2_TRANSPARENT_ALPHA_INDEX_SPATIAL;
     muzzle.registerInstancedBuffer("color", 4);
 
     return Object.freeze({ body, redBody, muzzle });
@@ -823,6 +834,7 @@ const createBitVisual = (
       `${id}_body`
     );
     body.parent = root;
+    body.alphaIndex = V2_TRANSPARENT_ALPHA_INDEX_SPATIAL;
     body.isPickable = false;
     body.isVisible = false;
     body.scaling.set(0, 0, 0);
@@ -830,6 +842,7 @@ const createBitVisual = (
 
     muzzle = sources.muzzle.createInstance(`${id}_muzzle`);
     muzzle.parent = root;
+    muzzle.alphaIndex = V2_TRANSPARENT_ALPHA_INDEX_SPATIAL;
     muzzle.isPickable = false;
     muzzle.isVisible = false;
     muzzle.scaling.set(0, 0, 0);
@@ -1758,7 +1771,7 @@ export const createV2BitSystem = (
     }
   })();
   const groundShadowManager = config.showGroundShadows
-    ? createGroundShadowManager(scene)
+    ? createGroundShadowManager(scene, V2_TRANSPARENT_ALPHA_INDEX_SPATIAL)
     : null;
   const bits: RuntimeBit[] = [];
   const bitsById = new Map<string, RuntimeBit>();
@@ -1803,7 +1816,8 @@ export const createV2BitSystem = (
     }
     bit.muzzle.instancedBuffers.color = resolveV2BitMuzzleColor(
       renderedMode,
-      config.modeMuzzleColorEnabled
+      config.modeMuzzleColorEnabled,
+      bit.profile.isRed
     );
     bit.renderedMuzzleColorMode = renderedMode;
   };

@@ -124,6 +124,7 @@ export type V2BeamOriginKind =
   | "npc-gun"
   | "npc-no-gun-touch"
   | "player-gun"
+  | "player-no-gun-touch"
   | "execution-bit"
   | "execution-npc"
   | "execution-player";

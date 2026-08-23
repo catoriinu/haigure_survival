@@ -8,11 +8,14 @@ import {
   createV2SurvivalPopulationFromTitleSettings,
   createV2TitleSettingsSnapshot,
   createV2TitleSettingsStore,
+  hasV2NeverGameOverRisk,
   normalizeV2TitleSettings,
   type V2TitleSettingsStorage
 } from "../../../src/v2TitleSettingsStore";
 import { createV2TitleSettingsPanel } from "../../../src/ui/v2TitleSettingsPanel";
 import { doV2TitleSettingsSnapshotsMatch } from "../../../src/v2/titleSettingsSession";
+import type { V2HumanTargetSnapshot } from "../../../src/v2/combatTypes";
+import { selectV2PlayerNoGunTouchTargetIds } from "../../../src/v2/survivalRuntime";
 import type { StagePlayerSpawn } from "../../../src/world/stageSpatialContext";
 import { assert, executeTest } from "../T06/testUtils";
 
@@ -133,6 +136,117 @@ export const runTitleSettingsTests = async () => [
     assert(selectV2PlayerSpawn(spawns, "random", () => 0).id === SCHOOL_PLAYER_SPAWN_IDS[0], "random選択が不正です。");
     return "正式11 ID＋randomを選択";
   }),
+  await executeTest("V1相当のゲームオーバー不能警告条件", () => {
+    const riskSettings = {
+      ...V2_DEFAULT_TITLE_SETTINGS,
+      population: {
+        npcCount: 50,
+        initialBrainwashedNpcPercent: 0,
+        startPlayerBrainwashed: false
+      },
+      bit: { ...V2_DEFAULT_TITLE_SETTINGS.bit, disabled: true }
+    };
+    assert(hasV2NeverGameOverRisk(riskSettings), "洗脳手段0件で警告されません。");
+    assert(
+      !hasV2NeverGameOverRisk({
+        ...riskSettings,
+        population: { ...riskSettings.population, startPlayerBrainwashed: true }
+      }),
+      "初期洗脳済みプレイヤーでも警告されます。"
+    );
+    assert(
+      !hasV2NeverGameOverRisk({
+        ...riskSettings,
+        bit: { ...riskSettings.bit, disabled: false }
+      }),
+      "BIT有効でも警告されます。"
+    );
+    const withInitialNpc = {
+      ...riskSettings,
+      population: {
+        ...riskSettings.population,
+        initialBrainwashedNpcPercent: 20
+      }
+    };
+    assert(
+      !hasV2NeverGameOverRisk(withInitialNpc),
+      "初期洗脳済みNPCの銃あり経路を認識しません。"
+    );
+    const noGunOnly = {
+      ...withInitialNpc,
+      brainwash: {
+        ...withInitialNpc.brainwash,
+        gunPercent: 0,
+        noGunPercent: 100,
+        haigurePercent: 0,
+        brainwashOnNoGunTouch: false
+      }
+    };
+    assert(
+      hasV2NeverGameOverRisk(noGunOnly),
+      "銃なしのみ＋接触OFFで警告されません。"
+    );
+    assert(
+      !hasV2NeverGameOverRisk({
+        ...noGunOnly,
+        brainwash: { ...noGunOnly.brainwash, brainwashOnNoGunTouch: true }
+      }),
+      "銃なしのみ＋接触ONでも警告されます。"
+    );
+    return "V1のPlayer／BIT／初期NPC／銃あり／銃なし接触条件を固定学校へ適用";
+  }),
+  await executeTest("銃なしプレイヤーから未洗脳NPCへの接触選択", () => {
+    const createNpc = (
+      id: string,
+      position: Vector3,
+      alive: boolean,
+      brainwashed = !alive
+    ): V2HumanTargetSnapshot => Object.freeze({
+      id,
+      kind: "npc" as const,
+      footPosition: position,
+      aimPosition: position.add(new Vector3(0, 0.85, 0)),
+      hitShape: Object.freeze({
+        center: position.add(new Vector3(0, 0.85, 0)),
+        radii: new Vector3(0.2, 0.85, 0.2)
+      }),
+      state: alive ? "normal" as const : "brainwash-in-progress" as const,
+      alive,
+      brainwashed
+    });
+    const playerPosition = Vector3.Zero();
+    const targets = Object.freeze([
+      createNpc("near", new Vector3(0.26, 0, 0), true),
+      createNpc("far", new Vector3(0.28, 0, 0), true),
+      createNpc("brainwashed-alive", new Vector3(0.1, 0, 0), true, true),
+      createNpc("not-alive", new Vector3(0.1, 0, 0), false)
+    ]);
+    assert(
+      JSON.stringify(selectV2PlayerNoGunTouchTargetIds(
+        true,
+        "brainwash-complete-no-gun",
+        playerPosition,
+        targets
+      )) === JSON.stringify(["near"]),
+      "接触半径内の未洗脳NPCだけを選択できません。"
+    );
+    assert(
+      selectV2PlayerNoGunTouchTargetIds(
+        false,
+        "brainwash-complete-no-gun",
+        playerPosition,
+        targets
+      ).length === 0 &&
+      selectV2PlayerNoGunTouchTargetIds(
+        true,
+        "brainwash-complete-gun",
+        playerPosition,
+        targets
+      ).length === 0,
+      "設定OFFまたは銃ありプレイヤーで接触洗脳対象が出ました。"
+    );
+    return "接触ON＋銃なしPlayer＋半径0.27m内のalive未洗脳NPCだけを選択";
+  }),
   await executeTest("タイトルUI・変更保存・reset・Pointer Lock非取得", () => {
     const host = document.querySelector<HTMLElement>("#settings-host");
     assert(host !== null, "設定UI hostがありません。");
@@ -160,6 +274,23 @@ export const runTitleSettingsTests = async () => [
         memory.writes.length === writesBeforeUi + 1,
       "UI変更が1回保存されません。"
     );
+    const bitDisabled = panel.root.querySelector<HTMLInputElement>('[data-ui="v2-settings-bit-disabled"]')!;
+    bitDisabled.checked = true;
+    bitDisabled.dispatchEvent(new Event("change", { bubbles: true }));
+    const bitInterval = panel.root.querySelector<HTMLInputElement>('[data-ui="v2-settings-bit-interval"]')!;
+    const bitMaximum = panel.root.querySelector<HTMLInputElement>('[data-ui="v2-settings-bit-maximum"]')!;
+    assert(
+      bitInterval.disabled &&
+        bitMaximum.disabled &&
+        bitInterval.closest("label")?.classList.contains("v2-title-settings__row--disabled") === true &&
+        bitMaximum.closest("label")?.classList.contains("v2-title-settings__row--disabled") === true,
+      "BIT依存の無効行がdisabled＋灰色表示状態になりません。"
+    );
+    const initialBrainwashed = panel.root.querySelector<HTMLInputElement>('[data-ui="v2-settings-brainwashed-percent"]')!;
+    initialBrainwashed.value = "0";
+    initialBrainwashed.dispatchEvent(new Event("input", { bubbles: true }));
+    const warning = panel.root.querySelector<HTMLElement>('[data-ui="v2-settings-gameover-warning"]')!;
+    assert(!warning.hidden, "洗脳手段がない設定でV1相当警告が表示されません。");
     const noGunRatio = panel.root.querySelector<HTMLInputElement>('[data-ui="v2-settings-ratio-n"]')!;
     noGunRatio.value = "80";
     noGunRatio.dispatchEvent(new Event("input", { bubbles: true }));
@@ -223,3 +354,4 @@ export const runTitleSettingsTests = async () => [
     return "V1操作部品、独立配置、銃なし接触確認、無効modeボタン、変更保存、Pointer Lockなし";
   })
 ];
+import { Vector3 } from "@babylonjs/core";

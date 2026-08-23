@@ -99,6 +99,27 @@ export const V2_DEFAULT_TITLE_SETTINGS: V2TitleSettings = Object.freeze({
   })
 });
 
+export const hasV2NeverGameOverRisk = (
+  settings: V2TitleSettings
+): boolean => {
+  if (settings.population.startPlayerBrainwashed || !settings.bit.disabled) {
+    return false;
+  }
+  const initialBrainwashedNpcCount = Math.floor(
+    settings.population.npcCount *
+      settings.population.initialBrainwashedNpcPercent /
+      100
+  );
+  if (initialBrainwashedNpcCount <= 0) {
+    return true;
+  }
+  const hasGunRoute = settings.brainwash.gunPercent > 0;
+  const hasNoGunTouchRoute =
+    settings.brainwash.noGunPercent > 0 &&
+    settings.brainwash.brainwashOnNoGunTouch;
+  return !(hasGunRoute || hasNoGunTouchRoute);
+};
+
 export type V2TitleSettingsCatalogs = Readonly<{
   portraitDirectories: readonly string[];
   voiceDirectories: readonly string[];

@@ -1916,9 +1916,10 @@ export const createV2MissionRuntime = ({
       ) {
         continue;
       }
-      const causedByPlayerGun =
+      const causedByPlayer =
         transition.hitSourceId === PLAYER_ID &&
-        transition.hitOriginKind === "player-gun";
+        (transition.hitOriginKind === "player-gun" ||
+          transition.hitOriginKind === "player-no-gun-touch");
       const causedByAssistedThirdParty =
         transition.hitSourceId !== null &&
         transition.hitSourceId !== PLAYER_ID &&
@@ -1930,7 +1931,7 @@ export const createV2MissionRuntime = ({
         if (mission.kind === "player-brainwash-target") {
           if (
             transition.currentState === "hit-a" &&
-            (causedByPlayerGun || causedByAssistedThirdParty) &&
+            (causedByPlayer || causedByAssistedThirdParty) &&
             !activeSpecificActorIds.has(transition.npcId)
           ) {
             recordBrainwashProgress(mission, transition.npcId);
@@ -1945,7 +1946,7 @@ export const createV2MissionRuntime = ({
         ) {
           continue;
         }
-        if (causedByPlayerGun || causedByAssistedThirdParty) {
+        if (causedByPlayer || causedByAssistedThirdParty) {
           finishMission(mission, "completed", "target-brainwashed");
         } else {
           finishMission(

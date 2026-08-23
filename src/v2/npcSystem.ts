@@ -413,6 +413,7 @@ export type V2NpcFrameView = Readonly<{
   threatenedTargetIds: readonly string[];
   pathRecalculationCount: number;
   waitingForPathCount: number;
+  directMovementWhileWaitingCount: number;
   areaPursuitCount: number;
   coarsePursuitCount: number;
   detailPursuitCount: number;
@@ -440,6 +441,7 @@ const EMPTY_V2_NPC_FRAME_VIEW: V2NpcFrameView = Object.freeze({
   threatenedTargetIds: Object.freeze([]),
   pathRecalculationCount: 0,
   waitingForPathCount: 0,
+  directMovementWhileWaitingCount: 0,
   areaPursuitCount: 0,
   coarsePursuitCount: 0,
   detailPursuitCount: 0,
@@ -1002,6 +1004,7 @@ class SchoolV2NpcSystem implements V2NpcSystem {
   private pursuitDemotionCount = 0;
   private pathRecalculationCount = 0;
   private waitingForPathCount = 0;
+  private directMovementWhileWaitingCount = 0;
   private currentTargetSightCheckCount = 0;
   private personalityRetargetQueryCount = 0;
   private sightRayCount = 0;
@@ -1406,6 +1409,7 @@ class SchoolV2NpcSystem implements V2NpcSystem {
     this.applyAlarmTargetEvents(alarmTargetEvents);
     this.pathRecalculationCount = 0;
     this.waitingForPathCount = 0;
+    this.directMovementWhileWaitingCount = 0;
     this.replanCoalescedCount = 0;
     this.replanMaximumWaitSeconds = 0;
     this.pursuitPromotionCount = 0;
@@ -3763,6 +3767,43 @@ class SchoolV2NpcSystem implements V2NpcSystem {
     }
   }
 
+  private applyDirectMovementWhileWaitingForPath(
+    npc: NpcRuntime,
+    destination: Vector3,
+    speed: number,
+    deltaSeconds: number
+  ): boolean {
+    const deltaX = destination.x - npc.footPosition.x;
+    const deltaY = destination.y - npc.footPosition.y;
+    const deltaZ = destination.z - npc.footPosition.z;
+    const distance = Math.hypot(deltaX, deltaY, deltaZ);
+    if (
+      distance === 0 ||
+      distance > NPC_DETAIL_ENTER_DISTANCE ||
+      deltaSeconds === 0
+    ) {
+      return false;
+    }
+    const movementDistance = Math.min(speed * deltaSeconds, distance);
+    const scale = movementDistance / distance;
+    const constrained = this.stage.navigation.constrainMovement(
+      npc.navigationLocation,
+      new Vector3(
+        npc.footPosition.x + deltaX * scale,
+        npc.footPosition.y + deltaY * scale,
+        npc.footPosition.z + deltaZ * scale
+      )
+    );
+    if (
+      constrained === null ||
+      !this.applyNavigationMovement(npc, constrained)
+    ) {
+      return false;
+    }
+    this.directMovementWhileWaitingCount += 1;
+    return true;
+  }
+
   private collectAutonomousCombatNpcs(
     commandNpcIds: ReadonlySet<string>
   ) {
@@ -5814,6 +5855,20 @@ class SchoolV2NpcSystem implements V2NpcSystem {
       allowPathRecalculation
     );
     this.recordNavigationStep(movement);
+    if (
+      movement.state === "waiting-for-path" &&
+      actorAreaId === targetArea.areaId &&
+      this.applyDirectMovementWhileWaitingForPath(
+        npc,
+        destination,
+        npc.targetProvenance === "alert"
+          ? V2_NPC_ALARM_SPEED
+          : V2_NPC_CHASE_SPEED,
+        deltaSeconds
+      )
+    ) {
+      return;
+    }
     this.applyNavigationMovement(npc, movement.location);
   }
 
@@ -6746,6 +6801,8 @@ class SchoolV2NpcSystem implements V2NpcSystem {
       threatenedTargetIds,
       pathRecalculationCount: this.pathRecalculationCount,
       waitingForPathCount: this.waitingForPathCount,
+      directMovementWhileWaitingCount:
+        this.directMovementWhileWaitingCount,
       areaPursuitCount,
       coarsePursuitCount,
       detailPursuitCount,

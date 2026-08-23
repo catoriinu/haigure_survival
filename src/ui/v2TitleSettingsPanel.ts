@@ -1,5 +1,6 @@
 import {
   V2_TITLE_SETTINGS_SCHEMA_VERSION,
+  hasV2NeverGameOverRisk,
   type V2TitleSettings,
   type V2TitleSettingsStore
 } from "../v2TitleSettingsStore";
@@ -141,7 +142,12 @@ export const createV2TitleSettingsPanel = ({
   mainHost.className = "v2-title-settings__main-host";
   const mainGrid = document.createElement("div");
   mainGrid.className = "v2-title-settings__main-grid";
-  mainHost.append(mainGrid);
+  const gameOverWarning = document.createElement("div");
+  gameOverWarning.className = "v2-title-settings__gameover-warning";
+  gameOverWarning.dataset.ui = "v2-settings-gameover-warning";
+  gameOverWarning.textContent =
+    "※現在の設定ではゲームオーバーにならない可能性があります。設定の変更を推奨します。";
+  mainHost.append(gameOverWarning, mainGrid);
   root.append(stageHost, audioHost, mainHost);
 
   const populationSection = createSection("人口", "v2-settings-population", "main");
@@ -324,6 +330,15 @@ export const createV2TitleSettingsPanel = ({
     bitMaximum.value = String(settings.bit.maximumCount);
     bitInterval.disabled = settings.bit.disabled;
     bitMaximum.disabled = settings.bit.disabled;
+    bitIntervalRow.row.classList.toggle(
+      "v2-title-settings__row--disabled",
+      settings.bit.disabled
+    );
+    bitMaximumRow.row.classList.toggle(
+      "v2-title-settings__row--disabled",
+      settings.bit.disabled
+    );
+    gameOverWarning.hidden = !hasV2NeverGameOverRisk(settings);
     for (const key of ["voice", "bgm", "se"] as const) {
       const value = settings.audio[key];
       audioOutputs[key].value = value === 0 ? "MUTE" : String(value);

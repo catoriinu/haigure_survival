@@ -66,6 +66,7 @@ import {
 
 export type { V2GameplayAudioEvent } from "./gameplayAudioEventQueue";
 import {
+  V2_NPC_CAPTURE_RADIUS,
   createV2NpcSystem,
   type V2NpcBeamImpact,
   type V2NpcBeamSpawn,
@@ -133,6 +134,34 @@ const EMPTY_ALARM_FRAME: V2AlarmFrame = Object.freeze({
   usedCandidateIds: Object.freeze([]),
   blinks: Object.freeze([])
 });
+
+export const selectV2PlayerNoGunTouchTargetIds = (
+  enabled: boolean,
+  playerState: V2CharacterState,
+  playerFootPosition: Vector3,
+  npcTargets: readonly V2HumanTargetSnapshot[]
+): readonly string[] => {
+  if (!enabled || playerState !== "brainwash-complete-no-gun") {
+    return Object.freeze([]);
+  }
+  const radiusSquared = V2_NPC_CAPTURE_RADIUS * V2_NPC_CAPTURE_RADIUS;
+  return Object.freeze(
+    npcTargets
+      .filter((target) => {
+        if (target.kind !== "npc" || !target.alive || target.brainwashed) {
+          return false;
+        }
+        const deltaX = target.footPosition.x - playerFootPosition.x;
+        const deltaY = target.footPosition.y - playerFootPosition.y;
+        const deltaZ = target.footPosition.z - playerFootPosition.z;
+        return (
+          deltaX * deltaX + deltaY * deltaY + deltaZ * deltaZ <=
+          radiusSquared
+        );
+      })
+      .map((target) => target.id)
+  );
+};
 
 export type V2SurvivalPhase =
   | "playing"
@@ -1304,6 +1333,31 @@ export const createV2SurvivalRuntime = ({
     if (playerImpactAccepted) {
       npcSystem.notifyPlayerImpactAccepted();
     }
+
+    const playerTargetIds = selectV2PlayerNoGunTouchTargetIds(
+      brainwashSettings.brainwashOnNoGunTouch,
+      playerCombat.getStateSnapshot().state,
+      player.getFootPosition(),
+      npcSystem.getFrameView().targets
+    );
+    if (playerTargetIds.length === 0) {
+      return;
+    }
+    const source = Object.freeze({
+      sourceId: PLAYER_ID,
+      originKind: "player-no-gun-touch" as const
+    });
+    npcSystem.applyNoGunTouchBrainwashImpacts(
+      Object.freeze(
+        playerTargetIds.map((npcId) =>
+          Object.freeze({
+            npcId,
+            source,
+            playerNoGunAssisted: false
+          })
+        )
+      )
+    );
   };
 
   const buildBitThreats = (
@@ -1705,6 +1759,10 @@ export const createV2SurvivalRuntime = ({
           0
         );
         performanceDiagnostics.count(
+          "npc.direct-movement-while-waiting",
+          0
+        );
+        performanceDiagnostics.count(
           "npc.frame-view-builds",
           0
         );
@@ -1880,6 +1938,10 @@ export const createV2SurvivalRuntime = ({
         performanceDiagnostics?.count(
           "npc.waiting-for-path",
           npcFrameView.waitingForPathCount
+        );
+        performanceDiagnostics?.count(
+          "npc.direct-movement-while-waiting",
+          npcFrameView.directMovementWhileWaitingCount
         );
         performanceDiagnostics?.count(
           "npc.pursuit.area",
@@ -2127,6 +2189,10 @@ export const createV2SurvivalRuntime = ({
         performanceDiagnostics?.count(
           "npc.waiting-for-path",
           npcFrameView.waitingForPathCount
+        );
+        performanceDiagnostics?.count(
+          "npc.direct-movement-while-waiting",
+          npcFrameView.directMovementWhileWaitingCount
         );
         performanceDiagnostics?.count(
           "npc.pursuit.area",

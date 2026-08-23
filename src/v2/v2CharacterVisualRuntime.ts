@@ -28,6 +28,7 @@ import {
   V2_DEFAULT_PORTRAIT_DIRECTORY,
   type V2CharacterAssignments,
 } from "./v2CharacterAssignments";
+import { V2_TRANSPARENT_ALPHA_INDEX_SPATIAL } from "./v2TransparentRenderingOrder";
 import {
   V2_PORTRAIT_ASSET_CATALOG,
   type V2PortraitFileInventory
@@ -620,7 +621,7 @@ export const createV2CharacterVisualRuntime = async ({
   const spriteRecords = new Set<V2CharacterVisualSpriteRecord>();
   const blobUrls = new Set<string>();
   const groundShadowManager = showGroundShadows
-    ? createGroundShadowManager(scene)
+    ? createGroundShadowManager(scene, V2_TRANSPARENT_ALPHA_INDEX_SPATIAL)
     : null;
 
   try {

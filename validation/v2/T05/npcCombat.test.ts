@@ -2450,6 +2450,13 @@ const testNpcTargetSelectionScheduleBudgets = async () => {
       ({ targetSelectionPersonality }) =>
         targetSelectionPersonality === "nearest-visible"
     ).length;
+    actorIdBySightOrigin.clear();
+    for (const { id } of placements) {
+      actorIdBySightOrigin.set(
+        toSightOriginKey(fixture.system.getNpcPosition(id)),
+        id
+      );
+    }
     const measuredFrameCount = 600;
     let maximumCurrentChecks = 0;
     let maximumAlternativeQueries = 0;
@@ -3437,7 +3444,14 @@ const testNpcPursuitWallDetourRemainsCoarse = async () => {
 
 const testNpcPursuitAllDetailWorstCase = async () => {
   const npcCount = 99;
-  const fixture = await createNpcFixture(npcCount, npcCount, 30, true);
+  const fixture = await createNpcFixture(
+    npcCount,
+    npcCount,
+    30,
+    true,
+    null,
+    0.6
+  );
   try {
     fixture.system.placeNpcs(
       Array.from({ length: npcCount }, (_, index) => ({
@@ -3451,8 +3465,13 @@ const testNpcPursuitAllDetailWorstCase = async () => {
       }))
     );
     const player = createPlayerTarget(new Vector3(2.5, 0, 0));
+    const initialPositions = Array.from({ length: npcCount }, (_, index) =>
+      fixture.system.getNpcPosition(`npc_${index}`)
+    );
     let maximumUpdateMilliseconds = 0;
     let maximumPathRecalculationCount = 0;
+    const firstMovementFrameByNpc = new Map<string, number>();
+    let directMovementWhileWaitingTotal = 0;
     for (let updateIndex = 0; updateIndex < 180; updateIndex += 1) {
       const startedAt = performance.now();
       fixture.system.update(
@@ -3472,21 +3491,46 @@ const testNpcPursuitAllDetailWorstCase = async () => {
         maximumPathRecalculationCount,
         fixture.system.getFrameView().pathRecalculationCount
       );
+      directMovementWhileWaitingTotal +=
+        fixture.system.getFrameView().directMovementWhileWaitingCount;
+      for (let npcIndex = 0; npcIndex < npcCount; npcIndex += 1) {
+        const npcId = `npc_${npcIndex}`;
+        if (
+          !firstMovementFrameByNpc.has(npcId) &&
+          Vector3.DistanceSquared(
+            initialPositions[npcIndex],
+            fixture.system.getNpcPosition(npcId)
+          ) > 1e-12
+        ) {
+          firstMovementFrameByNpc.set(npcId, updateIndex + 1);
+        }
+      }
     }
     const finalView = fixture.system.getFrameView();
     const detailCount = finalView.tracking.filter(
       ({ pursuitPhase }) => pursuitPhase === "detail"
     ).length;
+    const latestFirstMovementFrame = Math.max(
+      ...firstMovementFrameByNpc.values()
+    );
     assert(
       detailCount === npcCount &&
+        firstMovementFrameByNpc.size === npcCount &&
+        latestFirstMovementFrame <= 30 &&
+        directMovementWhileWaitingTotal > 0 &&
         maximumPathRecalculationCount <=
           V2_NPC_MAXIMUM_PATH_REPLANS_PER_UPDATE &&
         maximumUpdateMilliseconds < 50,
-      "99 NPC全員detailの最悪条件で停止、再計画上限超過、または50ms超更新が発生しました: " +
-        `detail=${detailCount}/${npcCount} / replans=${maximumPathRecalculationCount} / max=${maximumUpdateMilliseconds.toFixed(3)}ms`
+      "99 NPC全員detailの最悪条件で論理移動停止、再計画上限超過、または50ms超更新が発生しました: " +
+        `detail=${detailCount}/${npcCount} / firstMoved=${firstMovementFrameByNpc.size}/${npcCount} / ` +
+        `latest=${latestFirstMovementFrame}/30 / direct=${directMovementWhileWaitingTotal} / ` +
+        `replans=${maximumPathRecalculationCount} / max=${maximumUpdateMilliseconds.toFixed(3)}ms`
     );
     return (
       `detail=${detailCount}/${npcCount} / ` +
+      `firstMoved=${firstMovementFrameByNpc.size}/${npcCount} / ` +
+      `latest=${latestFirstMovementFrame}/30 / ` +
+      `direct=${directMovementWhileWaitingTotal} / ` +
       `replans<=${maximumPathRecalculationCount} / ` +
       `max=${maximumUpdateMilliseconds.toFixed(3)}ms`
     );
@@ -3898,8 +3942,8 @@ const testGunStandoffHysteresis = async () => {
     );
     fixture.system.update(0.21, retreatedPlayer, EMPTY_ALARM_TARGET_EVENTS);
     assert(
-      !access.npcs[0].resting &&
-        access.npcs[0].restSlot !== null &&
+      access.npcs[0].restSlot !== null &&
+        !access.npcs[0].footPosition.equals(stoppedPosition) &&
         !access.npcs[0].restSlot!.position.equals(stoppedSlot!),
       "gun NPCが1.0m超で停止地点を更新して追跡を再開しません。"
     );

@@ -329,6 +329,7 @@ export const runCharacterVisualTests = async (): Promise<
             Math.abs((colorData[0] as number) - 0.25) <= 0.000001 &&
             Math.abs((colorData[3] as number) - 0.4) <= 0.000001 &&
             firstShadow !== null &&
+            firstShadow.alphaIndex === V2_TRANSPARENT_ALPHA_INDEX_SPATIAL &&
             firstShadow.scaling.x > firstShadow.scaling.z &&
             Math.abs(firstShadow.rotation.y - Math.PI / 3) <= 0.000001,
           "upright Planeまたは横長の地面影へ位置・寸法・yaw・cell UV・色alphaが同期されません。"

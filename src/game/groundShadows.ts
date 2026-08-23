@@ -150,7 +150,10 @@ const createShadowMaterial = (
   return material;
 };
 
-export const createGroundShadowManager = (scene: Scene): GroundShadowManager => {
+export const createGroundShadowManager = (
+  scene: Scene,
+  alphaIndex: number
+): GroundShadowManager => {
   const ellipseTexture = createShadowTexture(
     scene,
     "groundShadowEllipseTexture",
@@ -197,6 +200,7 @@ export const createGroundShadowManager = (scene: Scene): GroundShadowManager => 
     mesh.isPickable = false;
     mesh.isVisible = false;
     mesh.renderingGroupId = groundShadowRenderingGroupId;
+    mesh.alphaIndex = alphaIndex;
     mesh.visibility = 1;
     return { mesh, kind };
   };

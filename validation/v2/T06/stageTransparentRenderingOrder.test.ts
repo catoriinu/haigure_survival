@@ -128,7 +128,7 @@ export const runStageTransparentRenderingOrderTests = async (): Promise<
   readonly T06TestResult[]
 > =>
   Promise.all([
-    executeTest("Stage窓ガラスの空間半透明index統一", () => {
+    executeTest("Stage窓・カーテンの空間半透明index統一", () => {
       const engine = new NullEngine();
       const scene = new Scene(engine);
       try {
@@ -183,7 +183,7 @@ export const runStageTransparentRenderingOrderTests = async (): Promise<
         assert(
           firstGlass.alphaIndex === V2_TRANSPARENT_ALPHA_INDEX_SPATIAL &&
             bridgeGlass.alphaIndex === V2_TRANSPARENT_ALPHA_INDEX_SPATIAL &&
-            otherTransparent.alphaIndex === Number.MAX_VALUE &&
+            otherTransparent.alphaIndex === V2_TRANSPARENT_ALPHA_INDEX_SPATIAL &&
             opaque.alphaIndex === Number.MAX_VALUE &&
             V2_TRANSPARENT_ALPHA_INDEX_NPC_CHARACTER <
               V2_TRANSPARENT_ALPHA_INDEX_BEAM_COLOR &&
@@ -194,9 +194,9 @@ export const runStageTransparentRenderingOrderTests = async (): Promise<
             V2_TRANSPARENT_ALPHA_INDEX_SPATIAL <
               V2_TRANSPARENT_ALPHA_INDEX_PLAYER_CHARACTER &&
             !scene.useOrderIndependentTransparency,
-          "窓ガラスだけの空間半透明indexまたはCharacter順が不正です。"
+          "Stage空間半透明indexまたはCharacter順が不正です。"
         );
-        return "通常窓・体育館連絡通路窓=spatial、beam color=150、beam depth=160、非対象Materialは既定値を維持、OIT=無効";
+        return "通常窓・体育館連絡通路窓・カーテン=spatial、beam color=150、beam depth=160、opaqueは既定値、OIT=無効";
       } finally {
         scene.dispose();
         engine.dispose();
@@ -233,6 +233,108 @@ export const runStageTransparentRenderingOrderTests = async (): Promise<
           "窓ガラスMaterial欠落または非alpha blendが拒否されません。"
         );
         return "Material 0件と非alpha blendを契約違反として拒否";
+      } finally {
+        scene.dispose();
+        engine.dispose();
+      }
+    }),
+    executeTest("BIT不透明深度と窓・カーテンの奥行きWebGL描画", async () => {
+      const size = 96;
+      const canvas = document.createElement("canvas");
+      canvas.width = size;
+      canvas.height = size;
+      const engine = new Engine(
+        canvas,
+        true,
+        { preserveDrawingBuffer: true, stencil: false },
+        false
+      );
+      engine.setSize(size, size);
+      const scene = new Scene(engine);
+      scene.clearColor = new Color4(0, 0, 0, 1);
+      const camera = new FreeCamera(
+        "fixture-bit-spatial-depth-camera",
+        new Vector3(0, 0, -5),
+        scene
+      );
+      camera.setTarget(Vector3.Zero());
+      camera.mode = Camera.ORTHOGRAPHIC_CAMERA;
+      camera.orthoLeft = -1;
+      camera.orthoRight = 1;
+      camera.orthoTop = 1;
+      camera.orthoBottom = -1;
+      camera.minZ = 0.1;
+      camera.maxZ = 10;
+      scene.activeCamera = camera;
+
+      try {
+        const bit = MeshBuilder.CreatePlane(
+          "V2BitBody_depth_fixture",
+          { size: 2 },
+          scene
+        );
+        const bitMaterial = new StandardMaterial(
+          "V2BitBodyMaterial_depth_fixture",
+          scene
+        );
+        bitMaterial.disableLighting = true;
+        bitMaterial.diffuseColor = Color3.Black();
+        bitMaterial.emissiveColor = new Color3(1, 0, 0);
+        bit.material = bitMaterial;
+        bit.position.z = 0;
+
+        const curtain = MeshBuilder.CreatePlane(
+          "VIS_InfirmaryCurtain_depth_fixture",
+          { size: 2 },
+          scene
+        );
+        curtain.material = createFlatMaterial(
+          "MAT_B03_InfirmaryCurtain",
+          new Color3(0, 1, 0),
+          0.5,
+          scene
+        );
+        curtain.position.z = -0.25;
+
+        const glass = MeshBuilder.CreatePlane(
+          "VIS_WindowGlass_bit_depth_fixture",
+          { size: 2 },
+          scene
+        );
+        glass.material = createFlatMaterial(
+          V2_STAGE_WINDOW_GLASS_MATERIAL_NAME,
+          new Color3(0, 0, 1),
+          0.5,
+          scene
+        );
+        glass.position.z = -0.5;
+
+        configureV2StageTransparentRenderingOrder([bit, curtain, glass]);
+        await scene.whenReadyAsync();
+        scene.render();
+        const glassNearest = await readCenterPixel(engine, size);
+
+        curtain.position.z = -0.75;
+        curtain.computeWorldMatrix(true);
+        scene.render();
+        const curtainNearest = await readCenterPixel(engine, size);
+
+        assert(
+          !bitMaterial.needAlphaBlendingForMesh(bit) &&
+            bit.alphaIndex === Number.MAX_VALUE &&
+            curtain.alphaIndex === V2_TRANSPARENT_ALPHA_INDEX_SPATIAL &&
+            glass.alphaIndex === V2_TRANSPARENT_ALPHA_INDEX_SPATIAL &&
+            glassNearest[2] > glassNearest[1] &&
+            glassNearest[1] > 20 &&
+            curtainNearest[1] > curtainNearest[2] &&
+            curtainNearest[2] > 20,
+          `BIT・窓・カーテンの深度合成が不正です: glass=${JSON.stringify(
+            glassNearest
+          )}, curtain=${JSON.stringify(curtainNearest)}`
+        );
+        return `ガラス手前=${JSON.stringify(
+          glassNearest
+        )}、カーテン手前=${JSON.stringify(curtainNearest)}`;
       } finally {
         scene.dispose();
         engine.dispose();
