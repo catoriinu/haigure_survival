@@ -18,6 +18,16 @@
 > - Mission OFFではMission Runtime、scheduler、HUD、marker、結果集計を生成せず、放送、Follow／Leave、Location registryは維持する。Alarm OFFではAlarm床、判定、通知、強制追跡を生成・実行しない。ミニマップ、放送、早期自動公開処刑、全human洗脳済み終了は常時有効とする。
 > - T06-6B専用fixture、T05／T06／T06-4／T06-6A回帰、通常Web／Electron、テキスト配布検査を完了し、T06-6B差分だけをcommitする。push、Pull Request、レビュー、merge、worktree整理は行わない。
 
+2026-08-23 追補指示:
+
+> - 「プレイヤーをビットが処刑」「NPCをビットが処刑」では、現在と同じ高度を維持し、V1同様に対象者を中心とする円陣へビットを等間隔配置して、ビットをプレイヤーへ向ける。
+> - タイトル画面はNPC、VOICE、BGM、SEを除く英語表記を日本語化し、ゲーム中のMission表示も「ミッション」へ変更する。
+> - 「学校3Dサバイバル基盤」「通常モード」を「サバイバルモード」へ変更する。
+> - モード切替ボタンを黄色／赤の押せる外観とし、hover時の色変更を追加する。
+> - タイトル設定項目の文字を1px拡大し、入力欄、ボタン、配置も合わせて調整する。
+> - `MUTE`は英語表記のまま維持する。
+> - タイトルのバージョン表示を`ver.2.0.0`にする。
+
 ## 目的
 
 T06-6AのV2専用`V2TitleSettings` snapshotへ即時公開処刑設定、Mission、Alarmを追加し、通常開始と5方式の直接開始を同じ明示契約へ接続する。
@@ -62,6 +72,10 @@ T06-6AのV2専用`V2TitleSettings` snapshotへ即時公開処刑設定、Mission
 - [x] 公開処刑設定resetと組合せfixtureを追加する
 - [x] V3C対象回帰、typecheck、build、Web／Electronを完了する
 - [x] 結果を更新してT06-6B差分だけをcommitする
+- [x] BIT方式をV1相当の対象中心円陣とプレイヤー向きへ変更する
+- [x] タイトル画面とゲーム中ミッション表示を指定どおり日本語化する
+- [x] モード切替ボタンの状態別配色とタイトル設定UIの1px拡大を行う
+- [x] 追補fixture、実Web／Electron、回帰、配布検査を完了して追補結果をcommitする
 
 ## 結果
 
@@ -75,3 +89,8 @@ T06-6AのV2専用`V2TitleSettings` snapshotへ即時公開処刑設定、Mission
 - `audit:v2:dependencies`、関連typecheck、T05／T06／T06-4／T06-6A／T06-6B build、通常renderer／Electron build、Web配布監査をPASSした。
 - `verify-text-delivery.ps1 -Repository`、`git diff --check`、UTF-8（BOMなし）、ローカル絶対パス0件、学校バイナリ／NavMesh／生成器差分0件を確認した。
 - 視点高さ既定値1.15を維持し、V1保存キーの読込・変更・削除、旧schema互換、汎用feature flag、反射設定は追加していない。
+- 追補対応として、BIT射手を対象群の中心を基準とする単一円周へ等角度で配置し、既存の高度を維持したまま全BITをプレイヤーへ向けた。NPC対象時はプレイヤー視線方向へ12度の観覧gapを維持した。
+- タイトル画面をNPC、VOICE、BGM、SE、MUTE以外は指定どおり日本語化し、ゲーム中のMission見出しも「ミッション」「ミッション結果」へ変更した。モード表示は「サバイバルモード」、バージョン表示は`ver.2.0.0`とした。
+- モード切替ボタンを通常画面では赤、即時公開処刑画面では黄とし、hover／activeの配色、移動、shadowを追加した。設定見出しと項目文字を各1px拡大し、入力欄、ボタン、左右panel幅を調整した。
+- 追補後のT05 fixtureは323/323、T06-4は37/37、T06-6Aは12/12、T06-6Bは13/13を実ブラウザでPASSし、console warning／errorは0件だった。実タイトルで日本語表示、MUTE、`ver.2.0.0`、赤／黄切替を確認した。
+- 追補後のElectron受入で通常タイトル、5方式、R再演、Mission／Alarm 4組合せをPASSし、console／load／process異常は0件だった。通常build、V2依存監査、Web配布監査、テキスト配布検査、`git diff --check`もPASSし、バイナリ、学校資産、NavMesh、生成器、ローカル絶対パスの追加は0件だった。

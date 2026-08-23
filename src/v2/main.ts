@@ -281,10 +281,10 @@ const titleSettingsStore = createBrowserV2TitleSettingsStore({
 titleSettingsStore.load();
 let titleStartMode: V2TitleStartMode = "normal";
 const titleOverlayController = createTitleOverlayController({
-  defaultModeMessage: "学校3Dサバイバル基盤",
+  defaultModeMessage: "サバイバルモード",
   instantModeMessage: "いきなり公開処刑",
   startHintMessage: "左クリック：開始",
-  loadingMessageBase: "NOW LOADING",
+  loadingMessageBase: "読み込み中",
   loadingDotIntervalMs: 300
 });
 
@@ -452,7 +452,7 @@ ambientLight.intensity = 0.9;
 ambientLight.groundColor = new Color3(0.16, 0.2, 0.22);
 
 titleHeading.textContent = "HAIGURE SURVIVAL V2";
-titleVersion.textContent = "V2 3D SPATIAL RUNTIME";
+titleVersion.textContent = "ver.2.0.0";
 titleOverlay.style.display = "flex";
 minimapCanvas.style.display = "none";
 minimapReadout.style.display = "none";

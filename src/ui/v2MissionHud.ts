@@ -197,7 +197,7 @@ export const createV2MissionHudController = ({
   });
   const heading = document.createElement("h2");
   heading.dataset.v2MissionHudRole = "heading";
-  heading.textContent = "MISSION";
+  heading.textContent = "ミッション";
   applyStyles(heading, {
     margin: "0",
     color: "#f5f5f5",
@@ -239,7 +239,7 @@ export const createV2MissionHudController = ({
       }
       if (mode === "results") {
         displayOrderIds = Object.freeze([]);
-        heading.textContent = "MISSION RESULT";
+        heading.textContent = "ミッション結果";
         const createResultRow = (
           label: string,
           result: Readonly<{ completed: number; failed: number }>
@@ -263,7 +263,7 @@ export const createV2MissionHudController = ({
         root.style.display = "grid";
         return;
       }
-      heading.textContent = "MISSION";
+      heading.textContent = "ミッション";
       const selectedMissions = selectVisibleMissions(frame.playerMissions);
       if (selectedMissions.length === 0) {
         clear();

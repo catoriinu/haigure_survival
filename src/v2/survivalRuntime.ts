@@ -1190,6 +1190,19 @@ export const createV2SurvivalRuntime = ({
       "execution-bit";
     bitSystem.setVisible(usesBitShooters);
     if (usesBitShooters) {
+      const targetPlacements = executionFrame.placements.filter(
+        (placement) => placement.role === "target"
+      );
+      if (targetPlacements.length === 0) {
+        throw new Error("公開処刑のBIT円陣中心となる対象がありません。");
+      }
+      const targetCenter = targetPlacements.reduce(
+        (center, placement) => center.addInPlace(placement.position),
+        Vector3.Zero()
+      ).scaleInPlace(1 / targetPlacements.length);
+      const playerIsTarget = targetPlacements.some(
+        (placement) => placement.id === PLAYER_ID
+      );
       const bitIds = bitSystem
         .getFrameView()
         .actorSpheres
@@ -1197,7 +1210,8 @@ export const createV2SurvivalRuntime = ({
       const bitPositions = createV2ExecutionBitPositions(
         assemblyVenue,
         bitIds.length,
-        playerPosition
+        targetCenter,
+        playerIsTarget ? null : playerPosition
       );
       bitSystem.placeBits(
         bitIds.map((id, index) =>
@@ -1207,6 +1221,7 @@ export const createV2SurvivalRuntime = ({
           })
         )
       );
+      bitSystem.faceBitsAt(player.getEyePosition());
     }
     for (const target of rebuildHumanTargets()) {
       targetNavigationAreaTracker.relocate(

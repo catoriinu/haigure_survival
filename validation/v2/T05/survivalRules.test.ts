@@ -284,9 +284,56 @@ export const runSurvivalRulesTests =
       }
     ),
     executeTest(
-      "bit配置はviewer正面を中心とする12度gapを全件で空ける",
+      "BIT配置は対象中心の単一円周へ等間隔で並ぶ",
       () => {
         const venue = createVenue();
+        const targetCenter = new Vector3(2, 0, -3);
+        const count = 50;
+        const positions = createV2ExecutionBitPositions(
+          venue,
+          count,
+          targetCenter,
+          null
+        );
+        const radii = positions.map((position) =>
+          Math.hypot(
+            position.x - targetCenter.x,
+            position.z - targetCenter.z
+          )
+        );
+        const angles = positions.map((position) =>
+          Math.atan2(
+            position.z - targetCenter.z,
+            position.x - targetCenter.x
+          )
+        );
+        const expectedStep = (Math.PI * 2) / count;
+        const maximumRadiusDifference = Math.max(...radii) - Math.min(...radii);
+        const maximumStepDifference = Math.max(
+          ...angles.map((angle, index) => {
+            const nextAngle = angles[(index + 1) % count];
+            const step = (nextAngle - angle + Math.PI * 2) % (Math.PI * 2);
+            return Math.abs(step - expectedStep);
+          })
+        );
+        return {
+          ok:
+            positions.length === count &&
+            maximumRadiusDifference <= 1e-12 &&
+            maximumStepDifference <= 1e-12 &&
+            Object.isFrozen(positions),
+          detail:
+            `count=${positions.length} / ` +
+            `radiusDiff=${maximumRadiusDifference.toExponential(3)} / ` +
+            `stepDiff=${maximumStepDifference.toExponential(3)}`
+        };
+      }
+    ),
+    executeTest(
+      "NPC対象BIT円陣はプレイヤー正面を中心とする12度gapを空ける",
+      () => {
+        const venue = createVenue();
+        const targetCenter = new Vector3(2, 0, -3);
         const viewers = Object.freeze([
           new Vector3(10, 0, 0),
           new Vector3(0, 0, 10),
@@ -297,16 +344,23 @@ export const runSurvivalRulesTests =
         let minimumGap = Number.POSITIVE_INFINITY;
         let checked = 0;
         for (const viewer of viewers) {
-          const viewerAngle = Math.atan2(viewer.z, viewer.x);
+          const viewerAngle = Math.atan2(
+            viewer.z - targetCenter.z,
+            viewer.x - targetCenter.x
+          );
           for (const count of counts) {
             const positions = createV2ExecutionBitPositions(
               venue,
               count,
+              targetCenter,
               viewer
             );
             checked += positions.length;
             for (const position of positions) {
-              const angle = Math.atan2(position.z, position.x);
+              const angle = Math.atan2(
+                position.z - targetCenter.z,
+                position.x - targetCenter.x
+              );
               minimumGap = Math.min(
                 minimumGap,
                 absoluteWrappedAngle(angle - viewerAngle)
@@ -341,7 +395,8 @@ export const runSurvivalRulesTests =
         const positions = createV2ExecutionBitPositions(
           courtyardVenue,
           25,
-          new Vector3(4, -0.3, 0)
+          new Vector3(0, -0.3, 0),
+          null
         );
         const minimumHeight = Math.min(
           ...positions.map((position) => position.y)

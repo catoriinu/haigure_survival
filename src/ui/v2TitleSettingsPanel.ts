@@ -170,8 +170,8 @@ export const createV2TitleSettingsPanel = ({
   playerBrainwashedRow.valueHost.append(playerBrainwashed);
   populationSection.append(npcCountRow.row, brainwashedPercentRow.row, playerBrainwashedRow.row);
 
-  const bitSection = createSection("BIT", "v2-settings-bit", "main");
-  const bitDisabledRow = createRow("BITを出現させない");
+  const bitSection = createSection("ビット", "v2-settings-bit", "main");
+  const bitDisabledRow = createRow("ビットを出現させない");
   const bitDisabled = createCheckbox("v2-settings-bit-disabled");
   bitDisabledRow.valueHost.append(bitDisabled);
   const bitIntervalRow = createRow("増援間隔（秒）");
@@ -218,7 +218,7 @@ export const createV2TitleSettingsPanel = ({
   noGunRow.valueHost.append(noGunRatio, noGunValue);
   brainwashSection.append(instantRow.row, touchRow.row, poseRow.row, gunRow.row, noGunRow.row);
 
-  const characterSection = createSection("Character", "v2-settings-character", "main");
+  const characterSection = createSection("キャラクター", "v2-settings-character", "main");
   const portraitRow = createRow("自キャラ");
   const portrait = document.createElement("select");
   portrait.className = "v2-title-settings__select";
@@ -240,10 +240,10 @@ export const createV2TitleSettingsPanel = ({
   voiceRow.valueHost.append(voice);
   characterSection.append(portraitRow.row, voiceRow.row);
   const featuresSection = createSection("機能", "v2-settings-features", "main");
-  const missionRow = createRow("Mission");
+  const missionRow = createRow("ミッション");
   const missionEnabled = createCheckbox("v2-settings-mission-enabled");
   missionRow.valueHost.append(missionEnabled);
-  const alarmRow = createRow("Alarm");
+  const alarmRow = createRow("アラーム");
   const alarmEnabled = createCheckbox("v2-settings-alarm-enabled");
   alarmRow.valueHost.append(alarmEnabled);
   featuresSection.append(missionRow.row, alarmRow.row);
@@ -266,11 +266,11 @@ export const createV2TitleSettingsPanel = ({
   executionMethod.className = "v2-title-settings__select";
   executionMethod.dataset.ui = "v2-settings-execution-method";
   const executionMethodLabels = Object.freeze({
-    "player-bit": "PlayerをBITが処刑",
-    "player-npc": "PlayerをNPCが処刑",
-    "npc-bit": "NPCをBITが処刑",
+    "player-bit": "プレイヤーをビットが処刑",
+    "player-npc": "プレイヤーをNPCが処刑",
+    "npc-bit": "NPCをビットが処刑",
     "npc-npc": "NPCをNPCが処刑",
-    "npc-player": "NPCをPlayerが処刑"
+    "npc-player": "NPCをプレイヤーが処刑"
   });
   appendOptions(
     executionMethod,
@@ -295,7 +295,7 @@ export const createV2TitleSettingsPanel = ({
     "v2-settings-execution-surrounding-npc-count"
   );
   executionNpcRow.valueHost.append(executionNpcCount);
-  const executionBitRow = createRow("周囲BIT数");
+  const executionBitRow = createRow("周囲ビット数");
   const executionBitCount = createNumberInput(
     0,
     50,
@@ -323,7 +323,7 @@ export const createV2TitleSettingsPanel = ({
   const disorder = createRangeInput(0, 10, 1, "v2-settings-disorder");
   const disorderValue = createOutput("v2-settings-disorder-value");
   disorderRow.valueHost.append(disorder, disorderValue);
-  const spawnRow = createRow("Player開始地点");
+  const spawnRow = createRow("プレイヤー開始地点");
   const spawn = document.createElement("select");
   spawn.className = "v2-title-settings__select";
   spawn.dataset.ui = "v2-settings-player-spawn";
@@ -335,7 +335,7 @@ export const createV2TitleSettingsPanel = ({
   schoolSection.append(stageRow.row, disorderRow.row, spawnRow.row);
   stageHost.append(schoolSection);
 
-  const audioSection = createSection("VOLUME", "v2-settings-audio", "audio");
+  const audioSection = createSection("音量", "v2-settings-audio", "audio");
   const audioOutputs = Object.freeze({
     voice: createOutput("v2-settings-audio-voice"),
     bgm: createOutput("v2-settings-audio-bgm"),
@@ -377,7 +377,8 @@ export const createV2TitleSettingsPanel = ({
 
   const modeButton = document.createElement("button");
   modeButton.type = "button";
-  modeButton.className = "v2-title-settings__mode-placeholder";
+  modeButton.className =
+    "v2-title-settings__mode-button v2-title-settings__mode-button--instant";
   modeButton.dataset.ui = "title-instant-execution-toggle-button";
   const resetButton = document.createElement("button");
   resetButton.type = "button";
@@ -396,8 +397,16 @@ export const createV2TitleSettingsPanel = ({
       instantExecution || !hasV2NeverGameOverRisk(settings);
     executionSection.hidden = !instantExecution;
     modeButton.textContent = instantExecution
-      ? "通常モードに戻る"
+      ? "サバイバルモードに変更"
       : "いきなり公開処刑モードに変更";
+    modeButton.classList.toggle(
+      "v2-title-settings__mode-button--instant",
+      !instantExecution
+    );
+    modeButton.classList.toggle(
+      "v2-title-settings__mode-button--survival",
+      instantExecution
+    );
     resetButton.textContent = instantExecution
       ? "公開処刑設定のみリセットする"
       : "全設定をリセットする";

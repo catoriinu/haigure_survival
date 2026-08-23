@@ -402,6 +402,7 @@ export interface V2BitSystem {
   setHostileActionsSuspended(suspended: boolean): void;
   setVisible(visible: boolean): void;
   placeBits(assignments: readonly V2BitPlacementAssignment[]): void;
+  faceBitsAt(lookAtPosition: Vector3): void;
   relocateBit(bitId: string, candidates: readonly Vector3[]): Vector3;
   dispose(): void;
 }
@@ -6583,6 +6584,14 @@ export const createV2BitSystem = (
         );
         bit.pursuitActorAreaCursor = null;
         bit.pursuitActorAreaPosition = null;
+        bit.root.computeWorldMatrix(true);
+      }
+      invalidateFrameViews();
+    },
+    faceBitsAt: (lookAtPosition) => {
+      assertFiniteVector("BIT注視位置", lookAtPosition);
+      for (const bit of bits) {
+        bit.root.lookAt(lookAtPosition);
         bit.root.computeWorldMatrix(true);
       }
       invalidateFrameViews();

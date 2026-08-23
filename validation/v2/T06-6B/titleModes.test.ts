@@ -259,15 +259,49 @@ export const runTitleModeTests = async () => [
     });
     const toggle = panel.root.querySelector<HTMLButtonElement>('[data-ui="title-instant-execution-toggle-button"]')!;
     assert(!toggle.disabled, "開始モードbuttonがdisabledです。");
+    const normalText = panel.root.textContent ?? "";
+    assert(
+      normalText.includes("キャラクター") &&
+        normalText.includes("ミッション") &&
+        normalText.includes("アラーム") &&
+        normalText.includes("プレイヤー開始地点") &&
+        normalText.includes("音量") &&
+        !normalText.includes("Character") &&
+        !normalText.includes("Player開始地点") &&
+        !normalText.includes("VOLUME"),
+      "サバイバルモードのタイトル設定が日本語表記ではありません。"
+    );
+    assert(
+      toggle.classList.contains("v2-title-settings__mode-button--instant") &&
+        getComputedStyle(toggle).fontSize === "14px",
+      "即時公開処刑へ切り替えるボタンの配色classまたは拡大fontがありません。"
+    );
+    const sectionTitle = panel.root.querySelector<HTMLElement>(".v2-title-settings__section-title")!;
+    const settingsRow = panel.root.querySelector<HTMLElement>(".v2-title-settings__row")!;
+    assert(
+      getComputedStyle(sectionTitle).fontSize === "15px" &&
+        getComputedStyle(settingsRow).fontSize === "13px",
+      "タイトル設定の文字が1px拡大されていません。"
+    );
     toggle.click();
     assert(modeChanges[0] === "instant-public-execution", "即時公開処刑モードへ切り替わりません。");
+    assert(
+      toggle.textContent === "サバイバルモードに変更" &&
+        toggle.classList.contains("v2-title-settings__mode-button--survival"),
+      "サバイバルモードへ戻る黄色ボタンになりません。"
+    );
     const method = panel.root.querySelector<HTMLSelectElement>('[data-ui="v2-settings-execution-method"]')!;
+    assert(
+      Array.from(method.options).map((option) => option.textContent).join("|") ===
+        "プレイヤーをビットが処刑|プレイヤーをNPCが処刑|NPCをビットが処刑|NPCをNPCが処刑|NPCをプレイヤーが処刑",
+      "公開処刑5方式が指定どおり日本語化されていません。"
+    );
     method.value = "npc-player";
     method.dispatchEvent(new Event("change", { bubbles: true }));
     panel.root.querySelector<HTMLButtonElement>('[data-ui="v2-settings-reset-execution"]')!.click();
     assert(store.get().execution.method === "player-bit", "UI公開処刑resetが4項目を戻しません。");
     assert(modeChanges.length === 1, "resetで開始モードが変わりました。");
     panel.dispose();
-    return "button実動作、右側切替、公開処刑4項目reset、モード維持";
+    return "日本語表記、1px拡大、赤／黄button、右側切替、公開処刑4項目reset";
   })
 ];

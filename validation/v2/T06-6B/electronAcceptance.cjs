@@ -27,10 +27,21 @@ const waitFor = async (label, window, predicate, timeoutMilliseconds) => {
     const snapshot = await window.webContents.executeJavaScript(`(() => ({
       startupPhase: document.body.dataset.v2StartupPhase ?? null,
       titleMode: document.querySelector("#titleMode")?.textContent ?? null,
+      titleVersion: document.querySelector("#titleVersion")?.textContent ?? null,
       titleOverlayVisible: getComputedStyle(document.querySelector("#titleOverlay")).display !== "none",
       statusText: document.querySelector("#statusInfo")?.textContent ?? "",
       missionHudCount: document.querySelectorAll('[data-v2-mission-hud="root"]').length,
       modeButtonText: document.querySelector('[data-ui="title-instant-execution-toggle-button"]')?.textContent ?? null,
+      modeButtonClass: document.querySelector('[data-ui="title-instant-execution-toggle-button"]')?.className ?? null,
+      titleSettingsText: document.querySelector('.v2-title-settings')?.textContent ?? null,
+      sectionTitleFontSize: (() => {
+        const element = document.querySelector('.v2-title-settings__section-title');
+        return element === null ? null : getComputedStyle(element).fontSize;
+      })(),
+      settingsRowFontSize: (() => {
+        const element = document.querySelector('.v2-title-settings__row');
+        return element === null ? null : getComputedStyle(element).fontSize;
+      })(),
       normalNpcVisible: (() => {
         const element = document.querySelector('[data-ui="v2-settings-npc-count"]');
         return element !== null && getComputedStyle(element).display !== "none" && element.getClientRects().length > 0;
@@ -140,9 +151,17 @@ app.whenReady().then(async () => {
       120_000
     );
     if (
-      normalTitle.titleMode !== "学校3Dサバイバル基盤" ||
+      normalTitle.titleMode !== "サバイバルモード" ||
+      normalTitle.titleVersion !== "ver.2.0.0" ||
       !normalTitle.normalNpcVisible ||
-      normalTitle.executionMethodVisible
+      normalTitle.executionMethodVisible ||
+      !normalTitle.modeButtonClass.includes("v2-title-settings__mode-button--instant") ||
+      normalTitle.sectionTitleFontSize !== "15px" ||
+      normalTitle.settingsRowFontSize !== "13px" ||
+      !normalTitle.titleSettingsText.includes("キャラクター") ||
+      !normalTitle.titleSettingsText.includes("ミッション") ||
+      !normalTitle.titleSettingsText.includes("アラーム") ||
+      !normalTitle.titleSettingsText.includes("音量")
     ) {
       throw new Error("通常タイトルの表示契約が不正です。");
     }
@@ -157,10 +176,15 @@ app.whenReady().then(async () => {
       testWindow,
       (snapshot) =>
         snapshot.titleMode === "いきなり公開処刑" &&
-        snapshot.modeButtonText === "通常モードに戻る",
+        snapshot.modeButtonText === "サバイバルモードに変更",
       10_000
     );
-    if (instantTitle.normalNpcVisible || !instantTitle.executionMethodVisible) {
+    if (
+      instantTitle.normalNpcVisible ||
+      !instantTitle.executionMethodVisible ||
+      !instantTitle.modeButtonClass.includes("v2-title-settings__mode-button--survival") ||
+      !instantTitle.titleSettingsText.includes("プレイヤーをビットが処刑")
+    ) {
       throw new Error("即時公開処刑タイトルの右側切替が不正です。");
     }
     process.stdout.write("[T06-6B Electron] PASS モード切替\n");
@@ -217,7 +241,7 @@ app.whenReady().then(async () => {
         (snapshot) =>
           snapshot.startupPhase === "running" &&
           snapshot.titleOverlayVisible &&
-          snapshot.modeButtonText === "通常モードに戻る",
+          snapshot.modeButtonText === "サバイバルモードに変更",
         120_000
       );
       await testWindow.webContents.executeJavaScript(`(() => {
@@ -264,7 +288,7 @@ app.whenReady().then(async () => {
       (snapshot) =>
         snapshot.startupPhase === "running" &&
         snapshot.titleOverlayVisible &&
-        snapshot.modeButtonText === "通常モードに戻る",
+        snapshot.modeButtonText === "サバイバルモードに変更",
       120_000
     );
     await sendClick(
@@ -272,10 +296,10 @@ app.whenReady().then(async () => {
       '[data-ui="title-instant-execution-toggle-button"]'
     );
     await waitFor(
-      "通常モード切替",
+      "サバイバルモード切替",
       testWindow,
       (snapshot) =>
-        snapshot.titleMode === "学校3Dサバイバル基盤" &&
+        snapshot.titleMode === "サバイバルモード" &&
         snapshot.modeButtonText === "いきなり公開処刑モードに変更",
       10_000
     );
