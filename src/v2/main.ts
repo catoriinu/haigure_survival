@@ -30,9 +30,7 @@ import { createV2TitleSettingsPanel } from "../ui/v2TitleSettingsPanel";
 import { createTitleOverlayController } from "../ui/titleOverlayController";
 import {
   createBrowserV2TitleSettingsStore,
-  createV2FixtureTitleSettingsSnapshot,
-  createV2TitleSettingsSnapshot,
-  type V2TitleSettingsSnapshot
+  type V2TitleSettingsRuntimePopulation
 } from "../v2TitleSettingsStore";
 import {
   canV2RuntimePlayerFire,
@@ -84,7 +82,12 @@ import {
   createV2RuntimeSessionEventScope,
   transitionV2RuntimeSession
 } from "./runtimeSessionLifecycle";
-import { doV2TitleSettingsSnapshotsMatch } from "./titleSettingsSession";
+import {
+  createV2SessionStartSnapshot,
+  doV2SessionStartSnapshotsMatch,
+  type V2SessionStartSnapshot,
+  type V2TitleStartMode
+} from "./titleSettingsSession";
 import {
   createV2SurvivalRuntime,
   V2_PERFORMANCE_ACCEPTANCE_POPULATION,
@@ -266,7 +269,6 @@ const helpPanel = document.getElementById("helpPanel") as HTMLDivElement;
 const staminaGauge = document.getElementById("staminaGauge") as HTMLDivElement;
 const titleOverlay = document.getElementById("titleOverlay") as HTMLDivElement;
 const titleHeading = document.getElementById("titleHeading") as HTMLDivElement;
-const titleMode = document.getElementById("titleMode") as HTMLDivElement;
 const titleVersion = document.getElementById("titleVersion") as HTMLDivElement;
 const enableNoGunTouchBrainwashConfirmMessage =
   "「銃なしに触れたら洗脳」をオンにすると、ゲーム起動時の読み込み時間が長くなります。\n" +
@@ -277,15 +279,18 @@ const titleSettingsStore = createBrowserV2TitleSettingsStore({
   voiceDirectories: audioAssets.voiceDirectories
 });
 titleSettingsStore.load();
+let titleStartMode: V2TitleStartMode = "normal";
 const titleOverlayController = createTitleOverlayController({
-  defaultModeMessage: "学校3Dサバイバル基盤",
-  instantModeMessage: "学校3Dサバイバル基盤",
+  defaultModeMessage: "サバイバルモード",
+  instantModeMessage: "いきなり公開処刑",
   startHintMessage: "左クリック：開始",
   loadingMessageBase: "NOW LOADING",
   loadingDotIntervalMs: 300
 });
 
-const createSessionSettingsSnapshot = (): V2TitleSettingsSnapshot => {
+const createSessionStartSnapshot = (
+  sessionSeed: number
+): V2SessionStartSnapshot => {
   const storedSettings = titleSettingsStore.get();
   const roomVariantReviewRequested = new URLSearchParams(location.search).has(
     "roomVariantReview"
@@ -299,7 +304,7 @@ const createSessionSettingsSnapshot = (): V2TitleSettingsSnapshot => {
         }
       }
     : storedSettings;
-  const fixturePopulation = performanceScenario
+  const fixturePopulation: V2TitleSettingsRuntimePopulation | null = performanceScenario
     ? V2_PERFORMANCE_ACCEPTANCE_POPULATION
     : rampValidationTarget
       ? Object.freeze({
@@ -310,9 +315,15 @@ const createSessionSettingsSnapshot = (): V2TitleSettingsSnapshot => {
           maximumBitCount: 0
         })
       : runtimeStressScenario?.population ?? null;
-  return fixturePopulation === null
-    ? createV2TitleSettingsSnapshot(settings)
-    : createV2FixtureTitleSettingsSnapshot(settings, fixturePopulation);
+  return createV2SessionStartSnapshot({
+    startMode: titleStartMode,
+    settings,
+    venueRandom: createSchoolRuntimeRandom(
+      sessionSeed,
+      "instant-execution-venue"
+    ),
+    ...(fixturePopulation === null ? {} : { runtimePopulation: fixturePopulation })
+  });
 };
 
 if (performanceScenario) {
@@ -333,13 +344,17 @@ type V2RuntimeSessionRebuildOptions = Readonly<{
 
 const createRuntimeSession = async (
   sessionSeed: number,
-  settingsSnapshot: V2TitleSettingsSnapshot,
+  sessionStartSnapshot: V2SessionStartSnapshot,
   requestSessionRebuild: (
     options?: V2RuntimeSessionRebuildOptions
   ) => void,
   startImmediately: boolean
 ): Promise<V2RuntimeSession> => {
 markV2StartupPhase("runtime-session-creating");
+const settingsSnapshot = sessionStartSnapshot.settings;
+titleOverlayController.setInstantExecutionMode(
+  sessionStartSnapshot.startMode === "instant-public-execution"
+);
 titleOverlayController.clearError();
 const loadingSession = titleOverlayController.createLoadingSession(6);
 const roomVariantSelections = createSchoolRoomVariantSelections(
@@ -437,8 +452,7 @@ ambientLight.intensity = 0.9;
 ambientLight.groundColor = new Color3(0.16, 0.2, 0.22);
 
 titleHeading.textContent = "HAIGURE SURVIVAL V2";
-titleMode.textContent = "学校3Dサバイバル基盤";
-titleVersion.textContent = "V2 3D SPATIAL RUNTIME";
+titleVersion.textContent = "ver.2.0.0";
 titleOverlay.style.display = "flex";
 minimapCanvas.style.display = "none";
 minimapReadout.style.display = "none";
@@ -516,7 +530,7 @@ const initializeRuntime = async () => {
       actorIds: Object.freeze([
         "player",
         ...Array.from(
-          { length: settingsSnapshot.runtimePopulation.npcCount },
+          { length: sessionStartSnapshot.runtimePopulation.npcCount },
           (_, index) => `npc_${index}`
         )
       ]),
@@ -597,7 +611,10 @@ const initializeRuntime = async () => {
           Vector3.DistanceSquared(position, playerCenter) <= 25 &&
           Frustum.IsPointInFrustum(position, frustumPlanes);
       },
-      population: settingsSnapshot.runtimePopulation,
+      population: sessionStartSnapshot.runtimePopulation,
+      features: settingsSnapshot.features,
+      startupScenario:
+        sessionStartSnapshot.instantPublicExecutionScenario,
       brainwashSettings: Object.freeze({
         instantBrainwash: settingsSnapshot.brainwash.instantBrainwash,
         brainwashOnNoGunTouch:
@@ -681,7 +698,10 @@ const initializeRuntime = async () => {
         })
       )
     });
-    if (V2_ALARM_FLOOR_VISUALIZATION_ENABLED) {
+    if (
+      settingsSnapshot.features.alarmEnabled &&
+      V2_ALARM_FLOOR_VISUALIZATION_ENABLED
+    ) {
       ownedAlarmFloorVisual =
         createV2AlarmFloorVisualSystem(scene);
     }
@@ -716,6 +736,7 @@ const initializeRuntime = async () => {
           "door-behavior"
         )
       });
+    survivalRuntime.activateStartupScenario();
     if (runtimeStressScenario) {
       const initialFrame = survivalRuntime.getFrame();
       if (
@@ -834,6 +855,7 @@ const disposeRuntime = async () => {
   delete document.body.dataset.v2MissionAcceptanceSnapshot;
   delete document.body.dataset.v2ElevatorNpcAcceptanceReport;
   delete document.body.dataset.v2SchoolVisualAcceptance;
+  delete document.body.dataset.v2FeatureResources;
   delete window.__v2SchoolVisualAcceptance;
   if (runtimeStressScenario || elevatorNpcAcceptanceScenario) {
     delete document.documentElement.dataset.validationStatus;
@@ -985,10 +1007,15 @@ const runtimeHud = createV2RuntimeHudController({
   camera
 });
 ownedRuntimeHud = runtimeHud;
-const missionHud = createV2MissionHudController({
-  host: document.body
-});
+const missionHud = settingsSnapshot.features.missionEnabled
+  ? createV2MissionHudController({ host: document.body })
+  : null;
 ownedMissionHud = missionHud;
+document.body.dataset.v2FeatureResources = JSON.stringify({
+  ...survival.getFeatureResources(),
+  missionHud: missionHud !== null,
+  alarmFloorVisual: alarmFloorVisual !== null
+});
 if (stage.locationAssets === null) {
   throw new Error("学校V2 Runtimeにはlocation assetsが必要です。");
 }
@@ -1016,7 +1043,14 @@ const titleSettingsPanel = createV2TitleSettingsPanel({
   voiceDirectories: audioAssets.voiceDirectories,
   confirmEnableNoGunTouch: () =>
     window.confirm(enableNoGunTouchBrainwashConfirmMessage),
-  onNoGunTouchEnabled: () => requestSessionRebuild()
+  onNoGunTouchEnabled: () => requestSessionRebuild(),
+  startMode: titleStartMode,
+  onStartModeChanged: (mode) => {
+    titleStartMode = mode;
+    titleOverlayController.setInstantExecutionMode(
+      mode === "instant-public-execution"
+    );
+  }
 });
 ownedTitleSettingsPanel = titleSettingsPanel;
 const gameplayAudioBridge = createV2GameplayAudioBridge({
@@ -2018,9 +2052,9 @@ const handleCanvasClick: EventListener = () => {
     document.pointerLockElement === canvasElement;
   if (
     !wasStarted &&
-    !doV2TitleSettingsSnapshotsMatch(
-      settingsSnapshot,
-      createSessionSettingsSnapshot()
+    !doV2SessionStartSnapshotsMatch(
+      sessionStartSnapshot,
+      createSessionStartSnapshot(sessionSeed)
     )
   ) {
     requestCanvasPointerLock();
@@ -2308,9 +2342,9 @@ engine.runRenderLoop(() => {
         : EMPTY_MINIMAP_ACTORS,
       elevators: dynamicRuntime.getSnapshot().elevators,
       missionTargetActorIds:
-        survivalFrame.mission.missionTargetActorIds,
+        survivalFrame.mission?.missionTargetActorIds ?? Object.freeze([]),
       missionTargetLocationIds:
-        survivalFrame.mission.missionTargetLocationIds
+        survivalFrame.mission?.missionTargetLocationIds ?? Object.freeze([])
     });
     runtimeHud.update({
       active: interactionActive,
@@ -2320,17 +2354,23 @@ engine.runRenderLoop(() => {
       doorCandidates,
       feedback: interactionFeedback
     });
-    missionHud.update({
-      mode: !started
-        ? "hidden"
-        : survivalFrame.phase === "playing"
-          ? "missions"
-          : survivalFrame.phase === "execution-complete"
-            ? "results"
-            : "hidden",
-      frame: survivalFrame.mission
-    });
+    if (missionHud !== null && survivalFrame.mission !== null) {
+      missionHud.update({
+        mode: !started
+          ? "hidden"
+          : survivalFrame.phase === "playing"
+            ? "missions"
+            : survivalFrame.phase === "execution-complete"
+              ? "results"
+              : "hidden",
+        frame: survivalFrame.mission
+      });
+    }
     if (missionAcceptanceScenario !== null) {
+      if (survivalFrame.mission === null) {
+        throw new Error("Mission受入fixtureではMissionが有効である必要があります。");
+      }
+      const acceptanceMissionFrame = survivalFrame.mission;
       const acceptanceConsole = locationAssets.broadcastConsole;
       const acceptanceRay = camera.getForwardRay();
       const acceptanceIntersection = acceptanceRay.intersectsMesh(
@@ -2403,14 +2443,14 @@ engine.runRenderLoop(() => {
                   }
           },
           lastSchoolInstruction:
-            survivalFrame.mission.lastSchoolInstruction,
+            acceptanceMissionFrame.lastSchoolInstruction,
           assemblyVenueId: survivalFrame.assemblyVenueId,
           activeNpcNormalMissionCount:
-            survivalFrame.mission.activeNpcMissions.filter(
+            acceptanceMissionFrame.activeNpcMissions.filter(
               (mission) => mission.source === "normal"
             ).length,
           activeNpcBroadcastMissionCount:
-            survivalFrame.mission.activeNpcMissions.filter(
+            acceptanceMissionFrame.activeNpcMissions.filter(
               (mission) => mission.source === "broadcast"
             ).length,
           broadcastMissionCount: missionHistory.filter(
@@ -2422,7 +2462,7 @@ engine.runRenderLoop(() => {
               mission.state === "cancelled"
           ).length,
           activePlayerMissionDescriptors:
-            survivalFrame.mission.playerMissions
+            acceptanceMissionFrame.playerMissions
               .filter((mission) => mission.state === "active")
               .map((mission) => ({
                 id: mission.id,
@@ -2430,9 +2470,9 @@ engine.runRenderLoop(() => {
                 targetKind: mission.target.kind
               })),
           missionTargetActorIds:
-            survivalFrame.mission.missionTargetActorIds,
+            acceptanceMissionFrame.missionTargetActorIds,
           missionTargetLocationIds:
-            survivalFrame.mission.missionTargetLocationIds,
+            acceptanceMissionFrame.missionTargetLocationIds,
           missionHudItemCount: document.querySelectorAll(
             '[data-v2-mission-hud-role="mission-item"]'
           ).length,
@@ -2602,7 +2642,7 @@ const rebuildSession = (
       createSession: (sessionSeed) =>
         createRuntimeSession(
           sessionSeed,
-          createSessionSettingsSnapshot(),
+          createSessionStartSnapshot(sessionSeed),
           rebuildSession,
           options.startAfterCreate
         )
@@ -2623,9 +2663,10 @@ const rebuildSession = (
 };
 
 try {
+  const initialSessionSeed = nextRuntimeSessionSeed();
   activeSession = await createRuntimeSession(
-    nextRuntimeSessionSeed(),
-    createSessionSettingsSnapshot(),
+    initialSessionSeed,
+    createSessionStartSnapshot(initialSessionSeed),
     rebuildSession,
     false
   );

@@ -10,6 +10,24 @@ export const V2_TITLE_SETTINGS_SCHEMA_VERSION = 1 as const;
 
 export type V2TitleSettingsStorage = Pick<Storage, "getItem" | "setItem">;
 
+export const V2_INSTANT_EXECUTION_METHOD_IDS = Object.freeze([
+  "player-bit",
+  "player-npc",
+  "npc-bit",
+  "npc-npc",
+  "npc-player"
+] as const);
+
+export type V2InstantExecutionMethod =
+  (typeof V2_INSTANT_EXECUTION_METHOD_IDS)[number];
+
+export type V2InstantExecutionSettings = Readonly<{
+  method: V2InstantExecutionMethod;
+  targetNpcCount: number;
+  surroundingNpcCount: number;
+  surroundingBitCount: number;
+}>;
+
 export type V2TitleSettings = Readonly<{
   version: typeof V2_TITLE_SETTINGS_SCHEMA_VERSION;
   population: Readonly<{
@@ -43,15 +61,12 @@ export type V2TitleSettings = Readonly<{
     portraitDirectory: string | null;
     voiceDirectory: string | null;
   }>;
+  features: Readonly<{
+    missionEnabled: boolean;
+    alarmEnabled: boolean;
+  }>;
+  execution: V2InstantExecutionSettings;
 }>;
-
-type DeepReadonly<T> = T extends (...args: never[]) => unknown
-  ? T
-  : T extends readonly (infer U)[]
-    ? readonly DeepReadonly<U>[]
-    : T extends object
-      ? { readonly [K in keyof T]: DeepReadonly<T[K]> }
-      : T;
 
 export type V2TitleSettingsRuntimePopulation = Readonly<{
   npcCount: number;
@@ -60,10 +75,6 @@ export type V2TitleSettingsRuntimePopulation = Readonly<{
   bitReinforcementIntervalSeconds: number;
   maximumBitCount: number;
 }>;
-
-export type V2TitleSettingsSnapshot = DeepReadonly<
-  V2TitleSettings & Readonly<{ runtimePopulation: V2TitleSettingsRuntimePopulation }>
->;
 
 export const V2_DEFAULT_TITLE_SETTINGS: V2TitleSettings = Object.freeze({
   version: V2_TITLE_SETTINGS_SCHEMA_VERSION,
@@ -97,6 +108,16 @@ export const V2_DEFAULT_TITLE_SETTINGS: V2TitleSettings = Object.freeze({
   character: Object.freeze({
     portraitDirectory: null,
     voiceDirectory: null
+  }),
+  features: Object.freeze({
+    missionEnabled: true,
+    alarmEnabled: false
+  }),
+  execution: Object.freeze({
+    method: "player-bit",
+    targetNpcCount: 0,
+    surroundingNpcCount: 11,
+    surroundingBitCount: 10
   })
 });
 
@@ -174,6 +195,60 @@ const normalizeSpawnSelection = (value: unknown): V2PlayerSpawnSelection =>
     ? (value as V2PlayerSpawnSelection)
     : "random";
 
+const normalizeExecutionMethod = (
+  value: unknown
+): V2InstantExecutionMethod =>
+  typeof value === "string" &&
+  (V2_INSTANT_EXECUTION_METHOD_IDS as readonly string[]).includes(value)
+    ? (value as V2InstantExecutionMethod)
+    : V2_DEFAULT_TITLE_SETTINGS.execution.method;
+
+export const normalizeV2InstantExecutionSettings = (
+  raw: unknown
+): V2InstantExecutionSettings => {
+  const source = isRecord(raw) ? raw : {};
+  const method = normalizeExecutionMethod(source.method);
+  const playerTargetMethod = method === "player-bit" || method === "player-npc";
+  const targetNpcCount = normalizeInteger(
+    source.targetNpcCount,
+    playerTargetMethod ? 0 : 1,
+    playerTargetMethod ? 5 : 6,
+    playerTargetMethod ? 0 : 1
+  );
+  const centralTargetCount = targetNpcCount + (playerTargetMethod ? 1 : 0);
+  const usesNpcShooters = method === "player-npc" || method === "npc-npc";
+  const minimumSurroundingNpcCount = usesNpcShooters
+    ? centralTargetCount
+    : 0;
+  const surroundingNpcCount = normalizeInteger(
+    source.surroundingNpcCount,
+    minimumSurroundingNpcCount,
+    99 - targetNpcCount,
+    Math.max(
+      minimumSurroundingNpcCount,
+      Math.min(99 - targetNpcCount, V2_DEFAULT_TITLE_SETTINGS.execution.surroundingNpcCount)
+    )
+  );
+  const usesBitShooters = method === "player-bit" || method === "npc-bit";
+  const surroundingBitCount = normalizeInteger(
+    source.surroundingBitCount,
+    usesBitShooters ? centralTargetCount : 0,
+    50,
+    usesBitShooters
+      ? Math.max(
+          centralTargetCount,
+          V2_DEFAULT_TITLE_SETTINGS.execution.surroundingBitCount
+        )
+      : V2_DEFAULT_TITLE_SETTINGS.execution.surroundingBitCount
+  );
+  return Object.freeze({
+    method,
+    targetNpcCount,
+    surroundingNpcCount,
+    surroundingBitCount
+  });
+};
+
 const buildCanonicalSettings = (
   source: Record<string, unknown>,
   catalogs: V2TitleSettingsCatalogs
@@ -185,6 +260,8 @@ const buildCanonicalSettings = (
   const brainwash = readRecord(source, "brainwash");
   const school = readRecord(source, "school");
   const character = readRecord(source, "character");
+  const features = readRecord(source, "features");
+  const execution = readRecord(source, "execution");
 
   const gunPercent = normalizeInteger(
     brainwash.gunPercent,
@@ -264,7 +341,12 @@ const buildCanonicalSettings = (
         character.voiceDirectory,
         new Set(catalogs.voiceDirectories)
       )
-    })
+    }),
+    features: Object.freeze({
+      missionEnabled: normalizeBoolean(features.missionEnabled, true),
+      alarmEnabled: normalizeBoolean(features.alarmEnabled, false)
+    }),
+    execution: normalizeV2InstantExecutionSettings(execution)
   });
 };
 
@@ -284,32 +366,6 @@ export const normalizeV2TitleSettings = (
     changed: JSON.stringify(raw) !== JSON.stringify(settings)
   });
 };
-
-const cloneSettings = (settings: V2TitleSettings): V2TitleSettings =>
-  JSON.parse(JSON.stringify(settings)) as V2TitleSettings;
-
-const deepFreeze = <T extends object>(value: T): DeepReadonly<T> => {
-  for (const nested of Object.values(value)) {
-    if (typeof nested === "object" && nested !== null && !Object.isFrozen(nested)) {
-      deepFreeze(nested);
-    }
-  }
-  return Object.freeze(value) as DeepReadonly<T>;
-};
-
-export const createV2TitleSettingsSnapshot = (
-  settings: V2TitleSettings
-): V2TitleSettingsSnapshot =>
-  deepFreeze({
-    ...cloneSettings(settings),
-    runtimePopulation: createV2SurvivalPopulationFromTitleSettings(settings)
-  });
-
-export const createV2FixtureTitleSettingsSnapshot = (
-  settings: V2TitleSettings,
-  runtimePopulation: V2TitleSettingsRuntimePopulation
-): V2TitleSettingsSnapshot =>
-  deepFreeze({ ...cloneSettings(settings), runtimePopulation: { ...runtimePopulation } });
 
 export const createV2TitleSettingsStore = (
   storage: V2TitleSettingsStorage,
@@ -355,8 +411,11 @@ export const createV2TitleSettingsStore = (
       persist(current);
       return current;
     },
-    createSnapshot: (): V2TitleSettingsSnapshot =>
-      createV2TitleSettingsSnapshot(current)
+    resetExecution: (): V2TitleSettings =>
+      save({
+        ...current,
+        execution: V2_DEFAULT_TITLE_SETTINGS.execution
+      })
   });
 };
 
@@ -384,3 +443,19 @@ export const createV2SurvivalPopulationFromTitleSettings = (
       settings.bit.reinforcementIntervalSeconds,
     maximumBitCount: settings.bit.disabled ? 0 : settings.bit.maximumCount
   });
+
+export const createV2InstantExecutionPopulation = (
+  settings: V2InstantExecutionSettings
+): V2TitleSettingsRuntimePopulation => {
+  const usesBitShooters =
+    settings.method === "player-bit" || settings.method === "npc-bit";
+  const bitCount = usesBitShooters ? settings.surroundingBitCount : 0;
+  return Object.freeze({
+    npcCount: settings.targetNpcCount + settings.surroundingNpcCount,
+    initialBrainwashedNpcCount: 0,
+    initialBitCount: bitCount,
+    bitReinforcementIntervalSeconds:
+      V2_DEFAULT_TITLE_SETTINGS.bit.reinforcementIntervalSeconds,
+    maximumBitCount: bitCount
+  });
+};

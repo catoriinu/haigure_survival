@@ -65,6 +65,8 @@ export interface V2CharacterStateSystem {
   prepareExecutionTarget(): void;
   prepareExecutionAudience(): void;
   prepareExecutionShooter(): void;
+  prepareInstantExecutionAudience(): void;
+  prepareInstantExecutionShooter(): void;
   setNpcBrainwashCompletionState(
     state: "brainwash-complete-gun" | "brainwash-complete-no-gun"
   ): boolean;
@@ -188,9 +190,10 @@ export const createV2CharacterStateSystem = ({
   const setScriptedExecutionState = (
     nextState:
       | "brainwash-complete-gun"
-      | "brainwash-complete-haigure-formation"
+      | "brainwash-complete-haigure-formation",
+    allowAliveState: boolean
   ) => {
-    if (isV2AliveState(state)) {
+    if (!allowAliveState && isV2AliveState(state)) {
       throw new Error(
         `alive対象を公開処刑用状態へ強制遷移できません: ${state} -> ${nextState}`
       );
@@ -430,11 +433,21 @@ export const createV2CharacterStateSystem = ({
     },
     prepareExecutionAudience: () => {
       setScriptedExecutionState(
-        "brainwash-complete-haigure-formation"
+        "brainwash-complete-haigure-formation",
+        false
       );
     },
     prepareExecutionShooter: () => {
-      setScriptedExecutionState("brainwash-complete-gun");
+      setScriptedExecutionState("brainwash-complete-gun", false);
+    },
+    prepareInstantExecutionAudience: () => {
+      setScriptedExecutionState(
+        "brainwash-complete-haigure-formation",
+        true
+      );
+    },
+    prepareInstantExecutionShooter: () => {
+      setScriptedExecutionState("brainwash-complete-gun", true);
     },
     setNpcBrainwashCompletionState: (nextState) => {
       if (kind !== "npc") {

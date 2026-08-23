@@ -590,7 +590,7 @@ export const runBroadcastRuntimeTests = async (): Promise<
         "Mission 1件以上でrootが単一panelになっていません。"
       );
       assert(
-        heading?.textContent === "MISSION" &&
+        heading?.textContent === "ミッション" &&
           root.querySelectorAll('[data-v2-mission-hud-role="heading"]').length === 1 &&
           list !== null &&
           root.querySelectorAll('[data-v2-mission-hud-role="mission-list"]').length === 1,
@@ -774,7 +774,7 @@ export const runBroadcastRuntimeTests = async (): Promise<
       });
       assert(
         root.querySelector('[data-v2-mission-hud-role="heading"]')?.textContent ===
-          "MISSION RESULT" &&
+          "ミッション結果" &&
           root.textContent?.includes("未洗脳時　完了 3　失敗 1") === true &&
           root.textContent.includes("洗脳済み時　完了 2　失敗 4"),
         `ゲームオーバーMission結果が不正です: ${root.textContent}`

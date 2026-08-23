@@ -1,9 +1,11 @@
 import {
+  V2_INSTANT_EXECUTION_METHOD_IDS,
   V2_TITLE_SETTINGS_SCHEMA_VERSION,
   hasV2NeverGameOverRisk,
   type V2TitleSettings,
   type V2TitleSettingsStore
 } from "../v2TitleSettingsStore";
+import type { V2TitleStartMode } from "../v2/titleSettingsSession";
 import {
   SCHOOL_PLAYER_SPAWN_OPTIONS,
   type V2PlayerSpawnSelection
@@ -24,6 +26,8 @@ export type V2TitleSettingsPanelOptions = Readonly<{
   voiceDirectories: readonly string[];
   confirmEnableNoGunTouch(): boolean;
   onNoGunTouchEnabled(): void;
+  startMode: V2TitleStartMode;
+  onStartModeChanged(mode: V2TitleStartMode): void;
 }>;
 
 type EventSubscription = Readonly<{
@@ -127,7 +131,9 @@ export const createV2TitleSettingsPanel = ({
   portraitDirectories,
   voiceDirectories,
   confirmEnableNoGunTouch,
-  onNoGunTouchEnabled
+  onNoGunTouchEnabled,
+  startMode: initialStartMode,
+  onStartModeChanged
 }: V2TitleSettingsPanelOptions): V2TitleSettingsPanel => {
   const root = document.createElement("div");
   root.className = "v2-title-settings";
@@ -164,8 +170,8 @@ export const createV2TitleSettingsPanel = ({
   playerBrainwashedRow.valueHost.append(playerBrainwashed);
   populationSection.append(npcCountRow.row, brainwashedPercentRow.row, playerBrainwashedRow.row);
 
-  const bitSection = createSection("BIT", "v2-settings-bit", "main");
-  const bitDisabledRow = createRow("BITを出現させない");
+  const bitSection = createSection("ビット", "v2-settings-bit", "main");
+  const bitDisabledRow = createRow("ビットを出現させない");
   const bitDisabled = createCheckbox("v2-settings-bit-disabled");
   bitDisabledRow.valueHost.append(bitDisabled);
   const bitIntervalRow = createRow("増援間隔（秒）");
@@ -212,7 +218,7 @@ export const createV2TitleSettingsPanel = ({
   noGunRow.valueHost.append(noGunRatio, noGunValue);
   brainwashSection.append(instantRow.row, touchRow.row, poseRow.row, gunRow.row, noGunRow.row);
 
-  const characterSection = createSection("Character", "v2-settings-character", "main");
+  const characterSection = createSection("キャラクター", "v2-settings-character", "main");
   const portraitRow = createRow("自キャラ");
   const portrait = document.createElement("select");
   portrait.className = "v2-title-settings__select";
@@ -233,7 +239,78 @@ export const createV2TitleSettingsPanel = ({
   ]);
   voiceRow.valueHost.append(voice);
   characterSection.append(portraitRow.row, voiceRow.row);
-  mainGrid.append(populationSection, bitSection, displaySection, brainwashSection, characterSection);
+  const featuresSection = createSection("機能", "v2-settings-features", "main");
+  const missionRow = createRow("ミッション");
+  const missionEnabled = createCheckbox("v2-settings-mission-enabled");
+  missionRow.valueHost.append(missionEnabled);
+  const alarmRow = createRow("アラーム");
+  const alarmEnabled = createCheckbox("v2-settings-alarm-enabled");
+  alarmRow.valueHost.append(alarmEnabled);
+  featuresSection.append(missionRow.row, alarmRow.row);
+  mainGrid.append(
+    populationSection,
+    bitSection,
+    displaySection,
+    brainwashSection,
+    characterSection,
+    featuresSection
+  );
+
+  const executionSection = createSection(
+    "公開処刑設定",
+    "v2-settings-execution",
+    "main"
+  );
+  const executionMethodRow = createRow("方式");
+  const executionMethod = document.createElement("select");
+  executionMethod.className = "v2-title-settings__select";
+  executionMethod.dataset.ui = "v2-settings-execution-method";
+  const executionMethodLabels = Object.freeze({
+    "player-bit": "プレイヤーをビットが処刑",
+    "player-npc": "プレイヤーをNPCが処刑",
+    "npc-bit": "NPCをビットが処刑",
+    "npc-npc": "NPCをNPCが処刑",
+    "npc-player": "NPCをプレイヤーが処刑"
+  });
+  appendOptions(
+    executionMethod,
+    V2_INSTANT_EXECUTION_METHOD_IDS.map((value) =>
+      Object.freeze({ value, label: executionMethodLabels[value] })
+    )
+  );
+  executionMethodRow.valueHost.append(executionMethod);
+  const executionTargetRow = createRow("対象NPC数");
+  const executionTargetCount = createNumberInput(
+    0,
+    6,
+    1,
+    "v2-settings-execution-target-npc-count"
+  );
+  executionTargetRow.valueHost.append(executionTargetCount);
+  const executionNpcRow = createRow("周囲NPC数");
+  const executionNpcCount = createNumberInput(
+    0,
+    99,
+    1,
+    "v2-settings-execution-surrounding-npc-count"
+  );
+  executionNpcRow.valueHost.append(executionNpcCount);
+  const executionBitRow = createRow("周囲ビット数");
+  const executionBitCount = createNumberInput(
+    0,
+    50,
+    1,
+    "v2-settings-execution-surrounding-bit-count"
+  );
+  executionBitRow.valueHost.append(executionBitCount);
+  executionSection.append(
+    executionMethodRow.row,
+    executionTargetRow.row,
+    executionNpcRow.row,
+    executionBitRow.row
+  );
+  executionSection.hidden = true;
+  mainHost.append(executionSection);
 
   const schoolSection = createSection("ステージ", "v2-settings-school", "stage");
   const stageRow = createRow("ステージ");
@@ -246,7 +323,7 @@ export const createV2TitleSettingsPanel = ({
   const disorder = createRangeInput(0, 10, 1, "v2-settings-disorder");
   const disorderValue = createOutput("v2-settings-disorder-value");
   disorderRow.valueHost.append(disorder, disorderValue);
-  const spawnRow = createRow("Player開始地点");
+  const spawnRow = createRow("プレイヤー開始地点");
   const spawn = document.createElement("select");
   spawn.className = "v2-title-settings__select";
   spawn.dataset.ui = "v2-settings-player-spawn";
@@ -258,7 +335,7 @@ export const createV2TitleSettingsPanel = ({
   schoolSection.append(stageRow.row, disorderRow.row, spawnRow.row);
   stageHost.append(schoolSection);
 
-  const audioSection = createSection("VOLUME", "v2-settings-audio", "audio");
+  const audioSection = createSection("音量", "v2-settings-audio", "audio");
   const audioOutputs = Object.freeze({
     voice: createOutput("v2-settings-audio-voice"),
     bgm: createOutput("v2-settings-audio-bgm"),
@@ -300,22 +377,43 @@ export const createV2TitleSettingsPanel = ({
 
   const modeButton = document.createElement("button");
   modeButton.type = "button";
-  modeButton.className = "v2-title-settings__mode-placeholder";
+  modeButton.className =
+    "v2-title-settings__mode-button v2-title-settings__mode-button--instant";
   modeButton.dataset.ui = "title-instant-execution-toggle-button";
-  modeButton.textContent = "いきなり公開処刑モードに変更";
-  modeButton.disabled = true;
-  const modeNote = document.createElement("span");
-  modeNote.className = "v2-title-settings__mode-placeholder-note";
-  modeNote.textContent = "（準備中）";
   const resetButton = document.createElement("button");
   resetButton.type = "button";
   resetButton.className = "v2-title-settings__reset";
   resetButton.dataset.ui = "v2-settings-reset-all";
   resetButton.textContent = "全設定をリセットする";
   mainHost.append(resetButton);
-  root.append(modeButton, modeNote);
+  root.append(modeButton);
 
   let settings = store.get();
+  let startMode = initialStartMode;
+  const renderStartMode = (): void => {
+    const instantExecution = startMode === "instant-public-execution";
+    mainGrid.hidden = instantExecution;
+    gameOverWarning.hidden =
+      instantExecution || !hasV2NeverGameOverRisk(settings);
+    executionSection.hidden = !instantExecution;
+    modeButton.textContent = instantExecution
+      ? "サバイバルモードに変更"
+      : "いきなり公開処刑モードに変更";
+    modeButton.classList.toggle(
+      "v2-title-settings__mode-button--instant",
+      !instantExecution
+    );
+    modeButton.classList.toggle(
+      "v2-title-settings__mode-button--survival",
+      instantExecution
+    );
+    resetButton.textContent = instantExecution
+      ? "公開処刑設定のみリセットする"
+      : "全設定をリセットする";
+    resetButton.dataset.ui = instantExecution
+      ? "v2-settings-reset-execution"
+      : "v2-settings-reset-all";
+  };
   const render = (nextSettings: V2TitleSettings): void => {
     settings = nextSettings;
     npcCount.value = String(settings.population.npcCount);
@@ -338,7 +436,9 @@ export const createV2TitleSettingsPanel = ({
       "v2-title-settings__row--disabled",
       settings.bit.disabled
     );
-    gameOverWarning.hidden = !hasV2NeverGameOverRisk(settings);
+    gameOverWarning.hidden =
+      startMode === "instant-public-execution" ||
+      !hasV2NeverGameOverRisk(settings);
     for (const key of ["voice", "bgm", "se"] as const) {
       const value = settings.audio[key];
       audioOutputs[key].value = value === 0 ? "MUTE" : String(value);
@@ -359,6 +459,21 @@ export const createV2TitleSettingsPanel = ({
     spawn.value = settings.school.playerSpawn;
     portrait.value = settings.character.portraitDirectory ?? "";
     voice.value = settings.character.voiceDirectory ?? "";
+    missionEnabled.checked = settings.features.missionEnabled;
+    alarmEnabled.checked = settings.features.alarmEnabled;
+    executionMethod.value = settings.execution.method;
+    executionTargetCount.value = String(settings.execution.targetNpcCount);
+    executionNpcCount.value = String(settings.execution.surroundingNpcCount);
+    executionBitCount.value = String(settings.execution.surroundingBitCount);
+    const playerTargetMethod =
+      settings.execution.method === "player-bit" ||
+      settings.execution.method === "player-npc";
+    executionTargetCount.min = playerTargetMethod ? "0" : "1";
+    executionTargetCount.max = playerTargetMethod ? "5" : "6";
+    executionBitCount.disabled =
+      settings.execution.method !== "player-bit" &&
+      settings.execution.method !== "npc-bit";
+    renderStartMode();
   };
   const save = (nextSettings: V2TitleSettings): void => {
     render(store.save(nextSettings));
@@ -480,6 +595,39 @@ export const createV2TitleSettingsPanel = ({
       character: { ...settings.character, voiceDirectory: voice.value || null }
     });
   });
+  listen(missionEnabled, "change", () => {
+    save({
+      ...settings,
+      features: {
+        ...settings.features,
+        missionEnabled: missionEnabled.checked
+      }
+    });
+  });
+  listen(alarmEnabled, "change", () => {
+    save({
+      ...settings,
+      features: {
+        ...settings.features,
+        alarmEnabled: alarmEnabled.checked
+      }
+    });
+  });
+  const saveExecution = (): void => {
+    save({
+      ...settings,
+      execution: {
+        method: executionMethod.value as V2TitleSettings["execution"]["method"],
+        targetNpcCount: numberValue(executionTargetCount),
+        surroundingNpcCount: numberValue(executionNpcCount),
+        surroundingBitCount: numberValue(executionBitCount)
+      }
+    });
+  };
+  listen(executionMethod, "change", saveExecution);
+  listen(executionTargetCount, "change", saveExecution);
+  listen(executionNpcCount, "change", saveExecution);
+  listen(executionBitCount, "change", saveExecution);
   for (const button of audioButtons) {
     listen(button, "click", () => {
       const channel = button.dataset.audioChannel as keyof V2TitleSettings["audio"];
@@ -494,7 +642,17 @@ export const createV2TitleSettingsPanel = ({
     });
   }
   listen(resetButton, "click", () => {
-    render(store.reset());
+    render(
+      startMode === "instant-public-execution"
+        ? store.resetExecution()
+        : store.reset()
+    );
+  });
+  listen(modeButton, "click", () => {
+    startMode =
+      startMode === "normal" ? "instant-public-execution" : "normal";
+    renderStartMode();
+    onStartModeChanged(startMode);
   });
 
   render(settings);

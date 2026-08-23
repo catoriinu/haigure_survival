@@ -10,9 +10,7 @@ export const V2_EXECUTION_BIT_VIEW_GAP_RADIANS =
   (12 * Math.PI) / 180;
 
 const EXECUTION_BIT_HEIGHT = 1.3;
-const EXECUTION_BIT_RING_INNER_RATIO = 0.25;
-const EXECUTION_BIT_RING_OUTER_RATIO = 0.75;
-const GOLDEN_ANGLE_RADIANS = Math.PI * (3 - Math.sqrt(5));
+const EXECUTION_BIT_RING_RADIUS_RATIO = 0.75;
 
 export type V2SurvivalRulePhase =
   | "playing"
@@ -117,39 +115,35 @@ const getMaximumHorizontalRadius = (
 export const createV2ExecutionBitPositions = (
   venue: StageAssemblyVenue,
   count: number,
-  viewerPosition: Vector3
+  targetCenter: Vector3,
+  blockedViewPosition: Vector3 | null
 ): readonly Vector3[] => {
   const maximumRadius = getMaximumHorizontalRadius(
     venue.center,
     venue.executionAudiencePositions
   );
-  const innerRadius =
-    maximumRadius * EXECUTION_BIT_RING_INNER_RATIO;
-  const outerRadius =
-    maximumRadius * EXECUTION_BIT_RING_OUTER_RATIO;
-  const viewerAngle = Math.atan2(
-    viewerPosition.z - venue.center.z,
-    viewerPosition.x - venue.center.x
-  );
-  const availableAngle =
-    Math.PI * 2 - V2_EXECUTION_BIT_VIEW_GAP_RADIANS;
+  const radius = maximumRadius * EXECUTION_BIT_RING_RADIUS_RATIO;
+  const blockedAngle = blockedViewPosition === null
+    ? 0
+    : Math.atan2(
+        blockedViewPosition.z - targetCenter.z,
+        blockedViewPosition.x - targetCenter.x
+      );
+  const blockedArc = blockedViewPosition === null
+    ? 0
+    : V2_EXECUTION_BIT_VIEW_GAP_RADIANS;
+  const availableArc = Math.PI * 2 - blockedArc;
   return Object.freeze(
     Array.from({ length: count }, (_, index) => {
-      const normalizedRadius = Math.sqrt((index + 0.5) / count);
-      const radius =
-        innerRadius +
-        (outerRadius - innerRadius) * normalizedRadius;
-      const angularProgress =
-        ((index * GOLDEN_ANGLE_RADIANS) % (Math.PI * 2)) /
-        (Math.PI * 2);
-      const angle =
-        viewerAngle +
-        V2_EXECUTION_BIT_VIEW_GAP_RADIANS * 0.5 +
-        availableAngle * angularProgress;
+      const angle = blockedViewPosition === null
+        ? (Math.PI * 2 * index) / count
+        : blockedAngle +
+          blockedArc * 0.5 +
+          (availableArc * (index + 0.5)) / count;
       return new Vector3(
-        venue.center.x + Math.cos(angle) * radius,
+        targetCenter.x + Math.cos(angle) * radius,
         venue.center.y + EXECUTION_BIT_HEIGHT,
-        venue.center.z + Math.sin(angle) * radius
+        targetCenter.z + Math.sin(angle) * radius
       );
     })
   );

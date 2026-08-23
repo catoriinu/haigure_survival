@@ -46,6 +46,8 @@ export interface V2PlayerCombatSystem {
   prepareExecutionTarget(): void;
   prepareExecutionAudience(): void;
   prepareExecutionShooter(): void;
+  prepareInstantExecutionAudience(): void;
+  prepareInstantExecutionShooter(): void;
   createTargetSnapshot(
     footPosition: Vector3,
     aimPosition: Vector3
@@ -113,6 +115,10 @@ export const createV2PlayerCombatSystem = ({
       stateSystem.prepareExecutionAudience(),
     prepareExecutionShooter: () =>
       stateSystem.prepareExecutionShooter(),
+    prepareInstantExecutionAudience: () =>
+      stateSystem.prepareInstantExecutionAudience(),
+    prepareInstantExecutionShooter: () =>
+      stateSystem.prepareInstantExecutionShooter(),
     createTargetSnapshot: (footPosition, aimPosition) => {
       assertFiniteVector("プレイヤー足元", footPosition);
       assertFiniteVector("プレイヤー照準点", aimPosition);
