@@ -27,6 +27,7 @@
 > - タイトル設定項目の文字を1px拡大し、入力欄、ボタン、配置も合わせて調整する。
 > - `MUTE`は英語表記のまま維持する。
 > - タイトルのバージョン表示を`ver.2.0.0`にする。
+> - `NOW LOADING`は英語表記のまま維持する。
 
 ## 目的
 
@@ -76,6 +77,7 @@ T06-6AのV2専用`V2TitleSettings` snapshotへ即時公開処刑設定、Mission
 - [x] タイトル画面とゲーム中ミッション表示を指定どおり日本語化する
 - [x] モード切替ボタンの状態別配色とタイトル設定UIの1px拡大を行う
 - [x] 追補fixture、実Web／Electron、回帰、配布検査を完了して追補結果をcommitする
+- [x] タイトルのloading表示を`NOW LOADING`へ戻し、実画面と配布検査を確認する
 
 ## 結果
 
@@ -94,3 +96,4 @@ T06-6AのV2専用`V2TitleSettings` snapshotへ即時公開処刑設定、Mission
 - モード切替ボタンを通常画面では赤、即時公開処刑画面では黄とし、hover／activeの配色、移動、shadowを追加した。設定見出しと項目文字を各1px拡大し、入力欄、ボタン、左右panel幅を調整した。
 - 追補後のT05 fixtureは323/323、T06-4は37/37、T06-6Aは12/12、T06-6Bは13/13を実ブラウザでPASSし、console warning／errorは0件だった。実タイトルで日本語表示、MUTE、`ver.2.0.0`、赤／黄切替を確認した。
 - 追補後のElectron受入で通常タイトル、5方式、R再演、Mission／Alarm 4組合せをPASSし、console／load／process異常は0件だった。通常build、V2依存監査、Web配布監査、テキスト配布検査、`git diff --check`もPASSし、バイナリ、学校資産、NavMesh、生成器、ローカル絶対パスの追加は0件だった。
+- 最終追補でloading表示を`NOW LOADING`へ戻し、`MUTE`、VOICE、BGM、SE、NPCと同様に指定された英語表記として維持した。

@@ -28,6 +28,7 @@ const waitFor = async (label, window, predicate, timeoutMilliseconds) => {
       startupPhase: document.body.dataset.v2StartupPhase ?? null,
       titleMode: document.querySelector("#titleMode")?.textContent ?? null,
       titleVersion: document.querySelector("#titleVersion")?.textContent ?? null,
+      titleMessageText: document.querySelector("#titleMessage")?.textContent ?? null,
       titleOverlayVisible: getComputedStyle(document.querySelector("#titleOverlay")).display !== "none",
       statusText: document.querySelector("#statusInfo")?.textContent ?? "",
       missionHudCount: document.querySelectorAll('[data-v2-mission-hud="root"]').length,
@@ -153,6 +154,7 @@ app.whenReady().then(async () => {
     if (
       normalTitle.titleMode !== "サバイバルモード" ||
       normalTitle.titleVersion !== "ver.2.0.0" ||
+      normalTitle.titleMessageText !== "NOW LOADING" ||
       !normalTitle.normalNpcVisible ||
       normalTitle.executionMethodVisible ||
       !normalTitle.modeButtonClass.includes("v2-title-settings__mode-button--instant") ||

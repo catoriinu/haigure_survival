@@ -284,7 +284,7 @@ const titleOverlayController = createTitleOverlayController({
   defaultModeMessage: "サバイバルモード",
   instantModeMessage: "いきなり公開処刑",
   startHintMessage: "左クリック：開始",
-  loadingMessageBase: "読み込み中",
+  loadingMessageBase: "NOW LOADING",
   loadingDotIntervalMs: 300
 });
 
