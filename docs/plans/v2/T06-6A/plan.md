@@ -56,6 +56,10 @@
 
 > ゲームオーバーで体育館に全員が整列してハイグレしているときに、プレイヤーが動くことができません。整列ハイグレ時はプレイヤーが動けるというV1の仕様を確認し、V2でも移動できるように修正してください。
 
+2026-08-23 Pull Request #79レビュー対応指示:
+
+> Pull Requestにインラインコメントを付けましたので対応してください。妥当であれば対応し、コミット、pushまで行ってください。
+
 ## 目的
 
 I4で確定した基本設定を`V2TitleSettings`へ統一し、V1から独立した保存、正規化、全設定reset、タイトルUI、Runtime開始snapshotまで実装する。開始モード、即時公開処刑、Mission／Alarm、最終レイアウトは後続へ分離する。
@@ -129,6 +133,11 @@ I4で確定した基本設定を`V2TitleSettings`へ統一し、V1から独立�
 - [x] 整列開始後のWASD新規押下でPlayer操作を解放する
 - [x] 入力、移動ルール、Runtime lifecycle、通常ゲームを回帰する
 - [x] 最新結果を記録し、整列移動修正だけをcommitする
+- [x] PR #79の最新headと未解決スレッド2件を取得し、各指摘の妥当性を確認する
+- [x] 組込み`00_default` portraitをカタログ外でもcanonical設定として保存する
+- [x] I4正本の後発指示と現行視点高さ1.15契約を同期する
+- [x] 専用fixture、型検査、build、テキスト配布検査を実行する
+- [ ] レビュー対応結果を記録し、commit・push・元スレッド返信を行う
 
 ## 結果
 
@@ -155,3 +164,5 @@ BIT本体・先端球・BIT影・Character影・窓・カーテンを同じ空�
 整列ハイグレ時の追加修正では、V1の`assemblyMove／assemblyHold`中にWASDを新規押下すると`assemblyFree`へ移る仕様と、整列開始前から押しっぱなしのキーでは解除せず全キーを離した後の次の押下だけで解除する条件を確認した。V2入力へ非repeatのWASD edge actionを追加し、`assembly`へ入った時点ではPlayerを停止したまま、整列後の新規WASD actionを受けたframeで操作を一度だけ解放して、通常のPlayer衝突移動へ渡すようにした。会場IDに分岐しないため、体育館と校庭の両方で同じ契約になる。
 
 最新差分でT05総合fixture 322／322、T06 fixture 70／70を実ブラウザでPASSした。T05実Runtime遷移では`phase=assembly`、移動可否`false→true`、最初の解放受理、二重解放拒否、資源破棄一致を確認した。T05／T06／T06-6A build、通常buildとWeb配布監査をPASSした。通常Electron受入は初回だけランダムなPlayer洗脳前提が制限時間内に成立しなかったが、その実行でもconsole／renderer／load異常0件であり、再実行は13項目すべてと診断0件でPASSした。テキスト配布検査は変更9ファイルのUTF-8 BOMなし、`git diff --check`、ローカル絶対path追加なしを確認した。
+
+PR #79のインライン指摘2件はいずれも妥当と判定した。統一storeのportrait正式値集合に組込み`00_default`を追加し、通常カタログに存在しない条件でもcanonical保存と再起動復元を保証するfixtureを追加した。I4正本は元の1.20依頼を履歴として保持したまま、T06-6Aの後発1.15指示、現行契約、既定値表、結果を1.15へ同期した。T06-6A専用fixtureは実ブラウザで12／12 PASS、console warning／error 0件、`typecheck:v2`、T06-6A build、通常Web／Electron build、Web配布監査、テキスト配布検査をPASSした。

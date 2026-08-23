@@ -2,6 +2,7 @@ import {
   SCHOOL_PLAYER_SPAWN_IDS,
   type V2PlayerSpawnSelection
 } from "./v2/schoolSpawnSelection";
+import { V2_DEFAULT_PORTRAIT_DIRECTORY } from "./v2/v2CharacterAssignments";
 
 export const V2_TITLE_SETTINGS_STORAGE_KEY =
   "haigure-survival-v2.title-settings";
@@ -254,7 +255,10 @@ const buildCanonicalSettings = (
     character: Object.freeze({
       portraitDirectory: normalizeDirectory(
         character.portraitDirectory,
-        new Set(catalogs.portraitDirectories)
+        new Set([
+          V2_DEFAULT_PORTRAIT_DIRECTORY,
+          ...catalogs.portraitDirectories
+        ])
       ),
       voiceDirectory: normalizeDirectory(
         character.voiceDirectory,

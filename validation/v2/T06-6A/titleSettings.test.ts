@@ -13,6 +13,7 @@ import {
   type V2TitleSettingsStorage
 } from "../../../src/v2TitleSettingsStore";
 import { createV2TitleSettingsPanel } from "../../../src/ui/v2TitleSettingsPanel";
+import { V2_DEFAULT_PORTRAIT_DIRECTORY } from "../../../src/v2/v2CharacterAssignments";
 import { doV2TitleSettingsSnapshotsMatch } from "../../../src/v2/titleSettingsSession";
 import type { V2HumanTargetSnapshot } from "../../../src/v2/combatTypes";
 import { selectV2PlayerNoGunTouchTargetIds } from "../../../src/v2/survivalRuntime";
@@ -100,6 +101,40 @@ export const runTitleSettingsTests = async () => [
     assert(restarted.get().school.roomDisorderLevel === 2, "全resetで既定値に戻りません。");
     assert(memory.writes.length === 2, "変更とresetが各1回保存されていません。");
     return "変更1回・reset1回を保存し、再起動復元";
+  }),
+  await executeTest("組込みデフォルトスプライトの保存・再起動", () => {
+    const catalogsWithoutBuiltInPortrait = Object.freeze({
+      portraitDirectories: Object.freeze(["01_hgsv_mb"]),
+      voiceDirectories: CATALOGS.voiceDirectories
+    });
+    const memory = createStorage();
+    const store = createV2TitleSettingsStore(
+      memory.storage,
+      catalogsWithoutBuiltInPortrait
+    );
+    store.load();
+    store.save({
+      ...store.get(),
+      character: {
+        ...store.get().character,
+        portraitDirectory: V2_DEFAULT_PORTRAIT_DIRECTORY
+      }
+    });
+    assert(
+      store.get().character.portraitDirectory ===
+        V2_DEFAULT_PORTRAIT_DIRECTORY,
+      "組込みデフォルトスプライトが保存時にnullへ正規化されました。"
+    );
+    const restarted = createV2TitleSettingsStore(
+      memory.storage,
+      catalogsWithoutBuiltInPortrait
+    );
+    assert(
+      restarted.load().character.portraitDirectory ===
+        V2_DEFAULT_PORTRAIT_DIRECTORY,
+      "組込みデフォルトスプライトを再起動後に復元できません。"
+    );
+    return "カタログ外の00_defaultをcanonical保存して再起動復元";
   }),
   await executeTest("snapshot深い不変性・開始後非反映", () => {
     const memory = createStorage();
