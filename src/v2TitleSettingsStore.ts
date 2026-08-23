@@ -216,12 +216,16 @@ export const normalizeV2InstantExecutionSettings = (
     playerTargetMethod ? 0 : 1
   );
   const centralTargetCount = targetNpcCount + (playerTargetMethod ? 1 : 0);
+  const usesNpcShooters = method === "player-npc" || method === "npc-npc";
+  const minimumSurroundingNpcCount = usesNpcShooters
+    ? centralTargetCount
+    : 0;
   const surroundingNpcCount = normalizeInteger(
     source.surroundingNpcCount,
-    centralTargetCount,
+    minimumSurroundingNpcCount,
     99 - targetNpcCount,
     Math.max(
-      centralTargetCount,
+      minimumSurroundingNpcCount,
       Math.min(99 - targetNpcCount, V2_DEFAULT_TITLE_SETTINGS.execution.surroundingNpcCount)
     )
   );

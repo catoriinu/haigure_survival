@@ -183,6 +183,61 @@ export const runTitleModeTests = async () => [
     assert(replayScenario === courtyard.instantPublicExecutionScenario, "R再演参照が同一scenarioではありません。");
     return "0／中央6／NPC99／BIT50、校庭・体育館、同一scenario参照";
   }),
+  await executeTest("非NPC射手方式は周囲NPC 0を保存・復元", () => {
+    const cases = Object.freeze([
+      Object.freeze({ method: "player-bit" as const, targetNpcCount: 0 }),
+      Object.freeze({ method: "npc-bit" as const, targetNpcCount: 6 }),
+      Object.freeze({ method: "npc-player" as const, targetNpcCount: 6 })
+    ]);
+    for (const executionCase of cases) {
+      const memory = createStorage();
+      const store = createV2TitleSettingsStore(memory.storage, CATALOGS);
+      store.load();
+      store.save({
+        ...store.get(),
+        execution: {
+          method: executionCase.method,
+          targetNpcCount: executionCase.targetNpcCount,
+          surroundingNpcCount: 0,
+          surroundingBitCount: 50
+        }
+      });
+      assert(
+        store.get().execution.surroundingNpcCount === 0,
+        `${executionCase.method}で周囲NPC 0を保存できません。`
+      );
+      const restarted = createV2TitleSettingsStore(memory.storage, CATALOGS);
+      const restored = restarted.load();
+      assert(
+        restored.execution.surroundingNpcCount === 0,
+        `${executionCase.method}で周囲NPC 0を再起動復元できません。`
+      );
+      const snapshot = createV2SessionStartSnapshot({
+        startMode: "instant-public-execution",
+        settings: restored,
+        venueRandom: () => 0
+      });
+      assert(
+        snapshot.runtimePopulation.npcCount === executionCase.targetNpcCount,
+        `${executionCase.method}のNPC人口が対象NPC数と一致しません。`
+      );
+      assert(
+        snapshot.instantPublicExecutionScenario?.audienceNpcIds.length === 0,
+        `${executionCase.method}で観客0人scenarioを作成できません。`
+      );
+    }
+    const playerNpc = settingsForMethod("player-npc", 0, 0, 0);
+    const npcNpc = settingsForMethod("npc-npc", 6, 0, 0);
+    assert(
+      playerNpc.execution.surroundingNpcCount === 1,
+      "player-npcのNPC射手最小1人補正がありません。"
+    );
+    assert(
+      npcNpc.execution.surroundingNpcCount === 6,
+      "npc-npcのNPC射手最小6人補正がありません。"
+    );
+    return "player-bit／npc-bit／npc-playerは0人、NPC射手2方式だけ対象人数まで補正";
+  }),
   await executeTest("Mission／Alarm 4組合せの生成資源", () => {
     for (const missionEnabled of [false, true]) {
       for (const alarmEnabled of [false, true]) {

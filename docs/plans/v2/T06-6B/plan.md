@@ -29,6 +29,10 @@
 > - タイトルのバージョン表示を`ver.2.0.0`にする。
 > - `NOW LOADING`は英語表記のまま維持する。
 
+2026-08-23 PR #80レビュー対応指示:
+
+> コードレビューでコメントが入ったので確認して妥当であれば対応してください。そしてインラインコメントに返信してください。
+
 ## 目的
 
 T06-6AのV2専用`V2TitleSettings` snapshotへ即時公開処刑設定、Mission、Alarmを追加し、通常開始と5方式の直接開始を同じ明示契約へ接続する。
@@ -78,6 +82,7 @@ T06-6AのV2専用`V2TitleSettings` snapshotへ即時公開処刑設定、Mission
 - [x] モード切替ボタンの状態別配色とタイトル設定UIの1px拡大を行う
 - [x] 追補fixture、実Web／Electron、回帰、配布検査を完了して追補結果をcommitする
 - [x] タイトルのloading表示を`NOW LOADING`へ戻し、実画面と配布検査を確認する
+- [x] PR #80の指摘を検証し、非NPC射手方式で周囲NPC 0を保存・復元できるよう正規化を修正する
 
 ## 結果
 
@@ -97,3 +102,5 @@ T06-6AのV2専用`V2TitleSettings` snapshotへ即時公開処刑設定、Mission
 - 追補後のT05 fixtureは323/323、T06-4は37/37、T06-6Aは12/12、T06-6Bは13/13を実ブラウザでPASSし、console warning／errorは0件だった。実タイトルで日本語表示、MUTE、`ver.2.0.0`、赤／黄切替を確認した。
 - 追補後のElectron受入で通常タイトル、5方式、R再演、Mission／Alarm 4組合せをPASSし、console／load／process異常は0件だった。通常build、V2依存監査、Web配布監査、テキスト配布検査、`git diff --check`もPASSし、バイナリ、学校資産、NavMesh、生成器、ローカル絶対パスの追加は0件だった。
 - 最終追補でloading表示を`NOW LOADING`へ戻し、`MUTE`、VOICE、BGM、SE、NPCと同様に指定された英語表記として維持した。
+- PR #80の未解決レビュー1件を妥当と判定し、周囲NPCの対象人数下限をNPC射手方式（`player-npc`／`npc-npc`）だけへ限定した。`player-bit`／`npc-bit`／`npc-player`は周囲NPC 0をcanonical保存・再起動復元でき、観客0人scenarioと対象NPCだけのRuntime人口を生成する。
+- レビュー修正後のT06-6B fixtureは14/14、T06-6A回帰は12/12を実ブラウザでPASSし、console warning／errorは0件だった。関連typecheck／build、通常build、V2依存監査、Web配布監査もPASSした。
