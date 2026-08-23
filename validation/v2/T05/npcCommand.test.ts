@@ -463,6 +463,12 @@ const createNpcCommandFixture = async (
     characterVisuals,
     npcCount,
     initialBrainwashedNpcCount,
+    brainwashSettings: Object.freeze({
+      instantBrainwash: false,
+      brainwashOnNoGunTouch: false,
+      gunPercent: 45,
+      noGunPercent: 45
+    }),
     diagnosticsEnabled: true,
     random: createInitializationRandom(
       npcCount,
@@ -634,6 +640,14 @@ const testPlayerActions = async () => {
     "drain後にactionが残っています。"
   );
 
+  dispatchKey("KeyW");
+  dispatchKey("KeyW", true);
+  assert(
+    input.drainPressedActions().join("|") ===
+      "release-assembly-control",
+    "WASDの新規押下だけを整列操作解放actionとして取得できません。"
+  );
+
   dispatchKey("KeyF");
   input.reset();
   assert(
@@ -655,13 +669,14 @@ const testPlayerActions = async () => {
     () => input.drainPressedActions(),
     "dispose後の入力参照が拒否されません。"
   );
-  return "7 actionを発生順に一度だけdrainし、repeat/reset/blur/disposeを確認";
+  return "7 actionとWASD整列解放edgeを一度だけdrainし、repeat/reset/blur/disposeを確認";
 };
 
 const testPlayerGunFireEventSnapshot = async () => {
   const gunPlayer = createV2PlayerCombatSystem({
     playerId: "player",
     initialState: "brainwash-complete-gun",
+    instantBrainwash: false,
     random: () => 0.5
   });
   const callerDirection = new Vector3(0, 0, 4);
@@ -705,6 +720,7 @@ const testPlayerGunFireEventSnapshot = async () => {
     const player = createV2PlayerCombatSystem({
       playerId: `player-${state}`,
       initialState: state,
+      instantBrainwash: false,
       random: () => 0.5
     });
     assert(
@@ -2315,6 +2331,7 @@ const testBrainwashedFollowersAndSynchronizedFire = async () => {
   const playerCombat = createV2PlayerCombatSystem({
     playerId: "player",
     initialState: "brainwash-complete-gun",
+    instantBrainwash: false,
     random: () => 0.5
   });
   try {
@@ -2693,6 +2710,7 @@ const testActualBeamCompletionEvents = async () => {
   const playerCombat = createV2PlayerCombatSystem({
     playerId: "player",
     initialState: "brainwash-complete-gun",
+    instantBrainwash: false,
     random: () => 0.5
   });
   const hitTargets: V2HumanTargetSnapshot[] = [];
@@ -2904,6 +2922,7 @@ const testActiveBeamSurvivesFollowRelease = async () => {
   const playerCombat = createV2PlayerCombatSystem({
     playerId: "player",
     initialState: "brainwash-complete-gun",
+    instantBrainwash: false,
     random: () => 0.5
   });
   try {
@@ -3682,6 +3701,7 @@ const testCommandLifecycleCleanup = async () => {
   const playerCombat = createV2PlayerCombatSystem({
     playerId: "player",
     initialState: "brainwash-complete-gun",
+    instantBrainwash: false,
     random: () => 0.5
   });
   const fireEvent = playerCombat.requestGunFire(

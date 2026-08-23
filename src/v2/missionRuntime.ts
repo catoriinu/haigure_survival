@@ -439,6 +439,9 @@ export type V2MissionRuntimeOptions = Readonly<{
   playerRandom: () => number;
   npcRandom: () => number;
   broadcastRandom: () => number;
+  completedBrainwashedBroadcastState:
+    | "brainwash-complete-gun"
+    | "brainwash-complete-no-gun";
   npcPort: V2MissionNpcPort;
 }>;
 
@@ -898,6 +901,7 @@ export const createV2MissionRuntime = ({
   playerRandom,
   npcRandom,
   broadcastRandom,
+  completedBrainwashedBroadcastState,
   npcPort
 }: V2MissionRuntimeOptions): V2MissionRuntime => {
   const nextPlayerRandom = validateRandom("player Mission random", playerRandom);
@@ -1912,9 +1916,10 @@ export const createV2MissionRuntime = ({
       ) {
         continue;
       }
-      const causedByPlayerGun =
+      const causedByPlayer =
         transition.hitSourceId === PLAYER_ID &&
-        transition.hitOriginKind === "player-gun";
+        (transition.hitOriginKind === "player-gun" ||
+          transition.hitOriginKind === "player-no-gun-touch");
       const causedByAssistedThirdParty =
         transition.hitSourceId !== null &&
         transition.hitSourceId !== PLAYER_ID &&
@@ -1926,7 +1931,7 @@ export const createV2MissionRuntime = ({
         if (mission.kind === "player-brainwash-target") {
           if (
             transition.currentState === "hit-a" &&
-            (causedByPlayerGun || causedByAssistedThirdParty) &&
+            (causedByPlayer || causedByAssistedThirdParty) &&
             !activeSpecificActorIds.has(transition.npcId)
           ) {
             recordBrainwashProgress(mission, transition.npcId);
@@ -1941,7 +1946,7 @@ export const createV2MissionRuntime = ({
         ) {
           continue;
         }
-        if (causedByPlayerGun || causedByAssistedThirdParty) {
+        if (causedByPlayer || causedByAssistedThirdParty) {
           finishMission(mission, "completed", "target-brainwashed");
         } else {
           finishMission(
@@ -2519,7 +2524,7 @@ export const createV2MissionRuntime = ({
       } else {
         lastSchoolInstruction = "courtyard";
         for (const npcId of npcPort.setCompletedBrainwashedNpcsState(
-          "brainwash-complete-gun"
+          completedBrainwashedBroadcastState
         )) {
           cancelNormalNpcMission(npcId);
         }

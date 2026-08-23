@@ -27,6 +27,7 @@ export const V2_PLAYER_GUN_BEAM_ORIGIN_OFFSET = 0.1;
 export type V2PlayerCombatSystemOptions = Readonly<{
   playerId: string;
   initialState: V2CharacterState;
+  instantBrainwash: boolean;
   random: () => number;
 }>;
 
@@ -38,6 +39,7 @@ export type V2PlayerGunFireEvent = Readonly<{
 export interface V2PlayerCombatSystem {
   update(deltaSeconds: number): V2CharacterStateSnapshot;
   applyImpact(source: V2CharacterImpactSource): boolean;
+  applyNoGunTouchBrainwash(source: V2CharacterImpactSource): boolean;
   setAliveBehaviorState(state: V2AliveBehaviorState): boolean;
   selectCompletion(state: V2PlayerCompletionState): void;
   enterFormationState(): boolean;
@@ -80,6 +82,7 @@ const assertFiniteVector = (name: string, value: Vector3) => {
 export const createV2PlayerCombatSystem = ({
   playerId,
   initialState,
+  instantBrainwash,
   random
 }: V2PlayerCombatSystemOptions): V2PlayerCombatSystem => {
   if (playerId.length === 0) {
@@ -89,12 +92,16 @@ export const createV2PlayerCombatSystem = ({
   const stateSystem = createV2CharacterStateSystem({
     kind: "player",
     initialState,
+    instantBrainwash,
+    npcCompletionPercentages: null,
     random
   });
 
   return {
     update: (deltaSeconds) => stateSystem.update(deltaSeconds),
     applyImpact: (source) => stateSystem.applyImpact(source),
+    applyNoGunTouchBrainwash: (source) =>
+      stateSystem.applyNoGunTouchBrainwash(source),
     setAliveBehaviorState: (state) =>
       stateSystem.setAliveBehaviorState(state),
     selectCompletion: (state) =>

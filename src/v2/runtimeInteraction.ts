@@ -210,7 +210,10 @@ export const dispatchV2RuntimeInteractions = ({
   let doorToggleStarted = false;
 
   for (const action of actions) {
-    if (action === "replay-execution") {
+    if (
+      action === "release-assembly-control" ||
+      action === "replay-execution"
+    ) {
       continue;
     }
     if (action === "interaction-primary") {

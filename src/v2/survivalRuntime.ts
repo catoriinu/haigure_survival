@@ -66,6 +66,7 @@ import {
 
 export type { V2GameplayAudioEvent } from "./gameplayAudioEventQueue";
 import {
+  V2_NPC_CAPTURE_RADIUS,
   createV2NpcSystem,
   type V2NpcBeamImpact,
   type V2NpcBeamSpawn,
@@ -134,6 +135,34 @@ const EMPTY_ALARM_FRAME: V2AlarmFrame = Object.freeze({
   blinks: Object.freeze([])
 });
 
+export const selectV2PlayerNoGunTouchTargetIds = (
+  enabled: boolean,
+  playerState: V2CharacterState,
+  playerFootPosition: Vector3,
+  npcTargets: readonly V2HumanTargetSnapshot[]
+): readonly string[] => {
+  if (!enabled || playerState !== "brainwash-complete-no-gun") {
+    return Object.freeze([]);
+  }
+  const radiusSquared = V2_NPC_CAPTURE_RADIUS * V2_NPC_CAPTURE_RADIUS;
+  return Object.freeze(
+    npcTargets
+      .filter((target) => {
+        if (target.kind !== "npc" || !target.alive || target.brainwashed) {
+          return false;
+        }
+        const deltaX = target.footPosition.x - playerFootPosition.x;
+        const deltaY = target.footPosition.y - playerFootPosition.y;
+        const deltaZ = target.footPosition.z - playerFootPosition.z;
+        return (
+          deltaX * deltaX + deltaY * deltaY + deltaZ * deltaZ <=
+          radiusSquared
+        );
+      })
+      .map((target) => target.id)
+  );
+};
+
 export type V2SurvivalPhase =
   | "playing"
   | "assembly"
@@ -192,6 +221,7 @@ export type V2SurvivalFrame = Readonly<{
   assemblyVenueId: string;
   mission: V2MissionFrame;
   playerState: V2CharacterState;
+  playerNoGunTouchBrainwashProgress: number | null;
   playerCompletionUnlocked: boolean;
   playerCanMove: boolean;
   npcCount: number;
@@ -288,6 +318,7 @@ export interface V2SurvivalRuntime {
   getFrame(): V2SurvivalFrame;
   drainAudioEvents(): readonly V2GameplayAudioEvent[];
   canPlayerMove(): boolean;
+  releaseAssemblyPlayerControl(): boolean;
   selectPlayerCompletion(state: V2PlayerCompletionState): void;
   getNpcCommandCandidates(): readonly V2NpcCommandCandidate[];
   requestNpcCommand(npcId: string, kind: V2NpcCommandKind): boolean;
@@ -357,6 +388,7 @@ export type V2SurvivalRuntimeOptions = Readonly<{
   player: V2PlayerController;
   initialPlayerState: V2CharacterState;
   characterVisuals: V2CharacterVisualRuntime;
+  showGroundShadows: boolean;
   random: () => number;
   npcSpawnRandom: () => number;
   bitSpawnRandom: () => number;
@@ -365,6 +397,12 @@ export type V2SurvivalRuntimeOptions = Readonly<{
   broadcastMissionRandom: () => number;
   getOrbVisibilityPredicate(): (position: Vector3) => boolean;
   population: V2SurvivalPopulation;
+  brainwashSettings: Readonly<{
+    instantBrainwash: boolean;
+    brainwashOnNoGunTouch: boolean;
+    gunPercent: number;
+    noGunPercent: number;
+  }>;
   performanceDiagnostics: V2PerformanceDiagnostics | null;
   performanceWorkloadScenario: V2PerformanceScenario | null;
   releaseStageTraversalForScriptedPhase(): void;
@@ -450,6 +488,7 @@ export const createV2SurvivalRuntime = ({
   player,
   initialPlayerState,
   characterVisuals,
+  showGroundShadows,
   random,
   npcSpawnRandom,
   bitSpawnRandom,
@@ -458,6 +497,7 @@ export const createV2SurvivalRuntime = ({
   broadcastMissionRandom,
   getOrbVisibilityPredicate,
   population,
+  brainwashSettings,
   performanceDiagnostics,
   performanceWorkloadScenario,
   releaseStageTraversalForScriptedPhase,
@@ -519,6 +559,7 @@ export const createV2SurvivalRuntime = ({
   const playerCombat = createV2PlayerCombatSystem({
     playerId: PLAYER_ID,
     initialState: initialPlayerState,
+    instantBrainwash: brainwashSettings.instantBrainwash,
     random
   });
 
@@ -575,6 +616,7 @@ export const createV2SurvivalRuntime = ({
       npcCount: population.npcCount,
       initialBrainwashedNpcCount:
         population.initialBrainwashedNpcCount,
+      brainwashSettings,
       diagnosticsEnabled: performanceDiagnostics !== null,
       random,
       spawnRandom: npcSpawnRandom,
@@ -588,6 +630,10 @@ export const createV2SurvivalRuntime = ({
       playerRandom: playerMissionRandom,
       npcRandom: npcMissionRandom,
       broadcastRandom: broadcastMissionRandom,
+      completedBrainwashedBroadcastState:
+        brainwashSettings.brainwashOnNoGunTouch
+          ? "brainwash-complete-no-gun"
+          : "brainwash-complete-gun",
       npcPort: ownedNpcSystem
     });
     ownedBitSystem = createV2BitSystem(scene, stage, {
@@ -600,6 +646,7 @@ export const createV2SurvivalRuntime = ({
       spawnProjectionMaxDistance: 0.75,
       combatEnabled: true,
       modeMuzzleColorEnabled: false,
+      showGroundShadows,
       random,
       spawnRandom: bitSpawnRandom,
       playerSpawn,
@@ -704,6 +751,7 @@ export const createV2SurvivalRuntime = ({
 
   let disposed = false;
   let phase: V2SurvivalPhase = "playing";
+  let assemblyPlayerControlReleased = false;
   let hostileActionsSuspendedByRuntime = false;
   let frozenAssemblyVenue: StageAssemblyVenue | null = null;
   let missionFrame = missionRuntime.getFrame();
@@ -895,6 +943,7 @@ export const createV2SurvivalRuntime = ({
         .getFrameView()
         .captures
         .some((capture) => capture.targetId === PLAYER_ID),
+      assemblyPlayerControlReleased,
       executionPlayerRole:
         executionSystem.getFrame().candidate?.playerRole ?? null
     });
@@ -965,6 +1014,7 @@ export const createV2SurvivalRuntime = ({
     freezeAssemblyVenue();
     clearCombatForPhaseTransition();
     executionSystem.reset();
+    assemblyPlayerControlReleased = false;
     phase = "assembly";
     placeHumansForAssembly();
   };
@@ -1251,6 +1301,69 @@ export const createV2SurvivalRuntime = ({
     }
   };
 
+  const applyNoGunContactBrainwashImpacts = (): void => {
+    const impacts = npcSystem.drainContactBrainwashImpacts();
+    let playerImpactAccepted = false;
+    for (const impact of impacts) {
+      const target = humanTargets.find(
+        (candidate) => candidate.id === impact.targetId
+      );
+      if (!target) {
+        throw new Error(
+          `銃なし接触洗脳の対象がありません: ${impact.targetId}`
+        );
+      }
+      const source = Object.freeze({
+        sourceId: impact.sourceNpcId,
+        originKind: "npc-no-gun-touch" as const
+      });
+      const accepted =
+        impact.targetId === PLAYER_ID
+          ? playerCombat.applyNoGunTouchBrainwash(source)
+          : npcSystem.applyNoGunTouchBrainwashImpacts(
+              Object.freeze([
+                Object.freeze({
+                  npcId: impact.targetId,
+                  source,
+                  playerNoGunAssisted: false
+                })
+              ])
+            )[0].accepted;
+      if (!accepted) {
+        continue;
+      }
+      playerImpactAccepted ||= impact.targetId === PLAYER_ID;
+    }
+    if (playerImpactAccepted) {
+      npcSystem.notifyPlayerImpactAccepted();
+    }
+
+    const playerTargetIds = selectV2PlayerNoGunTouchTargetIds(
+      brainwashSettings.brainwashOnNoGunTouch,
+      playerCombat.getStateSnapshot().state,
+      player.getFootPosition(),
+      npcSystem.getFrameView().targets
+    );
+    if (playerTargetIds.length === 0) {
+      return;
+    }
+    const source = Object.freeze({
+      sourceId: PLAYER_ID,
+      originKind: "player-no-gun-touch" as const
+    });
+    npcSystem.applyNoGunTouchBrainwashImpacts(
+      Object.freeze(
+        playerTargetIds.map((npcId) =>
+          Object.freeze({
+            npcId,
+            source,
+            playerNoGunAssisted: false
+          })
+        )
+      )
+    );
+  };
+
   const buildBitThreats = (
     frameView: V2BitFrameView,
     actorById: ReadonlyMap<string, V2ActorSphere>,
@@ -1503,6 +1616,8 @@ export const createV2SurvivalRuntime = ({
       assemblyVenueId: currentAssemblyVenue.id,
       mission: missionFrame,
       playerState: playerStateSnapshot.state,
+      playerNoGunTouchBrainwashProgress:
+        playerStateSnapshot.noGunTouchBrainwashProgress,
       playerCompletionUnlocked:
         playerStateSnapshot.playerCompletionUnlocked,
       playerCanMove: canPlayerMove(),
@@ -1645,6 +1760,10 @@ export const createV2SurvivalRuntime = ({
         performanceDiagnostics.count("npc.route-plans", 0);
         performanceDiagnostics.count(
           "npc.waiting-for-path",
+          0
+        );
+        performanceDiagnostics.count(
+          "npc.direct-movement-while-waiting",
           0
         );
         performanceDiagnostics.count(
@@ -1810,6 +1929,7 @@ export const createV2SurvivalRuntime = ({
           getPlayerTarget(),
           alarmFrame.events
         );
+        applyNoGunContactBrainwashImpacts();
         performanceDiagnostics?.finishSection(
           "npc",
           performanceSectionStartedAt
@@ -1822,6 +1942,10 @@ export const createV2SurvivalRuntime = ({
         performanceDiagnostics?.count(
           "npc.waiting-for-path",
           npcFrameView.waitingForPathCount
+        );
+        performanceDiagnostics?.count(
+          "npc.direct-movement-while-waiting",
+          npcFrameView.directMovementWhileWaitingCount
         );
         performanceDiagnostics?.count(
           "npc.pursuit.area",
@@ -2056,6 +2180,7 @@ export const createV2SurvivalRuntime = ({
           getPlayerTarget(),
           EMPTY_ALARM_FRAME.events
         );
+        applyNoGunContactBrainwashImpacts();
         performanceDiagnostics?.finishSection(
           "npc",
           performanceSectionStartedAt
@@ -2068,6 +2193,10 @@ export const createV2SurvivalRuntime = ({
         performanceDiagnostics?.count(
           "npc.waiting-for-path",
           npcFrameView.waitingForPathCount
+        );
+        performanceDiagnostics?.count(
+          "npc.direct-movement-while-waiting",
+          npcFrameView.directMovementWhileWaitingCount
         );
         performanceDiagnostics?.count(
           "npc.pursuit.area",
@@ -2289,6 +2418,15 @@ export const createV2SurvivalRuntime = ({
     canPlayerMove: () => {
       assertActive();
       return canPlayerMove();
+    },
+    releaseAssemblyPlayerControl: () => {
+      assertActive();
+      if (phase !== "assembly" || assemblyPlayerControlReleased) {
+        return false;
+      }
+      assemblyPlayerControlReleased = true;
+      frame = buildFrame();
+      return true;
     },
     selectPlayerCompletion: (state) => {
       assertActive();

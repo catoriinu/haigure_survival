@@ -264,6 +264,7 @@ const createRuntime = async (
         playerSpawn,
         player,
         initialPlayerState: "normal",
+        showGroundShadows: false,
         characterVisuals,
         random: createV2SeededRandom(V2_PERFORMANCE_DEFAULT_SEED),
         npcSpawnRandom: createV2SeededRandom(
@@ -283,6 +284,12 @@ const createRuntime = async (
         ),
         getOrbVisibilityPredicate,
         population: V2_PERFORMANCE_ACCEPTANCE_POPULATION,
+        brainwashSettings: Object.freeze({
+          instantBrainwash: false,
+          brainwashOnNoGunTouch: false,
+          gunPercent: 45,
+          noGunPercent: 45
+        }),
         performanceDiagnostics,
         performanceWorkloadScenario,
         releaseStageTraversalForScriptedPhase: () => {},
@@ -692,6 +699,10 @@ export const runSurvivalRuntimeLifecycleTests = async (
     let followVisibleBeforeTransition = false;
     let fireAccepted = false;
     let phaseAfterTransition = "playing";
+    let assemblyMovementBeforeRelease = false;
+    let assemblyReleaseAccepted = false;
+    let assemblyMovementAfterRelease = false;
+    let duplicateAssemblyReleaseRejected = false;
     let activeBeamCountAfterTransition = -1;
     let phaseGuardedCandidateCount = -1;
     let phaseGuardedRequestAccepted = true;
@@ -713,6 +724,7 @@ export const runSurvivalRuntimeLifecycleTests = async (
         playerSpawn,
         player: commandPlayer,
         initialPlayerState: "normal",
+        showGroundShadows: false,
         characterVisuals: commandCharacterVisuals,
         random: gunNpcRandom,
         npcSpawnRandom: createV2SeededRandom(
@@ -737,6 +749,12 @@ export const runSurvivalRuntimeLifecycleTests = async (
           initialBitCount: 0,
           bitReinforcementIntervalSeconds: 10,
           maximumBitCount: 0
+        }),
+        brainwashSettings: Object.freeze({
+          instantBrainwash: false,
+          brainwashOnNoGunTouch: false,
+          gunPercent: 45,
+          noGunPercent: 45
         }),
         performanceDiagnostics: null,
         performanceWorkloadScenario: null,
@@ -851,6 +869,12 @@ export const runSurvivalRuntimeLifecycleTests = async (
         elevatorSnapshots
       );
       phaseAfterTransition = transitionFrame.phase;
+      assemblyMovementBeforeRelease = commandRuntime.canPlayerMove();
+      assemblyReleaseAccepted =
+        commandRuntime.releaseAssemblyPlayerControl();
+      assemblyMovementAfterRelease = commandRuntime.canPlayerMove();
+      duplicateAssemblyReleaseRejected =
+        !commandRuntime.releaseAssemblyPlayerControl();
       activeBeamCountAfterTransition =
         transitionFrame.activeBeamCount;
       phaseGuardedCandidateCount =
@@ -890,6 +914,10 @@ export const runSurvivalRuntimeLifecycleTests = async (
           followVisibleBeforeTransition &&
           fireAccepted &&
           phaseAfterTransition === "assembly" &&
+          !assemblyMovementBeforeRelease &&
+          assemblyReleaseAccepted &&
+          assemblyMovementAfterRelease &&
+          duplicateAssemblyReleaseRejected &&
           scriptedPhaseTraversalReleaseCount === 1 &&
           activeBeamCountAfterTransition === 0 &&
           phaseGuardedCandidateCount === 0 &&
@@ -904,6 +932,8 @@ export const runSurvivalRuntimeLifecycleTests = async (
           `follow=${followVisible}->${followVisibleBeforeTransition} / ` +
           `fire=${fireAccepted} / ` +
           `phase=${phaseAfterTransition} / ` +
+          `move=${assemblyMovementBeforeRelease}->${assemblyMovementAfterRelease} / ` +
+          `release=${assemblyReleaseAccepted}/${duplicateAssemblyReleaseRejected} / ` +
           `traversalRelease=${scriptedPhaseTraversalReleaseCount} / ` +
           `beams=${activeBeamCountAfterTransition} / ` +
           `guardCandidates=${phaseGuardedCandidateCount} / ` +

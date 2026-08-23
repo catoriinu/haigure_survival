@@ -5,6 +5,7 @@ import {
   MeshBuilder,
   NullEngine,
   Scene,
+  StandardMaterial,
   Vector3
 } from "@babylonjs/core";
 
@@ -31,6 +32,7 @@ import type { StageSpatialContext } from "../../../src/world/stageSpatialContext
 import type { StageVolume } from "../../../src/world/stageSpatialQueries";
 import {
   V2_BIT_MUZZLE_COLOR_BY_MODE,
+  V2_BIT_MUZZLE_RED,
   V2_BIT_ROUTE_SAFETY_CACHE_MAX_ENTRIES,
   createV2BitSystem,
   resolveV2BitMuzzleColor,
@@ -50,6 +52,7 @@ import type {
   V2ExternalAlert,
   V2HumanTargetSnapshot
 } from "../../../src/v2/combatTypes";
+import { V2_TRANSPARENT_ALPHA_INDEX_SPATIAL } from "../../../src/v2/v2TransparentRenderingOrder";
 import type {
   BitSystemAcceptanceFixture
 } from "./bitSystemAcceptance.test";
@@ -603,6 +606,7 @@ const createHarness = (
   const system = createV2BitSystem(scene, spatial, {
     combatEnabled: true,
     modeMuzzleColorEnabled,
+    showGroundShadows: false,
     initialBitCount,
     reinforcementIntervalSeconds: 1_000_000,
     maximumBitCount: initialBitCount + 1,
@@ -1790,6 +1794,7 @@ const runRedTransitionSpeedCheck = (
   const system = createV2BitSystem(fixture.scene, spatial, {
     combatEnabled: true,
     modeMuzzleColorEnabled: false,
+    showGroundShadows: false,
     initialBitCount: 1,
     reinforcementIntervalSeconds: 10,
     maximumBitCount: 1,
@@ -1913,7 +1918,8 @@ const auditBitMuzzleInstanceColors = (system: V2BitSystem): void => {
     const actual = muzzle.instancedBuffers.color;
     const expected = resolveV2BitMuzzleColor(
       state.mode,
-      auditConfig.modeMuzzleColorEnabled
+      auditConfig.modeMuzzleColorEnabled,
+      state.isRed
     );
     if (!(actual instanceof Color4) || !colorsApproximatelyEqual(actual, expected)) {
       throw new Error(
@@ -5779,6 +5785,7 @@ const colorsApproximatelyEqual = (left: Color4, right: Color4): boolean =>
 
 const runBitMuzzleColorContractCheck = (): BitCombatIntegrationCheck => {
   const disabled = createHarness(1, () => true);
+  const red = createHarness(1, () => true, true);
   const enabled = createHarness(
     1,
     () => true,
@@ -5818,6 +5825,9 @@ const runBitMuzzleColorContractCheck = (): BitCombatIntegrationCheck => {
     const enabledMuzzle = enabled.scene.getMeshByName(
       `${enabled.system.getFrameView().targetStates[0].bitId}_muzzle`
     );
+    const redMuzzle = red.scene.getMeshByName(
+      `${red.system.getFrameView().targetStates[0].bitId}_muzzle`
+    );
     const disabledColor =
       disabledMuzzle instanceof InstancedMesh
         ? disabledMuzzle.instancedBuffers.color
@@ -5826,13 +5836,39 @@ const runBitMuzzleColorContractCheck = (): BitCombatIntegrationCheck => {
       enabledMuzzle instanceof InstancedMesh
         ? enabledMuzzle.instancedBuffers.color
         : null;
+    red.system.update({
+      deltaSeconds: 0,
+      elapsedSeconds: 0,
+      targets: Object.freeze([]),
+      externalAlerts: EMPTY_ALERTS
+    });
+    const redColor =
+      redMuzzle instanceof InstancedMesh
+        ? redMuzzle.instancedBuffers.color
+        : null;
+    const bodySource = disabled.scene.getMeshByName("v2BitBodySource");
+    const redBodySource = disabled.scene.getMeshByName("v2RedBitBodySource");
+    const muzzleSource = disabled.scene.getMeshByName("v2BitMuzzleSource");
+    const depthContract =
+      bodySource instanceof Mesh &&
+      redBodySource instanceof Mesh &&
+      muzzleSource instanceof Mesh &&
+      bodySource.hasVertexAlpha &&
+      redBodySource.hasVertexAlpha &&
+      muzzleSource.hasVertexAlpha &&
+      bodySource.alphaIndex === V2_TRANSPARENT_ALPHA_INDEX_SPATIAL &&
+      redBodySource.alphaIndex === V2_TRANSPARENT_ALPHA_INDEX_SPATIAL &&
+      muzzleSource.alphaIndex === V2_TRANSPARENT_ALPHA_INDEX_SPATIAL &&
+      (bodySource.material as StandardMaterial).forceDepthWrite &&
+      (redBodySource.material as StandardMaterial).forceDepthWrite &&
+      (muzzleSource.material as StandardMaterial).forceDepthWrite;
     const disabledContract = modes.every((mode) =>
-      colorsApproximatelyEqual(resolveV2BitMuzzleColor(mode, false), black)
+      colorsApproximatelyEqual(resolveV2BitMuzzleColor(mode, false, false), black)
     );
     const enabledContract = modes.every(
       (mode) =>
         colorsApproximatelyEqual(
-          resolveV2BitMuzzleColor(mode, true),
+          resolveV2BitMuzzleColor(mode, true, false),
           expected[mode]
         ) &&
         colorsApproximatelyEqual(V2_BIT_MUZZLE_COLOR_BY_MODE[mode], expected[mode])
@@ -5855,22 +5891,27 @@ const runBitMuzzleColorContractCheck = (): BitCombatIntegrationCheck => {
       disabledMuzzle.instancedBuffers.color === disabledColor &&
       enabledMuzzle.instancedBuffers.color === enabledColor;
     return Object.freeze({
-      name: "BIT先端球は通常黒・デバッグON時だけ9モード固定色",
+      name: "BIT機体は空間距離順＋深度write・通常先端黒・赤BIT先端赤・デバッグ9色",
       ok:
         disabledColor instanceof Color4 &&
         enabledColor instanceof Color4 &&
+        redColor instanceof Color4 &&
         colorsApproximatelyEqual(disabledColor, black) &&
         colorsApproximatelyEqual(enabledColor, black) &&
+        colorsApproximatelyEqual(redColor, V2_BIT_MUZZLE_RED) &&
         disabledContract &&
         enabledContract &&
-        colorReferencesStable,
+        colorReferencesStable &&
+        depthContract,
       detail:
         `instance=${disabledColor instanceof Color4}/${enabledColor instanceof Color4} / ` +
         `disabled=${disabledContract} / enabled=${enabledContract} / ` +
-        `stable=${colorReferencesStable}`
+        `red=${redColor instanceof Color4} / stable=${colorReferencesStable} / ` +
+        `depth=${depthContract}`
     });
   } finally {
     disabled.dispose();
+    red.dispose();
     enabled.dispose();
   }
 };

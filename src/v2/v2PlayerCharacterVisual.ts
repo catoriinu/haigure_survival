@@ -101,6 +101,7 @@ export const resolveV2FirstPersonCharacterVisualFrameToRef = (
 export type V2PlayerCharacterVisualUpdate = Readonly<{
   active: boolean;
   state: V2CharacterState;
+  noGunTouchBrainwashProgress: number | null;
   footPosition: Vector3;
   viewForward: Vector3;
   facingYaw: number;
@@ -131,6 +132,7 @@ export const createV2PlayerCharacterVisual = (
     cameraRenderOffset: Vector3.Zero()
   };
   let currentState: V2CharacterState | null = null;
+  let currentNoGunTouchBrainwashProgress: number | null = null;
   let disposed = false;
 
   const assertActive = (): void => {
@@ -149,10 +151,21 @@ export const createV2PlayerCharacterVisual = (
   return Object.freeze({
     update: (update: V2PlayerCharacterVisualUpdate) => {
       assertActive();
-      const { active, state, footPosition, viewForward, facingYaw } = update;
-      if (currentState !== state) {
-        handle.setState(state, false);
+      const {
+        active,
+        state,
+        noGunTouchBrainwashProgress,
+        footPosition,
+        viewForward,
+        facingYaw
+      } = update;
+      if (
+        currentState !== state ||
+        currentNoGunTouchBrainwashProgress !== noGunTouchBrainwashProgress
+      ) {
+        handle.setState(state, false, noGunTouchBrainwashProgress);
         currentState = state;
+        currentNoGunTouchBrainwashProgress = noGunTouchBrainwashProgress;
       }
       resolveV2FirstPersonCharacterVisualFrameToRef(
         {

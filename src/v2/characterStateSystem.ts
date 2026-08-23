@@ -11,6 +11,7 @@ import {
 export const V2_HIT_FLICKER_DURATION_SECONDS = 3;
 export const V2_HIT_FLICKER_INTERVAL_SECONDS = 0.12;
 export const V2_HIT_FADE_DURATION_SECONDS = 1;
+export const V2_NO_GUN_TOUCH_BRAINWASH_DURATION_SECONDS = 4;
 export const V2_NPC_BRAINWASH_DECISION_SECONDS = 10;
 export const V2_NPC_HAIGURE_DECISION_SECONDS = 10;
 export const V2_NPC_BRAINWASH_STAY_CHANCE = 0.5;
@@ -35,6 +36,7 @@ export type V2CharacterStateSnapshot = Readonly<{
   hitPhaseRemainingSeconds: number;
   hitSourceId: string | null;
   hitOriginKind: V2BeamOriginKind | null;
+  noGunTouchBrainwashProgress: number | null;
   playerCompletionUnlocked: boolean;
 }>;
 
@@ -42,15 +44,22 @@ export type V2CharacterStateSystemOptions = Readonly<{
   kind: V2HumanKind;
   initialState: V2CharacterState;
   random: () => number;
+  instantBrainwash: boolean;
+  npcCompletionPercentages: Readonly<{
+    gun: number;
+    noGun: number;
+  }> | null;
 }>;
 
 export type V2CharacterBrainwashStartedEvent = Readonly<{
   source: V2CharacterImpactSource;
+  currentState: V2CharacterState;
 }>;
 
 export interface V2CharacterStateSystem {
   update(deltaSeconds: number): V2CharacterStateSnapshot;
   applyImpact(source: V2CharacterImpactSource): boolean;
+  applyNoGunTouchBrainwash(source: V2CharacterImpactSource): boolean;
   setAliveBehaviorState(state: V2AliveBehaviorState): boolean;
   enterFormationState(): boolean;
   prepareExecutionTarget(): void;
@@ -86,10 +95,30 @@ const createInitialHitPhase = (
 export const createV2CharacterStateSystem = ({
   kind,
   initialState,
-  random
+  random,
+  instantBrainwash,
+  npcCompletionPercentages
 }: V2CharacterStateSystemOptions): V2CharacterStateSystem => {
   if (typeof random !== "function") {
     throw new Error("character state randomには関数が必要です。");
+  }
+  if (kind === "npc" && npcCompletionPercentages === null) {
+    throw new Error("NPC洗脳完了状態比率がありません。");
+  }
+  if (kind === "player" && npcCompletionPercentages !== null) {
+    throw new Error("PlayerへNPC洗脳完了状態比率を指定できません。");
+  }
+  if (npcCompletionPercentages !== null) {
+    const { gun, noGun } = npcCompletionPercentages;
+    if (
+      !Number.isInteger(gun) ||
+      !Number.isInteger(noGun) ||
+      gun < 0 ||
+      noGun < 0 ||
+      gun + noGun > 100
+    ) {
+      throw new Error("NPC洗脳完了状態比率には合計100以下の非負整数が必要です。");
+    }
   }
 
   let state = initialState;
@@ -100,6 +129,7 @@ export const createV2CharacterStateSystem = ({
     hitPhase === "flicker" ? V2_HIT_FLICKER_DURATION_SECONDS : 0;
   let hitSourceId: string | null = null;
   let hitOriginKind: V2BeamOriginKind | null = null;
+  let noGunTouchBrainwashElapsedSeconds: number | null = null;
   let playerCompletionUnlocked =
     kind === "player" && isV2PlayerCompletionState(initialState);
   const pendingBrainwashStartedEvents: V2CharacterBrainwashStartedEvent[] = [];
@@ -115,6 +145,44 @@ export const createV2CharacterStateSystem = ({
   const setState = (nextState: V2CharacterState) => {
     state = nextState;
     stateElapsedSeconds = 0;
+  };
+
+  const pickNpcCompletionState = (): V2CharacterState => {
+    if (npcCompletionPercentages === null) {
+      throw new Error("NPC洗脳完了状態比率がありません。");
+    }
+    const roll = nextRandom() * 100;
+    if (roll < npcCompletionPercentages.gun) {
+      return "brainwash-complete-gun";
+    }
+    if (roll < npcCompletionPercentages.gun + npcCompletionPercentages.noGun) {
+      return "brainwash-complete-no-gun";
+    }
+    return "brainwash-complete-haigure";
+  };
+
+  const enterBrainwash = (): void => {
+    if (hitSourceId === null || hitOriginKind === null) {
+      throw new Error("洗脳開始時に命中元がありません。");
+    }
+    const nextState = instantBrainwash
+      ? kind === "npc"
+        ? pickNpcCompletionState()
+        : "brainwash-complete-haigure"
+      : "brainwash-in-progress";
+    setState(nextState);
+    pendingBrainwashStartedEvents.push(
+      Object.freeze({
+        source: Object.freeze({
+          sourceId: hitSourceId,
+          originKind: hitOriginKind
+        }),
+        currentState: nextState
+      })
+    );
+    if (kind === "player") {
+      playerCompletionUnlocked = true;
+    }
   };
 
   const setScriptedExecutionState = (
@@ -133,6 +201,7 @@ export const createV2CharacterStateSystem = ({
     hitPhaseRemainingSeconds = 0;
     hitSourceId = null;
     hitOriginKind = null;
+    noGunTouchBrainwashElapsedSeconds = null;
     playerCompletionUnlocked = false;
   };
 
@@ -146,6 +215,14 @@ export const createV2CharacterStateSystem = ({
       hitPhaseRemainingSeconds,
       hitSourceId,
       hitOriginKind,
+      noGunTouchBrainwashProgress:
+        noGunTouchBrainwashElapsedSeconds === null
+          ? null
+          : Math.min(
+              1,
+              noGunTouchBrainwashElapsedSeconds /
+                V2_NO_GUN_TOUCH_BRAINWASH_DURATION_SECONDS
+            ),
       playerCompletionUnlocked
     });
 
@@ -187,21 +264,27 @@ export const createV2CharacterStateSystem = ({
       hitPhase = "none";
       hitPhaseElapsedSeconds = 0;
       hitPhaseRemainingSeconds = 0;
-      setState("brainwash-in-progress");
-      if (hitSourceId === null || hitOriginKind === null) {
-        throw new Error("洗脳開始時に命中元がありません。");
-      }
-      pendingBrainwashStartedEvents.push(
-        Object.freeze({
-          source: Object.freeze({
-            sourceId: hitSourceId,
-            originKind: hitOriginKind
-          })
-        })
-      );
-      if (kind === "player") {
-        playerCompletionUnlocked = true;
-      }
+      enterBrainwash();
+    }
+    return consumedSeconds;
+  };
+
+  const updateNoGunTouchBrainwash = (availableSeconds: number) => {
+    if (noGunTouchBrainwashElapsedSeconds === null) {
+      throw new Error("銃なし接触洗脳の経過時間がありません。");
+    }
+    const remainingSeconds =
+      V2_NO_GUN_TOUCH_BRAINWASH_DURATION_SECONDS -
+      noGunTouchBrainwashElapsedSeconds;
+    const consumedSeconds = Math.min(availableSeconds, remainingSeconds);
+    noGunTouchBrainwashElapsedSeconds += consumedSeconds;
+    stateElapsedSeconds += consumedSeconds;
+    if (
+      noGunTouchBrainwashElapsedSeconds >=
+      V2_NO_GUN_TOUCH_BRAINWASH_DURATION_SECONDS
+    ) {
+      noGunTouchBrainwashElapsedSeconds = null;
+      enterBrainwash();
     }
     return consumedSeconds;
   };
@@ -254,6 +337,10 @@ export const createV2CharacterStateSystem = ({
       );
       let remainingSeconds = deltaSeconds;
       while (remainingSeconds > 0) {
+        if (noGunTouchBrainwashElapsedSeconds !== null) {
+          remainingSeconds -= updateNoGunTouchBrainwash(remainingSeconds);
+          continue;
+        }
         if (hitPhase === "flicker") {
           remainingSeconds -= updateFlicker(remainingSeconds);
           continue;
@@ -292,6 +379,24 @@ export const createV2CharacterStateSystem = ({
       }
       return true;
     },
+    applyNoGunTouchBrainwash: (source) => {
+      assertImpactSource(source);
+      if (!isV2AliveState(state)) {
+        return false;
+      }
+      state = "hit-a";
+      stateElapsedSeconds = 0;
+      hitPhase = "none";
+      hitPhaseElapsedSeconds = 0;
+      hitPhaseRemainingSeconds = 0;
+      hitSourceId = source.sourceId;
+      hitOriginKind = source.originKind;
+      noGunTouchBrainwashElapsedSeconds = 0;
+      if (kind === "player") {
+        playerCompletionUnlocked = false;
+      }
+      return true;
+    },
     setAliveBehaviorState: (nextState) => {
       if (!isV2AliveState(state)) {
         return false;
@@ -320,6 +425,7 @@ export const createV2CharacterStateSystem = ({
       hitPhaseRemainingSeconds = 0;
       hitSourceId = null;
       hitOriginKind = null;
+      noGunTouchBrainwashElapsedSeconds = null;
       playerCompletionUnlocked = false;
     },
     prepareExecutionAudience: () => {
@@ -345,6 +451,7 @@ export const createV2CharacterStateSystem = ({
       hitPhaseRemainingSeconds = 0;
       hitSourceId = null;
       hitOriginKind = null;
+      noGunTouchBrainwashElapsedSeconds = null;
       return true;
     },
     drainBrainwashStartedEvents: () => {
@@ -363,6 +470,7 @@ export const createV2CharacterStateSystem = ({
       hitPhase = "none";
       hitPhaseElapsedSeconds = 0;
       hitPhaseRemainingSeconds = 0;
+      noGunTouchBrainwashElapsedSeconds = null;
     },
     getSnapshot
   };

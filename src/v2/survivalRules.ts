@@ -24,6 +24,7 @@ export type V2PlayerMovementRuleInput = Readonly<{
   phase: V2SurvivalRulePhase;
   playerState: V2CharacterState;
   playerCaptured: boolean;
+  assemblyPlayerControlReleased: boolean;
   executionPlayerRole: V2ExecutionPlayerRole | null;
 }>;
 
@@ -31,6 +32,7 @@ export const canV2SurvivalPlayerMove = ({
   phase,
   playerState,
   playerCaptured,
+  assemblyPlayerControlReleased,
   executionPlayerRole
 }: V2PlayerMovementRuleInput): boolean => {
   if (phase === "playing") {
@@ -40,6 +42,9 @@ export const canV2SurvivalPlayerMove = ({
       playerState === "brainwash-complete-gun" ||
       playerState === "brainwash-complete-no-gun";
     return stateAllowsMovement && !playerCaptured;
+  }
+  if (phase === "assembly") {
+    return assemblyPlayerControlReleased;
   }
   if (
     phase === "execution" ||

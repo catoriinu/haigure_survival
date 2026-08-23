@@ -10,6 +10,7 @@ export type V2PlayerAction =
   | "select-gun"
   | "select-no-gun"
   | "select-haigure"
+  | "release-assembly-control"
   | "replay-execution";
 
 export type V2PlayerInput = {
@@ -24,6 +25,10 @@ const MOVE_CODES = ["KeyW", "KeyA", "KeyS", "KeyD"] as const;
 const DASH_CODES = ["ShiftLeft", "ShiftRight"] as const;
 const CONTROL_CODES = new Set<string>([...MOVE_CODES, ...DASH_CODES]);
 const ACTION_BY_CODE = new Map<string, V2PlayerAction>([
+  ["KeyW", "release-assembly-control"],
+  ["KeyA", "release-assembly-control"],
+  ["KeyS", "release-assembly-control"],
+  ["KeyD", "release-assembly-control"],
   ["KeyF", "interaction-primary"],
   ["KeyE", "interaction-secondary"],
   ["KeyC", "door-toggle"],

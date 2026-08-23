@@ -10,6 +10,11 @@ import {
 import {
   createSchoolRuntimeRandom
 } from "../../../src/world/schoolRuntimeSettings";
+import {
+  V2_DEFAULT_TITLE_SETTINGS,
+  V2_TITLE_SETTINGS_STORAGE_KEY,
+  createV2TitleSettingsStore
+} from "../../../src/v2TitleSettingsStore";
 
 import { assert, executeTest } from "./testUtils";
 
@@ -17,7 +22,7 @@ const createStorage = (initialValue?: unknown) => {
   const values = new Map<string, string>();
   if (initialValue !== undefined) {
     values.set(
-      "haigure-survival.title-settings",
+      V2_TITLE_SETTINGS_STORAGE_KEY,
       JSON.stringify(initialValue)
     );
   }
@@ -31,7 +36,7 @@ const createStorage = (initialValue?: unknown) => {
       }
     }),
     read: () => {
-      const serialized = values.get("haigure-survival.title-settings");
+      const serialized = values.get(V2_TITLE_SETTINGS_STORAGE_KEY);
       return serialized === undefined
         ? null
         : (JSON.parse(serialized) as Record<string, unknown>);
@@ -184,8 +189,13 @@ export const runCharacterAssignmentTests = async () =>
     }),
     executeTest("Character設定のrandom既定値", () => {
       const fixture = createStorage();
-      const store = createV2CharacterSettingsStore(
+      const settingsStore = createV2TitleSettingsStore(
         fixture.storage,
+        { portraitDirectories: [V2_DEFAULT_PORTRAIT_DIRECTORY, "01_hgsv_mb"], voiceDirectories: ["01_devil"] }
+      );
+      settingsStore.load();
+      const store = createV2CharacterSettingsStore(
+        settingsStore,
         Object.freeze(["01_hgsv_mb"]),
         Object.freeze(["01_devil"])
       );
@@ -201,40 +211,59 @@ export const runCharacterAssignmentTests = async () =>
     }),
     executeTest("Character縦角度の既存設定正規化・false保持", () => {
       const missingFixture = createStorage({
-        language: "ja",
-        playerSettings: {
+        ...V2_DEFAULT_TITLE_SETTINGS,
+        display: {
+          eyeHeightScale: 1.2,
+          showGroundShadows: true
+        },
+        character: {
           portraitDirectory: null,
           voiceDirectory: null,
-          futurePlayerField: "keep"
+          futureCharacterField: "remove"
         }
       });
-      const missingStore = createV2CharacterSettingsStore(
+      const missingSettingsStore = createV2TitleSettingsStore(
         missingFixture.storage,
+        { portraitDirectories: [V2_DEFAULT_PORTRAIT_DIRECTORY, "01_hgsv_mb"], voiceDirectories: ["01_devil"] }
+      );
+      const missingStore = createV2CharacterSettingsStore(
+        missingSettingsStore,
         Object.freeze(["01_hgsv_mb"]),
         Object.freeze(["01_devil"])
       );
+      missingSettingsStore.load();
       const normalized = missingStore.load();
       const normalizedRoot = missingFixture.read() as {
-        playerSettings?: Record<string, unknown>;
+        display?: Record<string, unknown>;
+        character?: Record<string, unknown>;
       };
       const falseFixture = createStorage({
-        playerSettings: {
-          portraitDirectory: null,
-          voiceDirectory: null,
+        ...V2_DEFAULT_TITLE_SETTINGS,
+        display: {
+          ...V2_DEFAULT_TITLE_SETTINGS.display,
           enableCharacterSpriteVerticalAngle: false
+        },
+        character: {
+          portraitDirectory: null,
+          voiceDirectory: null
         }
       });
-      const falseStore = createV2CharacterSettingsStore(
+      const falseSettingsStore = createV2TitleSettingsStore(
         falseFixture.storage,
+        { portraitDirectories: [V2_DEFAULT_PORTRAIT_DIRECTORY, "01_hgsv_mb"], voiceDirectories: ["01_devil"] }
+      );
+      const falseStore = createV2CharacterSettingsStore(
+        falseSettingsStore,
         Object.freeze(["01_hgsv_mb"]),
         Object.freeze(["01_devil"])
       );
+      falseSettingsStore.load();
       const loadedFalse = falseStore.load();
       assert(
         normalized.enableCharacterSpriteVerticalAngle === true &&
-          normalizedRoot.playerSettings
+          normalizedRoot.display
             ?.enableCharacterSpriteVerticalAngle === true &&
-          normalizedRoot.playerSettings?.futurePlayerField === "keep" &&
+          normalizedRoot.character?.futureCharacterField === undefined &&
           missingFixture.getWriteCount() === 1 &&
           loadedFalse.enableCharacterSpriteVerticalAngle === false &&
           falseFixture.getWriteCount() === 0,
@@ -244,21 +273,25 @@ export const runCharacterAssignmentTests = async () =>
           loadedFalse
         })}`
       );
-      return "未設定だけtrueへ1回正規化し、保存済みfalseと未知fieldを保持";
+      return "未設定だけtrueへ1回正規化し、保存済みfalseを保持、未知fieldを削除";
     }),
     executeTest("Character設定保存時の既存field保持", () => {
       const fixture = createStorage({
-        language: "ja",
-        volumeLevels: { voice: 4, futureCategory: 9 },
-        playerSettings: {
-          heightCells: 0.9,
-          futurePlayerField: true,
+        ...V2_DEFAULT_TITLE_SETTINGS,
+        audio: { voice: 4, bgm: 3, se: 2, futureCategory: 9 },
+        character: {
           portraitDirectory: "missing",
           voiceDirectory: "02_cool"
-        }
+        },
+        futureField: true
       });
-      const store = createV2CharacterSettingsStore(
+      const settingsStore = createV2TitleSettingsStore(
         fixture.storage,
+        { portraitDirectories: [V2_DEFAULT_PORTRAIT_DIRECTORY, "01_hgsv_mb"], voiceDirectories: ["01_devil", "02_cool"] }
+      );
+      settingsStore.load();
+      const store = createV2CharacterSettingsStore(
+        settingsStore,
         Object.freeze(["01_hgsv_mb"]),
         Object.freeze(["01_devil", "02_cool"])
       );
@@ -271,25 +304,24 @@ export const runCharacterAssignmentTests = async () =>
         })
       );
       const stored = fixture.read() as {
-        language?: unknown;
-        volumeLevels?: Record<string, unknown>;
-        playerSettings?: Record<string, unknown>;
+        audio?: Record<string, unknown>;
+        character?: Record<string, unknown>;
+        display?: Record<string, unknown>;
+        futureField?: unknown;
       };
       assert(
-        loaded.portraitDirectory === null &&
+          loaded.portraitDirectory === null &&
           loaded.voiceDirectory === "02_cool" &&
-          stored.language === "ja" &&
-          stored.volumeLevels?.voice === 4 &&
-          stored.volumeLevels?.futureCategory === 9 &&
-          stored.playerSettings?.heightCells === 0.9 &&
-          stored.playerSettings?.futurePlayerField === true &&
-          stored.playerSettings?.portraitDirectory ===
+          stored.audio?.voice === 4 &&
+          stored.audio?.futureCategory === undefined &&
+          stored.futureField === undefined &&
+          stored.character?.portraitDirectory ===
             V2_DEFAULT_PORTRAIT_DIRECTORY &&
-          stored.playerSettings?.voiceDirectory === null &&
-          stored.playerSettings?.enableCharacterSpriteVerticalAngle === false,
+          stored.character?.voiceDirectory === null &&
+          stored.display?.enableCharacterSpriteVerticalAngle === false,
         `Character部分保存で既存設定が失われました: ${JSON.stringify(stored)}`
       );
-      return "組込みdefaultと縦角度falseを保存し、音量・未知fieldを保持";
+      return "組込みdefaultと縦角度falseを保存し、音量を保持、未知fieldを削除";
     }),
     executeTest("Character割当の再生成境界", () => {
       const options = Object.freeze({

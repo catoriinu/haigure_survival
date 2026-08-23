@@ -96,6 +96,7 @@ const createBitSystem = (
     spawnProjectionMaxDistance: 0.75,
     combatEnabled: input.combatEnabled,
     modeMuzzleColorEnabled: false,
+    showGroundShadows: false,
     random: input.random,
     spawnRandom: input.spawnRandom ?? createSeededRandom(0x0620_2b17),
     playerSpawn: fixture.selectedPlayerSpawn,
@@ -520,6 +521,12 @@ const testBrainwashedNpcOrderAndSelectedExclusion = async () => {
     characterVisuals: visuals,
     npcCount: 4,
     initialBrainwashedNpcCount: 2,
+    brainwashSettings: Object.freeze({
+      instantBrainwash: false,
+      brainwashOnNoGunTouch: false,
+      gunPercent: 45,
+      noGunPercent: 45
+    }),
     diagnosticsEnabled: false,
     random: () => 0.5,
     spawnRandom: createSeededRandom(0x0620_2c18),
@@ -583,6 +590,12 @@ const testNpcSpawnSeedDeterminism = async () => {
       characterVisuals: visuals,
       npcCount: 4,
       initialBrainwashedNpcCount: 2,
+      brainwashSettings: Object.freeze({
+        instantBrainwash: false,
+        brainwashOnNoGunTouch: false,
+        gunPercent: 45,
+        noGunPercent: 45
+      }),
       diagnosticsEnabled: false,
       random: createSchoolRuntimeRandom(seed, "core"),
       spawnRandom: createSchoolRuntimeRandom(seed, "npc-spawn"),
@@ -680,6 +693,12 @@ const testNpcBiasPopulation50AndSessionLifecycle = async () => {
       characterVisuals: visuals,
       npcCount: 50,
       initialBrainwashedNpcCount: 10,
+      brainwashSettings: Object.freeze({
+        instantBrainwash: false,
+        brainwashOnNoGunTouch: false,
+        gunPercent: 45,
+        noGunPercent: 45
+      }),
       diagnosticsEnabled: false,
       random: createSchoolRuntimeRandom(seed, "core"),
       spawnRandom: createSchoolRuntimeRandom(seed, "npc-spawn"),

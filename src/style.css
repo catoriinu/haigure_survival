@@ -786,6 +786,233 @@ body {
   border-color: #3a3a3a;
 }
 
+.v2-title-settings {
+  position: absolute;
+  inset: 0;
+  color: #f5f5f5;
+  font-family: "IBM Plex Mono", "Fira Code", ui-monospace, monospace;
+  pointer-events: none;
+}
+
+.v2-title-settings__stage-host,
+.v2-title-settings__audio-host,
+.v2-title-settings__main-host {
+  position: absolute;
+  box-sizing: border-box;
+  pointer-events: auto;
+}
+
+.v2-title-settings__stage-host {
+  top: 16px;
+  left: 16px;
+  width: min(390px, calc(38vw - 24px));
+}
+
+.v2-title-settings__audio-host {
+  bottom: 16px;
+  left: 16px;
+  width: 286px;
+}
+
+.v2-title-settings__main-host {
+  top: 16px;
+  right: 16px;
+  width: min(380px, calc(42vw - 24px));
+  max-height: calc(100vh - 68px);
+  padding: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.24);
+  border-radius: 8px;
+  background: rgba(10, 10, 10, 0.9);
+  overflow: auto;
+}
+
+.v2-title-settings__main-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 8px;
+}
+
+.v2-title-settings__section {
+  min-width: 0;
+  padding: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.04);
+  box-sizing: border-box;
+}
+
+.v2-title-settings__section--stage,
+.v2-title-settings__section--audio {
+  border-color: rgba(255, 255, 255, 0.24);
+  background: rgba(10, 10, 10, 0.9);
+}
+
+.v2-title-settings__section-title {
+  margin: 0 0 8px;
+  color: #b7ddff;
+  font-size: 14px;
+  letter-spacing: 0.08em;
+}
+
+.v2-title-settings__row {
+  display: grid;
+  grid-template-columns: minmax(112px, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  margin-top: 5px;
+  font-size: 12px;
+}
+
+.v2-title-settings__row--range {
+  grid-template-columns: minmax(112px, 0.8fr) minmax(152px, 1.2fr);
+}
+
+.v2-title-settings__label {
+  min-width: 0;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.v2-title-settings__value {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  min-width: 0;
+}
+
+.v2-title-settings__number,
+.v2-title-settings__select,
+.v2-title-settings__reset,
+.v2-title-settings__audio-button,
+.v2-title-settings__mode-placeholder {
+  min-width: 0;
+  border: 1px solid #444444;
+  border-radius: 4px;
+  background: #141414;
+  color: #f5f5f5;
+  font: inherit;
+}
+
+.v2-title-settings__number {
+  width: 58px;
+  height: 24px;
+  padding: 0 5px;
+  box-sizing: border-box;
+}
+
+.v2-title-settings__select {
+  width: min(220px, 20vw);
+  height: 26px;
+  padding: 0 5px;
+}
+
+.v2-title-settings__range {
+  width: min(150px, 11vw);
+  min-width: 92px;
+  accent-color: #b7ddff;
+}
+
+.v2-title-settings__output {
+  display: inline-block;
+  min-width: 4.5ch;
+  color: #ffffff;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.v2-title-settings__checkbox {
+  width: 18px;
+  height: 18px;
+  margin: 0;
+}
+
+.v2-title-settings__row--disabled {
+  color: #777777;
+  opacity: 0.58;
+}
+
+.v2-title-settings input:disabled,
+.v2-title-settings select:disabled,
+.v2-title-settings button:disabled {
+  border-color: #303030;
+  background: #1b1b1b;
+  color: #777777;
+  accent-color: #555555;
+  cursor: not-allowed;
+  filter: grayscale(1);
+}
+
+.v2-title-settings__gameover-warning {
+  margin: 0 0 8px;
+  padding: 7px 8px;
+  border: 1px solid rgba(255, 92, 92, 0.7);
+  border-radius: 5px;
+  background: rgba(92, 0, 0, 0.82);
+  color: #ffd4d4;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.v2-title-settings__reset {
+  display: block;
+  margin: 12px 0 0 auto;
+  padding: 7px 12px;
+  cursor: pointer;
+}
+
+.v2-title-settings__audio-host .v2-title-settings__row {
+  grid-template-columns: 48px auto;
+}
+
+.v2-title-settings__audio-button {
+  width: 28px;
+  height: 24px;
+  padding: 0;
+  cursor: pointer;
+}
+
+.v2-title-settings__audio-button--mute {
+  width: 50px;
+  margin-left: 4px;
+}
+
+.v2-title-settings__audio-host .v2-title-settings__output {
+  width: 5ch;
+  text-align: center;
+}
+
+.v2-title-settings__mode-placeholder,
+.v2-title-settings__mode-placeholder-note {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+}
+
+.v2-title-settings__mode-placeholder {
+  top: calc(50% + 108px);
+  padding: 8px 14px;
+  color: #a8a8a8;
+  opacity: 0.8;
+}
+
+.v2-title-settings__mode-placeholder-note {
+  top: calc(50% + 148px);
+  color: #a8a8a8;
+  font-size: 11px;
+}
+
+#titleVersion {
+  right: 16px;
+  left: auto;
+}
+
+@media (max-width: 1100px) {
+  .v2-title-settings__main-host {
+    width: min(360px, calc(50vw - 24px));
+  }
+}
+
 #crosshair {
   position: absolute;
   left: 50%;

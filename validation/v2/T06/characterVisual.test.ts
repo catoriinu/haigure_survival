@@ -140,25 +140,31 @@ export const runCharacterVisualTests = async (): Promise<
       const expectedMaximumHeight =
         1.7 * BLENDER_METERS_TO_WORLD_UNITS;
       assert(
-        getV2CharacterVisualCellIndex("normal", false, "portrait") === 0 &&
-          getV2CharacterVisualCellIndex("evade", false, "portrait") === 1 &&
-          getV2CharacterVisualCellIndex("hit-a", false, "portrait") === 2 &&
-          getV2CharacterVisualCellIndex("hit-b", false, "portrait") === 3 &&
+        getV2CharacterVisualCellIndex("normal", false, "portrait", null) === 0 &&
+          getV2CharacterVisualCellIndex("evade", false, "portrait", null) === 1 &&
+          getV2CharacterVisualCellIndex("hit-a", false, "portrait", null) === 2 &&
+          getV2CharacterVisualCellIndex("hit-b", false, "portrait", null) === 3 &&
           getV2CharacterVisualCellIndex(
             "brainwash-in-progress",
             false,
-            "portrait"
+            "portrait",
+            null
           ) === 4 &&
           getV2CharacterVisualCellIndex(
             "brainwash-complete-no-gun",
             true,
-            "portrait"
+            "portrait",
+            null
           ) === 5 &&
           getV2CharacterVisualCellIndex(
             "brainwash-complete-haigure-formation",
             false,
-            "portrait"
+            "portrait",
+            null
           ) === 7 &&
+          getV2CharacterVisualCellIndex("hit-a", false, "portrait", 0) === 8 &&
+          getV2CharacterVisualCellIndex("hit-a", false, "portrait", 0.5) === 16 &&
+          getV2CharacterVisualCellIndex("hit-a", false, "portrait", 1) === 24 &&
           Math.abs(size.width / size.height - 832 / 1216) <= 0.000001 &&
           V2_CHARACTER_VISUAL_MAX_WIDTH === 1 / 3 &&
           Math.abs(V2_CHARACTER_VISUAL_MAX_HEIGHT - expectedMaximumHeight) <=
@@ -172,14 +178,16 @@ export const runCharacterVisualTests = async (): Promise<
             0.000001,
         `状態cellまたは縦横比が不正です: ${JSON.stringify(size)}`
       );
-      return "portrait 8cell、temporary gun、幅1/3・学校実寸1.70m上限";
+      return "portrait 8cell＋銃なし接触17cell、temporary gun、幅1/3・学校実寸1.70m上限";
     }),
     executeTest("camera-facing Character表示Runtimeの所有契約", async () => {
       const engine = new NullEngine();
       const scene = new Scene(engine);
-      const runtime = await createV2CharacterVisualRuntime({
-        scene,
-        orientationMode: "camera-facing",
+    const runtime = await createV2CharacterVisualRuntime({
+      scene,
+      showGroundShadows: false,
+      orientationMode: "camera-facing",
+      includeNoGunTouchBlendFrames: false,
         assignments: Object.freeze([
           Object.freeze({
             actorId: "player",
@@ -191,7 +199,7 @@ export const runCharacterVisualTests = async (): Promise<
       try {
         const handle = runtime.createSprite("player", "fixture-player");
         const playerSize = runtime.getActorVisualSize("player");
-        handle.setState("brainwash-complete-gun", false);
+        handle.setState("brainwash-complete-gun", false, null);
         handle.syncPresentation();
         assert(
           handle.sprite.cellIndex === 3 &&
@@ -238,9 +246,11 @@ export const runCharacterVisualTests = async (): Promise<
     executeTest("upright Character表示Runtimeの同期と破棄", async () => {
       const engine = new NullEngine();
       const scene = new Scene(engine);
-      const runtime = await createV2CharacterVisualRuntime({
-        scene,
-        orientationMode: "upright",
+    const runtime = await createV2CharacterVisualRuntime({
+      scene,
+      showGroundShadows: true,
+      orientationMode: "upright",
+      includeNoGunTouchBlendFrames: false,
         assignments: Object.freeze([
           Object.freeze({
             actorId: "player",
@@ -292,8 +302,11 @@ export const runCharacterVisualTests = async (): Promise<
         first.sprite.position.copyFromFloats(1, 2, 3);
         first.sprite.color = new Color4(0.25, 0.5, 0.75, 0.4);
         first.sprite.isVisible = true;
-        first.setState("hit-a", false);
+        first.setState("hit-a", false, null);
         first.syncPresentation();
+        const firstShadow = scene.getMeshByName(
+          "V2CharacterGroundShadow_fixture-upright-first"
+        );
         const uvData = firstMesh.getVerticesData(VertexBuffer.UVKind);
         const colorData = firstMesh.getVerticesData(VertexBuffer.ColorKind);
         assert(
@@ -314,8 +327,12 @@ export const runCharacterVisualTests = async (): Promise<
             Math.abs((uvData[2] as number) - 2 / 6) <= 0.000001 &&
             colorData !== null &&
             Math.abs((colorData[0] as number) - 0.25) <= 0.000001 &&
-            Math.abs((colorData[3] as number) - 0.4) <= 0.000001,
-          "upright Planeへ位置・寸法・yaw・cell UV・色alphaが同期されません。"
+            Math.abs((colorData[3] as number) - 0.4) <= 0.000001 &&
+            firstShadow !== null &&
+            firstShadow.alphaIndex === V2_TRANSPARENT_ALPHA_INDEX_SPATIAL &&
+            firstShadow.scaling.x > firstShadow.scaling.z &&
+            Math.abs(firstShadow.rotation.y - Math.PI / 3) <= 0.000001,
+          "upright Planeまたは横長の地面影へ位置・寸法・yaw・cell UV・色alphaが同期されません。"
         );
 
         let positionWriteCount = 0;
@@ -403,9 +420,11 @@ export const runCharacterVisualTests = async (): Promise<
       camera.maxZ = 10;
       scene.activeCamera = camera;
 
-      const runtime = await createV2CharacterVisualRuntime({
-        scene,
-        orientationMode: "upright",
+    const runtime = await createV2CharacterVisualRuntime({
+      scene,
+      showGroundShadows: false,
+      orientationMode: "upright",
+      includeNoGunTouchBlendFrames: false,
         assignments: Object.freeze([
           Object.freeze({
             actorId: "npc-001",

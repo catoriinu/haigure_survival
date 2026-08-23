@@ -28,7 +28,9 @@ export const configureV2StageTransparentRenderingOrder = (
       );
     }
   }
-  for (const mesh of windowGlassMeshes) {
-    mesh.alphaIndex = V2_TRANSPARENT_ALPHA_INDEX_SPATIAL;
+  for (const mesh of visualMeshes) {
+    if (mesh.material?.needAlphaBlendingForMesh(mesh)) {
+      mesh.alphaIndex = V2_TRANSPARENT_ALPHA_INDEX_SPATIAL;
+    }
   }
 };

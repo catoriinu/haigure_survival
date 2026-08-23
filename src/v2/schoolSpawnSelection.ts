@@ -14,6 +14,26 @@ export const SCHOOL_PLAYER_SPAWN_IDS = Object.freeze([
   "player-spawn-roof-pool-west-stairs"
 ] as const);
 
+export type SchoolPlayerSpawnId = (typeof SCHOOL_PLAYER_SPAWN_IDS)[number];
+export type V2PlayerSpawnSelection = "random" | SchoolPlayerSpawnId;
+
+export const SCHOOL_PLAYER_SPAWN_OPTIONS = Object.freeze([
+  Object.freeze({ id: "player-spawn-main", label: "1階玄関" }),
+  Object.freeze({ id: "player-spawn-gym-center", label: "体育館中央" }),
+  Object.freeze({ id: "player-spawn-gym-stage", label: "体育館舞台上" }),
+  Object.freeze({ id: "player-spawn-f02-classroom-02", label: "2階普通教室" }),
+  Object.freeze({ id: "player-spawn-f03-classroom-02", label: "3階普通教室" }),
+  Object.freeze({ id: "player-spawn-f04-classroom-02", label: "4階普通教室" }),
+  Object.freeze({ id: "player-spawn-f02-toilet-wash-side", label: "2階トイレ" }),
+  Object.freeze({ id: "player-spawn-f02-council-south", label: "2階生徒会室" }),
+  Object.freeze({ id: "player-spawn-f03-art-south", label: "3階美術室" }),
+  Object.freeze({ id: "player-spawn-f04-music-south", label: "4階音楽室" }),
+  Object.freeze({ id: "player-spawn-roof-pool-west-stairs", label: "屋上プール西側階段付近" })
+] as const satisfies readonly Readonly<{
+  id: SchoolPlayerSpawnId;
+  label: string;
+}>[]);
+
 const requireRandom = (random: () => number) => {
   const value = random();
   if (!Number.isFinite(value) || value < 0 || value >= 1) {
@@ -26,6 +46,7 @@ const requireRandom = (random: () => number) => {
 
 export const selectV2PlayerSpawn = (
   playerSpawns: readonly StagePlayerSpawn[],
+  selection: V2PlayerSpawnSelection,
   random: () => number
 ): StagePlayerSpawn => {
   if (playerSpawns.length === 0) {
@@ -57,5 +78,8 @@ export const selectV2PlayerSpawn = (
     }
     return playerSpawn;
   });
+  if (selection !== "random") {
+    return byId.get(selection)!;
+  }
   return ordered[Math.floor(requireRandom(random) * ordered.length)];
 };
