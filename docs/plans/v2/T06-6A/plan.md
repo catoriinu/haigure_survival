@@ -137,7 +137,7 @@ I4で確定した基本設定を`V2TitleSettings`へ統一し、V1から独立�
 - [x] 組込み`00_default` portraitをカタログ外でもcanonical設定として保存する
 - [x] I4正本の後発指示と現行視点高さ1.15契約を同期する
 - [x] 専用fixture、型検査、build、テキスト配布検査を実行する
-- [ ] レビュー対応結果を記録し、commit・push・元スレッド返信を行う
+- [x] レビュー対応結果を記録し、commit・push・元スレッド返信を行う
 
 ## 結果
 
@@ -166,3 +166,5 @@ BIT本体・先端球・BIT影・Character影・窓・カーテンを同じ空�
 最新差分でT05総合fixture 322／322、T06 fixture 70／70を実ブラウザでPASSした。T05実Runtime遷移では`phase=assembly`、移動可否`false→true`、最初の解放受理、二重解放拒否、資源破棄一致を確認した。T05／T06／T06-6A build、通常buildとWeb配布監査をPASSした。通常Electron受入は初回だけランダムなPlayer洗脳前提が制限時間内に成立しなかったが、その実行でもconsole／renderer／load異常0件であり、再実行は13項目すべてと診断0件でPASSした。テキスト配布検査は変更9ファイルのUTF-8 BOMなし、`git diff --check`、ローカル絶対path追加なしを確認した。
 
 PR #79のインライン指摘2件はいずれも妥当と判定した。統一storeのportrait正式値集合に組込み`00_default`を追加し、通常カタログに存在しない条件でもcanonical保存と再起動復元を保証するfixtureを追加した。I4正本は元の1.20依頼を履歴として保持したまま、T06-6Aの後発1.15指示、現行契約、既定値表、結果を1.15へ同期した。T06-6A専用fixtureは実ブラウザで12／12 PASS、console warning／error 0件、`typecheck:v2`、T06-6A build、通常Web／Electron build、Web配布監査、テキスト配布検査をPASSした。
+
+修正・fixture・正本同期は`4fdf0e7`として`codex/v2-title-settings`へpushした。元の2スレッドへ妥当性判断、修正内容、検証結果、Electron実操作の再確認は未実施であることを返信した。依頼範囲外のスレッドresolve、Ready化、レビュー、mergeは実施していない。
