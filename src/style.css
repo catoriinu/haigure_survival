@@ -864,7 +864,7 @@ body {
 }
 
 .v2-title-settings__section-title {
-  margin: 0 0 8px;
+  margin: 0 0 11px;
   color: #b7ddff;
   font-size: 15px;
   letter-spacing: 0.08em;
@@ -1295,7 +1295,7 @@ body {
 
 #titleOverlay[data-title-layout="wide"] .v2-title-settings__stage-host,
 #titleOverlay[data-title-layout="compact"] .v2-title-settings__stage-host {
-  width: min(300px, 100%);
+  width: min(330px, 100%);
   justify-self: start;
 }
 
@@ -1309,7 +1309,7 @@ body {
 #titleOverlay[data-title-layout="compact"] .v2-title-settings__stage-host .v2-title-settings__row,
 #titleOverlay[data-title-layout="wide"] .v2-title-settings__stage-host .v2-title-settings__row--range,
 #titleOverlay[data-title-layout="compact"] .v2-title-settings__stage-host .v2-title-settings__row--range {
-  grid-template-columns: 90px minmax(0, 1fr);
+  grid-template-columns: 118px minmax(0, 1fr);
   gap: 6px;
 }
 
@@ -1399,12 +1399,12 @@ body {
 }
 
 #titleOverlay[data-title-layout="wide"] .v2-title-settings__main-host .v2-title-settings__section-title {
-  margin-bottom: 4px;
+  margin-bottom: 7px;
 }
 
 #titleOverlay[data-title-layout="wide"] .v2-title-settings__main-host .v2-title-settings__row {
   gap: 7px;
-  margin-top: 2px;
+  margin-top: 5px;
 }
 
 #titleOverlay[data-title-layout="wide"] .v2-title-settings__main-host .v2-title-settings__number,
