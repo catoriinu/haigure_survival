@@ -21,13 +21,12 @@ import { createV2PlayerInput } from "../../../src/v2/playerInput";
 import {
   V2_NORMAL_HORIZONTAL_SPEED_SCALE,
   V2_WATER_HORIZONTAL_SPEED_SCALE,
-  dispatchV2RuntimeExecutionReplay,
   dispatchV2RuntimeInteractions as dispatchV2RuntimeInteractionsBase,
   resolveV2HorizontalSpeedScale,
-  type V2RuntimeExecutionReplaySurvivalPort,
   type V2RuntimeInteractionDoorPort,
   type V2RuntimeInteractionSurvivalPort
 } from "../../../src/v2/runtimeInteraction";
+import { dispatchV2RuntimeEndFlow } from "../../../src/v2/runtimeEndFlow";
 
 import { assert, executeTest } from "./testUtils";
 
@@ -486,51 +485,32 @@ export const runRuntimeInteractionTests = async () =>
       return "同一dispatch内でも4操作を入力順に配送";
     }),
     executeTest("公開処刑Rリプレイのphase guard", () => {
-      let replayCount = 0;
-      const survival = Object.freeze({
-        replayExecution: () => {
-          replayCount += 1;
-        }
-      }) satisfies V2RuntimeExecutionReplaySurvivalPort;
-      const replayActions = Object.freeze([
-        "replay-execution",
-        "replay-execution"
-      ] as const);
+      const replayActions = Object.freeze(["retry"] as const);
       const ignoredResults = [
-        dispatchV2RuntimeExecutionReplay({
-          actions: replayActions,
-          frame: Object.freeze({ phase: "playing" as const }),
-          survival
+        dispatchV2RuntimeEndFlow(replayActions, {
+          phase: "assembly"
         }),
-        dispatchV2RuntimeExecutionReplay({
-          actions: replayActions,
-          frame: Object.freeze({ phase: "assembly" as const }),
-          survival
-        }),
-        dispatchV2RuntimeExecutionReplay({
-          actions: Object.freeze([]),
-          frame: Object.freeze({ phase: "execution" as const }),
-          survival
+        dispatchV2RuntimeEndFlow(Object.freeze([]), {
+          phase: "execution-complete"
         })
       ];
-      const executionResult = dispatchV2RuntimeExecutionReplay({
-        actions: replayActions,
-        frame: Object.freeze({ phase: "execution" as const }),
-        survival
+      const executionResult = dispatchV2RuntimeEndFlow(replayActions, {
+        phase: "execution"
       });
-      const completeResult = dispatchV2RuntimeExecutionReplay({
-        actions: replayActions,
-        frame: Object.freeze({ phase: "execution-complete" as const }),
-        survival
+      const completeResult = dispatchV2RuntimeEndFlow(replayActions, {
+        phase: "execution-complete"
+      });
+      const playingResult = dispatchV2RuntimeEndFlow(replayActions, {
+        phase: "playing"
       });
       assert(
         ignoredResults.every((result) => result === "ignored") &&
-          executionResult === "execution-replayed" &&
-          completeResult === "execution-replayed" &&
-          replayCount === 2,
-        `R配送guardが不正です: ignored=${ignoredResults.join("|")} / execution=${executionResult} / complete=${completeResult} / count=${replayCount}`
+          executionResult === "ignored" &&
+          completeResult === "replay-execution" &&
+          playingResult === "retry-normal-session",
+        `R配送guardが不正です: ignored=${ignoredResults.join("|")} / playing=${playingResult} / execution=${executionResult} / complete=${completeResult}`
       );
-      return "execution中・完了後だけ1dispatchにつき1回replay、通常状態とactionなしは無効";
+      return "playingはretry、execution完了後だけreplay、処刑中・assembly・actionなしは無効";
     }),
     executeTest("水Volume内外の水平速度倍率", () => {
       const transitions = [false, true, true, false, true, false].map(

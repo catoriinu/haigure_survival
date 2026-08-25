@@ -70,11 +70,17 @@ export const runRuntimeSessionLifecycleTests = async () => {
     executeTest("タイトル復帰はPointer Lock解除後に停止状態で再生成する", async () => {
       const events: string[] = [];
       const previousSession: V2ManagedRuntimeSession = Object.freeze({
+        deactivate: async () => {
+          events.push("deactivate-old");
+        },
         dispose: async () => {
           events.push("dispose-old");
         }
       });
       const nextSession: V2ManagedRuntimeSession = Object.freeze({
+        deactivate: async () => {
+          events.push("deactivate-new");
+        },
         dispose: async () => {
           events.push("dispose-new");
         }
@@ -97,7 +103,7 @@ export const runRuntimeSessionLifecycleTests = async () => {
       assert(
         transitioned === nextSession &&
           events.join("|") ===
-            "exit-pointer-lock|show-loading|dispose-old|create-new",
+            "exit-pointer-lock|deactivate-old|show-loading|dispose-old|create-new",
         `タイトル復帰のsession順序が不正です: ${events.join("|")}`
       );
       return `order=${events.join("|")} / 自動開始なし`;
@@ -117,10 +123,11 @@ export const runRuntimeSessionLifecycleTests = async () => {
         });
         subscriptionCount += 1;
         return Object.freeze({
-          dispose: async () => {
+          deactivate: async () => {
             scope.dispose();
             subscriptionCount -= 1;
-          }
+          },
+          dispose: async () => {}
         });
       };
 
@@ -145,6 +152,7 @@ export const runRuntimeSessionLifecycleTests = async () => {
         getSubscriptionCount() === 1 && dispatchCount === 3,
         `再生成中に購読が残留しました: subscriptions=${getSubscriptionCount()}, dispatch=${dispatchCount}`
       );
+      await session.deactivate();
       await session.dispose();
       target.dispatchEvent(new Event("runtime-frame"));
       assert(
@@ -160,6 +168,9 @@ export const runRuntimeSessionLifecycleTests = async () => {
         let terminated = false;
         const transitioned = await transitionV2RuntimeSession({
           currentSession: Object.freeze({
+            deactivate: async () => {
+              events.push("deactivate-old");
+            },
             dispose: async () => {
               events.push("dispose-old");
               terminated = true;
@@ -180,7 +191,7 @@ export const runRuntimeSessionLifecycleTests = async () => {
         });
         assert(
           transitioned === null &&
-            events.join("|") === "show-loading|dispose-old",
+            events.join("|") === "deactivate-old|show-loading|dispose-old",
           `旧session破棄後の終了判定が不正です: ${events.join("|")}`
         );
         return "旧session破棄完了時に終了済みならfactoryを呼ばずnullを返す";
@@ -192,6 +203,9 @@ export const runRuntimeSessionLifecycleTests = async () => {
         const events: string[] = [];
         let terminated = false;
         const nextSession: V2ManagedRuntimeSession = Object.freeze({
+          deactivate: async () => {
+            events.push("deactivate-new");
+          },
           dispose: async () => {
             events.push("dispose-new");
           }
@@ -213,7 +227,7 @@ export const runRuntimeSessionLifecycleTests = async () => {
         assert(
           transitioned === null &&
             events.join("|") ===
-              "show-loading|create-new|dispose-new",
+              "show-loading|create-new|deactivate-new|dispose-new",
           `新session生成後の終了判定が不正です: ${events.join("|")}`
         );
         return "新session生成中に終了した場合は即dispose";
@@ -228,7 +242,10 @@ export const runRuntimeSessionLifecycleTests = async () => {
           runtimeSeed: number
         ): Promise<V2ManagedRuntimeSession> => {
           createdSeeds.push(runtimeSeed);
-          return Object.freeze({ dispose: async () => {} });
+          return Object.freeze({
+            deactivate: async () => {},
+            dispose: async () => {}
+          });
         };
         let session = await createSession(availableSeeds.shift()!);
         const nextSession = await transitionV2RuntimeSession({
@@ -247,6 +264,7 @@ export const runRuntimeSessionLifecycleTests = async () => {
           `session seedの採番が不正です: created=${createdSeeds.join("|")}, remaining=${availableSeeds.length}`
         );
         session = nextSession;
+        await session.deactivate();
         await session.dispose();
         return `初回=${createdSeeds[0]} / 再生成=${createdSeeds[1]}`;
       }

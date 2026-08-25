@@ -214,6 +214,13 @@ app.whenReady().then(async () => {
       `[T06-6B Electron] PASS 即時公開処刑 ${assemblyVenueId} NPC11 BIT10\n`
     );
 
+    await waitFor(
+      "即時公開処刑完了",
+      testWindow,
+      (snapshot) => snapshot.statusText.includes("フェーズ execution-complete"),
+      120_000
+    );
+
     testWindow.webContents.sendInputEvent({ type: "keyDown", keyCode: "R" });
     testWindow.webContents.sendInputEvent({ type: "keyUp", keyCode: "R" });
     await wait(500);
@@ -227,6 +234,12 @@ app.whenReady().then(async () => {
       throw new Error("R再演で会場が変わりました。");
     }
     process.stdout.write("[T06-6B Electron] PASS R再演scenario維持\n");
+    await waitFor(
+      "R再演完了",
+      testWindow,
+      (snapshot) => snapshot.statusText.includes("フェーズ execution-complete"),
+      120_000
+    );
 
     const remainingMethods = [
       { id: "player-npc", npcCount: 11, bitCount: 0, playerState: "evade" },
@@ -280,6 +293,18 @@ app.whenReady().then(async () => {
       process.stdout.write(
         `[T06-6B Electron] PASS ${method.id} NPC${method.npcCount} BIT${method.bitCount} ${method.playerState}\n`
       );
+      if (method.id === "npc-player") {
+        for (let shot = 0; shot < 8; shot += 1) {
+          await sendClick(testWindow, "#renderCanvas");
+          await wait(500);
+        }
+      }
+      await waitFor(
+        `${method.id}公開処刑完了`,
+        testWindow,
+        (snapshot) => snapshot.statusText.includes("フェーズ execution-complete"),
+        120_000
+      );
     }
 
     testWindow.webContents.sendInputEvent({ type: "keyDown", keyCode: "Enter" });
@@ -316,13 +341,16 @@ app.whenReady().then(async () => {
       await testWindow.webContents.executeJavaScript(`(() => {
         const mission = document.querySelector('[data-ui="v2-settings-mission-enabled"]');
         const alarm = document.querySelector('[data-ui="v2-settings-alarm-enabled"]');
-        if (!(mission instanceof HTMLInputElement) || !(alarm instanceof HTMLInputElement)) {
-          throw new Error("Mission／Alarm checkboxがありません。");
+        const playerBrainwashed = document.querySelector('[data-ui="v2-settings-player-brainwashed"]');
+        if (!(mission instanceof HTMLInputElement) || !(alarm instanceof HTMLInputElement) || !(playerBrainwashed instanceof HTMLInputElement)) {
+          throw new Error("Mission／Alarm／Player初期洗脳checkboxがありません。");
         }
         mission.checked = ${combination.missionEnabled};
         mission.dispatchEvent(new Event("change", { bubbles: true }));
         alarm.checked = ${combination.alarmEnabled};
         alarm.dispatchEvent(new Event("change", { bubbles: true }));
+        playerBrainwashed.checked = true;
+        playerBrainwashed.dispatchEvent(new Event("change", { bubbles: true }));
       })()`);
       await sendClick(testWindow, "#renderCanvas");
       const resources = await waitFor(
@@ -351,6 +379,14 @@ app.whenReady().then(async () => {
         `[T06-6B Electron] PASS Mission ${combination.missionEnabled ? "ON" : "OFF"} / Alarm ${combination.alarmEnabled ? "ON" : "OFF"}\n`
       );
       if (combination !== featureCombinations[featureCombinations.length - 1]) {
+        testWindow.webContents.sendInputEvent({ type: "keyDown", keyCode: "Enter" });
+        testWindow.webContents.sendInputEvent({ type: "keyUp", keyCode: "Enter" });
+        await waitFor(
+          "通常epilogue",
+          testWindow,
+          (snapshot) => snapshot.statusText.includes("フェーズ assembly"),
+          10_000
+        );
         testWindow.webContents.sendInputEvent({ type: "keyDown", keyCode: "Enter" });
         testWindow.webContents.sendInputEvent({ type: "keyUp", keyCode: "Enter" });
         await waitFor(

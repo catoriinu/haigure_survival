@@ -117,21 +117,6 @@ export const resolveV2BroadcastInteractionCandidate = ({
   });
 };
 
-export type V2RuntimeExecutionReplaySurvivalPort = Pick<
-  V2SurvivalRuntime,
-  "replayExecution"
->;
-
-export type V2RuntimeExecutionReplayDispatchResult =
-  | "ignored"
-  | "execution-replayed";
-
-export type V2RuntimeExecutionReplayDispatch = Readonly<{
-  actions: readonly V2PlayerAction[];
-  frame: Pick<V2SurvivalFrame, "phase">;
-  survival: V2RuntimeExecutionReplaySurvivalPort;
-}>;
-
 export type V2RuntimeInteractionDoorPort = Pick<
   StageDoorRuntime,
   "requestDoorToggle"
@@ -165,24 +150,6 @@ export type V2RuntimeInteractionFeedback =
       option: "primary" | "secondary";
     }>;
 
-export const dispatchV2RuntimeExecutionReplay = ({
-  actions,
-  frame,
-  survival
-}: V2RuntimeExecutionReplayDispatch): V2RuntimeExecutionReplayDispatchResult => {
-  if (!actions.includes("replay-execution")) {
-    return "ignored";
-  }
-  if (
-    frame.phase === "execution" ||
-    frame.phase === "execution-complete"
-  ) {
-    survival.replayExecution();
-    return "execution-replayed";
-  }
-  return "ignored";
-};
-
 const PLAYER_COMPLETION_BY_ACTION = Object.freeze({
   "select-gun": "brainwash-complete-gun",
   "select-no-gun": "brainwash-complete-no-gun",
@@ -212,7 +179,8 @@ export const dispatchV2RuntimeInteractions = ({
   for (const action of actions) {
     if (
       action === "release-assembly-control" ||
-      action === "replay-execution"
+      action === "retry" ||
+      action === "advance-end-flow"
     ) {
       continue;
     }

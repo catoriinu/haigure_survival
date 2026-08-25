@@ -1104,7 +1104,11 @@ const run = async () => {
     "brainwash-complete-gun"
   );
   assertCondition(gunAgainSnapshot.crosshairVisible, "H→G後に照準が再表示されていません。");
-  assertCondition(!gunAgainSnapshot.helpText.includes("R:"), "通常状態の左HUDにR案内が表示されています。");
+  assertCondition(
+    gunAgainSnapshot.helpText.includes("R: リトライ") &&
+      gunAgainSnapshot.helpText.includes("Enter: タイトルへ戻る"),
+    "Player洗脳後の左HUDにR／Enter案内が表示されていません。"
+  );
   addCheck("G→N→H→G連続再選択", {
     finalState: parseState(gunAgainSnapshot.status),
     crosshairVisible: gunAgainSnapshot.crosshairVisible,
@@ -1112,40 +1116,35 @@ const run = async () => {
   });
 
   await sendKey(testWindow, "R");
-  await wait(250);
-  const ignoredNormalR = await inspectDom(testWindow);
-  assertCondition(!ignoredNormalR.titleVisible, "通常状態のRでタイトルへ遷移しました。");
-  assertCondition(ignoredNormalR.pointerLockId === "renderCanvas", "通常状態のRでPointer Lockが解除されました。");
-  assertCondition(parseState(ignoredNormalR.status) === "brainwash-complete-gun", "通常状態のRでsessionが再生成されました。");
-  addCheck("通常状態のR無効とsession維持", {
-    state: parseState(ignoredNormalR.status),
-    pointerLockId: ignoredNormalR.pointerLockId,
-    hudRootCount: ignoredNormalR.hudRootCount,
-    volumeRootCount: ignoredNormalR.volumeRootCount
-  });
-
-  await sendKey(testWindow, "Enter");
-  const returnedTitle = await waitFor(
-    "Enterタイトル復帰とsession再生成",
+  const retried = await waitFor(
+    "Rリトライと新seed session自動開始",
     testWindow,
     (snapshot) =>
-      snapshot.titleHint === "左クリック：開始" &&
-      snapshot.titleVisible &&
+      !snapshot.titleVisible &&
       snapshot.pointerLockId === null &&
+      snapshot.runtimeSessionSeed !== null &&
+      snapshot.runtimeSessionSeed !== String(initialNpcSpawnReport.sessionSeed) &&
       snapshot.hudRootCount === 1 &&
       snapshot.volumeRootCount === 1 &&
       snapshot.characterSettingsRootCount === 1,
     120_000
   );
   const restartedNpcSpawnReport = assertNpcSpawnReport(
-    returnedTitle,
-    "Enter再生成session"
+    retried,
+    "Rリトライsession"
   );
-  addCheck("Enterタイトル復帰とroot重複0", {
-    pointerLockId: returnedTitle.pointerLockId,
-    hudRootCount: returnedTitle.hudRootCount,
-    volumeRootCount: returnedTitle.volumeRootCount,
-    characterSettingsRootCount: returnedTitle.characterSettingsRootCount,
+  assertCondition(
+    restartedNpcSpawnReport.sessionSeed !== initialNpcSpawnReport.sessionSeed &&
+      restartedNpcSpawnReport.npcCount === initialNpcSpawnReport.npcCount &&
+      restartedNpcSpawnReport.initialBrainwashedNpcCount ===
+        initialNpcSpawnReport.initialBrainwashedNpcCount,
+    "Rリトライで設定snapshot維持または新seed採番に失敗しました。"
+  );
+  addCheck("Rリトライの同設定・新seed・root重複0", {
+    pointerLockId: retried.pointerLockId,
+    hudRootCount: retried.hudRootCount,
+    volumeRootCount: retried.volumeRootCount,
+    characterSettingsRootCount: retried.characterSettingsRootCount,
     npcSpawn: {
       seed: restartedNpcSpawnReport.sessionSeed,
       playerSpawnId: restartedNpcSpawnReport.playerSpawnId,
@@ -1158,25 +1157,6 @@ const run = async () => {
       initialBrainwashedInsideActiveBiasCount:
         restartedNpcSpawnReport.initialBrainwashedInsideActiveBiasCount
     }
-  });
-
-  await sendCanvasClick(testWindow);
-  const restarted = await waitFor(
-    "再開始Pointer Lock",
-    testWindow,
-    (snapshot) =>
-      !snapshot.titleVisible &&
-      snapshot.pointerLockId === "renderCanvas" &&
-      snapshot.hudRootCount === 1 &&
-      snapshot.volumeRootCount === 1 &&
-      snapshot.characterSettingsRootCount === 1,
-    10_000
-  );
-  addCheck("再開始とsession root維持", {
-    pointerLockId: restarted.pointerLockId,
-    hudRootCount: restarted.hudRootCount,
-    volumeRootCount: restarted.volumeRootCount,
-    characterSettingsRootCount: restarted.characterSettingsRootCount
   });
 
   await wait(2_000);

@@ -14,6 +14,14 @@ import { V2_DEFAULT_PORTRAIT_DIRECTORY } from "../v2/v2CharacterAssignments";
 
 export type V2TitleSettingsPanel = Readonly<{
   root: HTMLDivElement;
+  layoutElements: Readonly<{
+    stageHost: HTMLDivElement;
+    audioHost: HTMLDivElement;
+    statusHost: HTMLDivElement;
+    mainHost: HTMLDivElement;
+    mainContent: HTMLDivElement;
+    modeButton: HTMLButtonElement;
+  }>;
   render(settings: V2TitleSettings): void;
   setVisible(visible: boolean): void;
   dispose(): void;
@@ -148,13 +156,16 @@ export const createV2TitleSettingsPanel = ({
   mainHost.className = "v2-title-settings__main-host";
   const mainGrid = document.createElement("div");
   mainGrid.className = "v2-title-settings__main-grid";
+  const statusHost = document.createElement("div");
+  statusHost.className = "v2-title-settings__status-host";
   const gameOverWarning = document.createElement("div");
   gameOverWarning.className = "v2-title-settings__gameover-warning";
   gameOverWarning.dataset.ui = "v2-settings-gameover-warning";
   gameOverWarning.textContent =
     "※現在の設定ではゲームオーバーにならない可能性があります。設定の変更を推奨します。";
-  mainHost.append(gameOverWarning, mainGrid);
-  root.append(stageHost, audioHost, mainHost);
+  statusHost.append(gameOverWarning);
+  mainHost.append(mainGrid);
+  root.append(stageHost, audioHost, statusHost, mainHost);
 
   const populationSection = createSection("人口", "v2-settings-population", "main");
   const npcCountRow = createRow("NPC初期人数");
@@ -666,6 +677,14 @@ export const createV2TitleSettingsPanel = ({
   };
   return Object.freeze({
     root,
+    layoutElements: Object.freeze({
+      stageHost,
+      audioHost,
+      statusHost,
+      mainHost,
+      mainContent: mainGrid,
+      modeButton
+    }),
     render: (nextSettings) => {
       assertActive();
       render(nextSettings);

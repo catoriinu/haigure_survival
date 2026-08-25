@@ -2877,12 +2877,9 @@ export const createV2SurvivalRuntime = ({
     },
     replayExecution: () => {
       assertActive();
-      if (
-        phase !== "execution" &&
-        phase !== "execution-complete"
-      ) {
+      if (phase !== "execution-complete") {
         throw new Error(
-          "公開処刑リプレイは処刑中または完了後に開始してください。"
+          "公開処刑リプレイは処刑完了後に開始してください。"
         );
       }
       const candidate = executionSystem.getFrame().candidate;

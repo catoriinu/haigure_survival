@@ -623,17 +623,18 @@ const testPlayerActions = async () => {
       "select-gun",
       "select-no-gun",
       "select-haigure",
-      "replay-execution"
+      "retry",
+      "advance-end-flow"
     ]);
 
-  ["KeyF", "KeyE", "KeyC", "KeyG", "KeyN", "KeyH", "KeyR"].forEach(
+  ["KeyF", "KeyE", "KeyC", "KeyG", "KeyN", "KeyH", "KeyR", "Enter"].forEach(
     (code) => dispatchKey(code)
   );
   dispatchKey("KeyF", true);
   assert(
     input.drainPressedActions().join("|") ===
       expectedActions.join("|"),
-    "F/E/C/G/N/H/Rのaction順またはrepeat無視が不正です。"
+    "F/E/C/G/N/H/R/Enterのaction順またはrepeat無視が不正です。"
   );
   assert(
     input.drainPressedActions().length === 0,
