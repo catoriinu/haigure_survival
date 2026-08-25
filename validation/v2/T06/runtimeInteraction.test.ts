@@ -488,33 +488,29 @@ export const runRuntimeInteractionTests = async () =>
       const replayActions = Object.freeze(["retry"] as const);
       const ignoredResults = [
         dispatchV2RuntimeEndFlow(replayActions, {
-          phase: "playing",
-          playerCompletionUnlocked: false
-        }),
-        dispatchV2RuntimeEndFlow(replayActions, {
-          phase: "assembly",
-          playerCompletionUnlocked: true
+          phase: "assembly"
         }),
         dispatchV2RuntimeEndFlow(Object.freeze([]), {
-          phase: "execution-complete",
-          playerCompletionUnlocked: true
+          phase: "execution-complete"
         })
       ];
       const executionResult = dispatchV2RuntimeEndFlow(replayActions, {
-        phase: "execution",
-        playerCompletionUnlocked: true
+        phase: "execution"
       });
       const completeResult = dispatchV2RuntimeEndFlow(replayActions, {
-        phase: "execution-complete",
-        playerCompletionUnlocked: true
+        phase: "execution-complete"
+      });
+      const playingResult = dispatchV2RuntimeEndFlow(replayActions, {
+        phase: "playing"
       });
       assert(
         ignoredResults.every((result) => result === "ignored") &&
           executionResult === "ignored" &&
-          completeResult === "replay-execution",
-        `R配送guardが不正です: ignored=${ignoredResults.join("|")} / execution=${executionResult} / complete=${completeResult}`
+          completeResult === "replay-execution" &&
+          playingResult === "retry-normal-session",
+        `R配送guardが不正です: ignored=${ignoredResults.join("|")} / playing=${playingResult} / execution=${executionResult} / complete=${completeResult}`
       );
-      return "execution完了後だけreplay、処刑中・通常未洗脳・assembly・actionなしは無効";
+      return "playingはretry、execution完了後だけreplay、処刑中・assembly・actionなしは無効";
     }),
     executeTest("水Volume内外の水平速度倍率", () => {
       const transitions = [false, true, true, false, true, false].map(

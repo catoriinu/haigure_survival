@@ -427,7 +427,7 @@ HAIGURE SURVIVAL v2は、大規模な一括実装を行わず、1タスク＝1�
 - [x] I4 タイトル設定設計: I3終了記録を吸収し、V1と分離した`V2TitleSettings`、Mission／Alarm、5方式の即時公開処刑、V1相当終了導線、responsive表示、静的資源再利用を確定する
 - [x] T06-6A タイトル基本設定: I4で承認された人数、初期状態、BIT、荒れ度、開始地点などの基本設定と保存・起動時snapshotを実装し、PR #79で統合済み
 - [x] T06-6B タイトルモード・Mission／Alarm: 通常／即時公開処刑と、Mission／Alarmだけの機能切替を実装し、PR #80で`develop=2b3cc8f`へ統合済み
-- [x] T06-6C V1タイトル・ゲームオーバー・responsive表示: 5基準点Grid、wide／compact／stacked、全設定scroll、通常game over、R再試行、Enter epilogue／タイトル復帰を実装・検証した
+- [x] T06-6C V1タイトル・ゲームオーバー・responsive表示: 5基準点Grid、wide／compact／stacked、全設定scroll、状態不問の通常R再試行／Enterタイトル復帰、自動epilogueを実装・検証した
 - [ ] T06-6D 静的学校資源再利用: Scene／GLB／静的Registry／NavMesh bundleをアプリ終了まで保持し、ゲーム単位では動的状態だけを初期化する
 - [ ] P2 最終微修正整理: タイトル設定統合後の既知問題を再確認し、リリース必須修正を個別branchへ切り出して必要件数0まで閉じる
 - [ ] T07: 1080p既定通常構成の60fps目標と、リアルタイム鏡面反射なしの99 NPC／50 BIT・120秒安定性stressを分けて性能調整、学校回帰、仕様書更新を行う
@@ -961,3 +961,9 @@ HAIGURE SURVIVAL v2は、大規模な一括実装を行わず、1タスク＝1�
 - 通常ゲームはPlayer洗脳後だけRで同一設定・新seed再試行、Enterでepilogueへ進む。epilogue Enterはタイトル復帰、公開処刑完了後のRは同一scenario再演、Enterはタイトル復帰とし、進行中の誤操作を無効化した。Mission結果とphase別helpも終了状態へ接続した。
 - sessionの非活性化と破棄を分離し、Pointer Lock、入力、HUD、Mission、ミニマップ、Audio、購読、動的sessionの停止順を固定した。静的学校資源再利用はT06-6Dのまま残した。
 - 6 viewportの通常／即時公開処刑、連続resize、実アプリの通常retry／epilogue／公開処刑再演／タイトル復帰をWeb・Electronで検証した。関連typecheck・build、通常build、Web配布監査、console／load／process診断0件、差分監査に合格し、学校資産、GLB、NavMesh、生成器は変更していない。
+
+### 2026-08-25 T06-6C追加修正
+
+- 通常playingのR／EnterをPlayer状態に関係なく有効化し、Rは同一設定・新seed再試行、Enterは直接タイトル復帰へ統一した。手動epilogue APIを削除し、全human洗脳済み3秒後の自動epilogueとassembly Enter復帰は維持した。
+- タイトル右上の「保存済み」をDOM・style・検証から削除した。wide右パネルをT06-6C以前と同等の最大405px・操作密度へ戻し、内容高で止めた。ステージは最大300px、音量は最大250pxとした。
+- 6 viewportのElectron fixture、未洗脳retry／Enterタイトル復帰、自動epilogue、公開処刑の実ゲームElectron、1920×1080／480×360の実ブラウザ、関連typecheck・build、通常build、Web配布監査、console／load／process診断0件に合格した。

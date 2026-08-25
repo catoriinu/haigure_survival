@@ -1072,7 +1072,7 @@ body {
 
 /* T06-6C: 同じ設定DOMを5基準点へ載せ替えるresponsive layout。 */
 #titleOverlay[data-title-layout="wide"] {
-  grid-template-columns: minmax(270px, 1fr) minmax(330px, 1.15fr) minmax(380px, 1fr);
+  grid-template-columns: minmax(270px, 410px) minmax(330px, 1fr) minmax(380px, 405px);
   grid-template-rows: auto minmax(0, 1fr) auto;
   grid-template-areas:
     "stage center status"
@@ -1192,7 +1192,7 @@ body {
 }
 
 #titleOverlay[data-title-layout="wide"] > .v2-title-settings {
-  grid-template-columns: minmax(270px, 1fr) minmax(330px, 1.15fr) minmax(380px, 1fr);
+  grid-template-columns: minmax(270px, 410px) minmax(330px, 1fr) minmax(380px, 405px);
   grid-template-rows: auto minmax(0, 1fr) auto;
   grid-template-areas:
     "stage center status"
@@ -1293,6 +1293,33 @@ body {
   align-self: end;
 }
 
+#titleOverlay[data-title-layout="wide"] .v2-title-settings__stage-host,
+#titleOverlay[data-title-layout="compact"] .v2-title-settings__stage-host {
+  width: min(300px, 100%);
+  justify-self: start;
+}
+
+#titleOverlay[data-title-layout="wide"] .v2-title-settings__audio-host,
+#titleOverlay[data-title-layout="compact"] .v2-title-settings__audio-host {
+  width: min(250px, 100%);
+  justify-self: start;
+}
+
+#titleOverlay[data-title-layout="wide"] .v2-title-settings__stage-host .v2-title-settings__row,
+#titleOverlay[data-title-layout="compact"] .v2-title-settings__stage-host .v2-title-settings__row,
+#titleOverlay[data-title-layout="wide"] .v2-title-settings__stage-host .v2-title-settings__row--range,
+#titleOverlay[data-title-layout="compact"] .v2-title-settings__stage-host .v2-title-settings__row--range {
+  grid-template-columns: 90px minmax(0, 1fr);
+  gap: 6px;
+}
+
+#titleOverlay[data-title-layout="wide"] .v2-title-settings__stage-host .v2-title-settings__select,
+#titleOverlay[data-title-layout="compact"] .v2-title-settings__stage-host .v2-title-settings__select,
+#titleOverlay[data-title-layout="wide"] .v2-title-settings__stage-host .v2-title-settings__range,
+#titleOverlay[data-title-layout="compact"] .v2-title-settings__stage-host .v2-title-settings__range {
+  width: 100%;
+}
+
 #titleOverlay[data-title-layout] .v2-title-settings__status-host {
   grid-area: status;
   align-self: start;
@@ -1309,9 +1336,10 @@ body {
   scrollbar-gutter: stable;
 }
 
-#titleOverlay[data-title-layout="wide"] .v2-title-settings__main-host,
-#titleOverlay[data-title-layout="compact"] .v2-title-settings__main-host {
-  padding-bottom: 30px;
+#titleOverlay[data-title-layout="wide"] .v2-title-settings__main-host {
+  align-self: start;
+  max-height: 100%;
+  padding: 6px;
 }
 
 #titleOverlay[data-title-layout] .v2-title-settings__mode-button {
@@ -1333,16 +1361,6 @@ body {
   min-width: 0;
   color: #f5f5f5;
   font-family: "IBM Plex Mono", "Fira Code", ui-monospace, monospace;
-}
-
-.v2-title-settings__saved-status {
-  padding: 5px 8px;
-  border: 1px solid rgba(155, 229, 159, 0.64);
-  border-radius: 5px;
-  background: rgba(18, 67, 25, 0.82);
-  color: #d5ffd9;
-  font-size: 12px;
-  line-height: 1.35;
 }
 
 #titleOverlay[data-title-layout] .v2-title-settings__gameover-warning {
@@ -1370,6 +1388,48 @@ body {
 #titleOverlay[data-title-layout="compact"] .v2-title-settings__main-grid {
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 6px;
+}
+
+#titleOverlay[data-title-layout="wide"] .v2-title-settings__main-grid {
+  gap: 4px;
+}
+
+#titleOverlay[data-title-layout="wide"] .v2-title-settings__main-host .v2-title-settings__section {
+  padding: 6px;
+}
+
+#titleOverlay[data-title-layout="wide"] .v2-title-settings__main-host .v2-title-settings__section-title {
+  margin-bottom: 4px;
+}
+
+#titleOverlay[data-title-layout="wide"] .v2-title-settings__main-host .v2-title-settings__row {
+  gap: 7px;
+  margin-top: 2px;
+}
+
+#titleOverlay[data-title-layout="wide"] .v2-title-settings__main-host .v2-title-settings__number,
+#titleOverlay[data-title-layout="wide"] .v2-title-settings__main-host .v2-title-settings__select,
+#titleOverlay[data-title-layout="wide"] .v2-title-settings__main-host .v2-title-settings__checkbox,
+#titleOverlay[data-title-layout="wide"] .v2-title-settings__main-host .v2-title-settings__range,
+#titleOverlay[data-title-layout="wide"] .v2-title-settings__main-host .v2-title-settings__reset {
+  min-height: 0;
+}
+
+#titleOverlay[data-title-layout="wide"] .v2-title-settings__main-host .v2-title-settings__number {
+  height: 27px;
+}
+
+#titleOverlay[data-title-layout="wide"] .v2-title-settings__main-host .v2-title-settings__select {
+  height: 29px;
+}
+
+#titleOverlay[data-title-layout="wide"] .v2-title-settings__main-host .v2-title-settings__checkbox {
+  height: 20px;
+}
+
+#titleOverlay[data-title-layout="wide"] .v2-title-settings__main-host .v2-title-settings__reset {
+  margin-top: 6px;
+  padding: 6px 10px;
 }
 
 #titleOverlay[data-title-layout="compact"] .v2-title-settings__section,

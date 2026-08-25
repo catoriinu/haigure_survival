@@ -3,13 +3,12 @@ import type { V2SurvivalFrame } from "./survivalRuntime";
 
 export type V2RuntimeEndFlowFrame = Pick<
   V2SurvivalFrame,
-  "phase" | "playerCompletionUnlocked"
+  "phase"
 >;
 
 export type V2RuntimeEndFlowDecision =
   | "ignored"
   | "retry-normal-session"
-  | "enter-epilogue"
   | "replay-execution"
   | "return-to-title";
 
@@ -19,7 +18,7 @@ export const dispatchV2RuntimeEndFlow = (
 ): V2RuntimeEndFlowDecision => {
   for (const action of actions) {
     if (action === "retry") {
-      if (frame.phase === "playing" && frame.playerCompletionUnlocked) {
+      if (frame.phase === "playing") {
         return "retry-normal-session";
       }
       if (frame.phase === "execution-complete") {
@@ -27,10 +26,8 @@ export const dispatchV2RuntimeEndFlow = (
       }
     }
     if (action === "advance-end-flow") {
-      if (frame.phase === "playing" && frame.playerCompletionUnlocked) {
-        return "enter-epilogue";
-      }
       if (
+        frame.phase === "playing" ||
         frame.phase === "assembly" ||
         frame.phase === "execution-complete"
       ) {

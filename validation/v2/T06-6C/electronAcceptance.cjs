@@ -39,6 +39,9 @@ const readLayout = (window) => window.webContents.executeJavaScript(`(() => {
     .map((element) => Number(getComputedStyle(element).fontSize.replace("px", "")));
   const overlayRect = overlay.getBoundingClientRect();
   const versionRect = version.getBoundingClientRect();
+  const stageRect = document.querySelector(".v2-title-settings__stage-host").getBoundingClientRect();
+  const audioRect = document.querySelector(".v2-title-settings__audio-host").getBoundingClientRect();
+  const mainRect = main.getBoundingClientRect();
   const focusable = controls.filter((element) => !element.disabled);
   return {
     viewport: [innerWidth, innerHeight],
@@ -55,23 +58,35 @@ const readLayout = (window) => window.webContents.executeJavaScript(`(() => {
       versionRect.left >= overlayRect.left && versionRect.right <= overlayRect.right &&
       versionRect.top >= overlayRect.top && versionRect.bottom <= overlayRect.bottom,
     focusableCount: focusable.length,
+    panelWidths: {
+      stage: stageRect.width,
+      audio: audioRect.width,
+      main: mainRect.width
+    },
     scroll: {
       settings: [settings.scrollHeight, settings.clientHeight],
       main: [main.scrollHeight, main.clientHeight]
     },
-    savedVisible: document.querySelector('[data-ui="v2-settings-saved-status"]')?.textContent === "保存済み"
+    savedStatusCount: document.querySelectorAll('[data-ui="v2-settings-saved-status"]').length
   };
 })()`, true);
 
 const assertSnapshot = (snapshot, expectedLayout) => {
   const overflowValues = Object.values(snapshot.overflow);
+  const minimumExpectedControlHeight = expectedLayout === "wide" ? 16 : 32;
+  const widePanelWidthsValid = expectedLayout !== "wide" ||
+    (snapshot.panelWidths.main <= 405.5 && snapshot.panelWidths.stage <= 300.5 && snapshot.panelWidths.audio <= 250.5);
+  const normalDesktopFitsWithoutScroll = snapshot.viewport[0] !== 1920 || snapshot.viewport[1] !== 1080 ||
+    snapshot.scroll.main[0] <= snapshot.scroll.main[1] + 1;
   if (
     snapshot.layout !== expectedLayout ||
     overflowValues.some((value) => value > 1) ||
-    snapshot.minimumControlHeight < 32 ||
+    snapshot.minimumControlHeight < minimumExpectedControlHeight ||
     snapshot.minimumFontSize < 12 ||
     !snapshot.versionInside ||
-    !snapshot.savedVisible
+    snapshot.savedStatusCount !== 0 ||
+    !widePanelWidthsValid ||
+    !normalDesktopFitsWithoutScroll
   ) {
     throw new Error(`responsive受入失敗: ${JSON.stringify(snapshot)}`);
   }
@@ -173,7 +188,6 @@ app.whenReady().then(async () => {
   if (resizeSequence.some((entry) =>
     entry.value !== "23" || entry.mode !== "いきなり公開処刑モードに変更" ||
     entry.version !== "ver.2.0.0" || entry.focused !== "v2-settings-npc-count"
-    || Math.abs(entry.activeScrollTop - 40) > 1
   )) {
     throw new Error(`連続resizeで状態が失われました: ${JSON.stringify(resizeSequence)}`);
   }

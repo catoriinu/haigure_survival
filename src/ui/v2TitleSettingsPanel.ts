@@ -163,12 +163,7 @@ export const createV2TitleSettingsPanel = ({
   gameOverWarning.dataset.ui = "v2-settings-gameover-warning";
   gameOverWarning.textContent =
     "※現在の設定ではゲームオーバーにならない可能性があります。設定の変更を推奨します。";
-  const savedStatus = document.createElement("div");
-  savedStatus.className = "v2-title-settings__saved-status";
-  savedStatus.dataset.ui = "v2-settings-saved-status";
-  savedStatus.setAttribute("role", "status");
-  savedStatus.textContent = "保存済み";
-  statusHost.append(gameOverWarning, savedStatus);
+  statusHost.append(gameOverWarning);
   mainHost.append(mainGrid);
   root.append(stageHost, audioHost, statusHost, mainHost);
 
@@ -493,7 +488,6 @@ export const createV2TitleSettingsPanel = ({
   };
   const save = (nextSettings: V2TitleSettings): void => {
     render(store.save(nextSettings));
-    savedStatus.textContent = "保存済み";
   };
   const numberValue = (input: HTMLInputElement): number => input.valueAsNumber;
   const subscriptions: EventSubscription[] = [];
@@ -664,7 +658,6 @@ export const createV2TitleSettingsPanel = ({
         ? store.resetExecution()
         : store.reset()
     );
-    savedStatus.textContent = "保存済み";
   });
   listen(modeButton, "click", () => {
     startMode =

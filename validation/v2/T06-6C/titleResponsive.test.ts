@@ -74,22 +74,20 @@ export const runT06_6CTests = async (): Promise<readonly T06TestResult[]> => {
     }),
     executeTest("終了フローdispatcherのphase guard", () => {
       const cases = [
-        dispatchV2RuntimeEndFlow(["retry"], { phase: "playing", playerCompletionUnlocked: false }),
-        dispatchV2RuntimeEndFlow(["advance-end-flow"], { phase: "playing", playerCompletionUnlocked: false }),
-        dispatchV2RuntimeEndFlow(["retry"], { phase: "playing", playerCompletionUnlocked: true }),
-        dispatchV2RuntimeEndFlow(["advance-end-flow"], { phase: "playing", playerCompletionUnlocked: true }),
-        dispatchV2RuntimeEndFlow(["advance-end-flow"], { phase: "assembly", playerCompletionUnlocked: true }),
-        dispatchV2RuntimeEndFlow(["retry"], { phase: "execution", playerCompletionUnlocked: true }),
-        dispatchV2RuntimeEndFlow(["advance-end-flow"], { phase: "execution", playerCompletionUnlocked: true }),
-        dispatchV2RuntimeEndFlow(["retry"], { phase: "execution-complete", playerCompletionUnlocked: true }),
-        dispatchV2RuntimeEndFlow(["advance-end-flow"], { phase: "execution-complete", playerCompletionUnlocked: true })
+        dispatchV2RuntimeEndFlow(["retry"], { phase: "playing" }),
+        dispatchV2RuntimeEndFlow(["advance-end-flow"], { phase: "playing" }),
+        dispatchV2RuntimeEndFlow(["advance-end-flow"], { phase: "assembly" }),
+        dispatchV2RuntimeEndFlow(["retry"], { phase: "execution" }),
+        dispatchV2RuntimeEndFlow(["advance-end-flow"], { phase: "execution" }),
+        dispatchV2RuntimeEndFlow(["retry"], { phase: "execution-complete" }),
+        dispatchV2RuntimeEndFlow(["advance-end-flow"], { phase: "execution-complete" })
       ];
       const expected = [
-        "ignored", "ignored", "retry-normal-session", "enter-epilogue",
-        "return-to-title", "ignored", "ignored", "replay-execution", "return-to-title"
+        "retry-normal-session", "return-to-title", "return-to-title",
+        "ignored", "ignored", "replay-execution", "return-to-title"
       ];
       assert(JSON.stringify(cases) === JSON.stringify(expected), cases.join("|"));
-      return "未洗脳・処刑中は無効、game over・epilogue・処刑完了だけ受理";
+      return "通常playingはR retry／Enterタイトル、処刑中だけ無効";
     }),
     executeTest("Mission結果表示phase", () => {
       const actual = [
@@ -124,25 +122,24 @@ export const runT06_6CTests = async (): Promise<readonly T06TestResult[]> => {
       );
       return "値17・即時公開処刑・focus・DOM identityを維持";
     }),
-    executeTest("警告と保存状態の独立表示", () => {
+    executeTest("右上は必要時の警告だけを表示", () => {
       const warning = panel.root.querySelector<HTMLElement>('[data-ui="v2-settings-gameover-warning"]')!;
-      const saved = panel.root.querySelector<HTMLElement>('[data-ui="v2-settings-saved-status"]')!;
       assert(
         warning.parentElement === panel.layoutElements.statusHost &&
-          saved.parentElement === panel.layoutElements.statusHost &&
-          warning !== saved && saved.textContent === "保存済み",
-        "status領域の警告／保存状態が独立していません。"
+          panel.root.querySelector('[data-ui="v2-settings-saved-status"]') === null,
+        "保存済み表示が残っているか、警告の配置が不正です。"
       );
-      return "右上status host内で警告と保存済みを別要素化";
+      return "保存済みDOMなし／警告だけをstatus hostへ配置";
     }),
     executeTest("現在viewportの横overflowと操作寸法", () => {
       const controls = [...panel.root.querySelectorAll<HTMLElement>("input, select, button")]
         .filter((element) => !element.closest("[hidden]"));
       const minimumHeight = Math.min(...controls.map((element) => element.getBoundingClientRect().height));
+      const minimumExpectedHeight = controller.getMode() === "wide" ? 16 : 32;
       assert(
         overlay.scrollWidth <= overlay.clientWidth + 1 &&
           panel.root.scrollWidth <= panel.root.clientWidth + 1 &&
-          minimumHeight >= 32,
+          minimumHeight >= minimumExpectedHeight,
         `overlay=${overlay.scrollWidth}/${overlay.clientWidth}, settings=${panel.root.scrollWidth}/${panel.root.clientWidth}, minHeight=${minimumHeight}`
       );
       return `layout=${controller.getMode()} / horizontal overflow 0 / 最小操作高${minimumHeight}px`;

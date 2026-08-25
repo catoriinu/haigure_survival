@@ -113,17 +113,17 @@ app.whenReady().then(async () => {
     const playerBrainwashed = document.querySelector('[data-ui="v2-settings-player-brainwashed"]');
     npcCount.value = "1";
     npcCount.dispatchEvent(new Event("change", { bubbles: true }));
-    playerBrainwashed.checked = true;
+    playerBrainwashed.checked = false;
     playerBrainwashed.dispatchEvent(new Event("change", { bubbles: true }));
   })()`, true);
   await click(window, "#renderCanvas");
   const started = await waitFor(
-    "Player洗脳済み通常ゲーム",
+    "Player未洗脳通常ゲーム",
     window,
     (snapshot) =>
       !snapshot.titleVisible && snapshot.phase === "playing" &&
-      snapshot.playerState?.startsWith("brainwash-complete") &&
-      snapshot.help.includes("R: リトライ") && snapshot.help.includes("Enter: エピローグへ")
+      !snapshot.playerState?.startsWith("brainwash-complete") &&
+      snapshot.help.includes("R: リトライ") && snapshot.help.includes("Enter: タイトルへ戻る")
   );
   assertSingleRoots(started, "通常ゲーム開始");
   const firstSeed = started.seed;
@@ -135,7 +135,7 @@ app.whenReady().then(async () => {
     (snapshot) =>
       !snapshot.titleVisible && snapshot.phase === "playing" &&
       snapshot.seed !== firstSeed && snapshot.settings.npcCount === "1" &&
-      snapshot.settings.playerBrainwashed === true
+      snapshot.settings.playerBrainwashed === false
   );
   if (retried.pointerLockId !== null) {
     throw new Error("Rリトライ後にPointer Lockが残っています。");
@@ -143,23 +143,41 @@ app.whenReady().then(async () => {
   assertSingleRoots(retried, "Rリトライ");
 
   await sendKey(window, "Enter");
-  const epilogue = await waitFor(
-    "通常epilogue",
-    window,
-    (snapshot) =>
-      snapshot.phase === "assembly" && snapshot.missionHeading === "ミッション結果" &&
-      snapshot.missionResults.length === 2 && snapshot.help.includes("Enter: タイトルへ戻る")
-  );
-  assertSingleRoots(epilogue, "通常epilogue");
-  await sendKey(window, "Enter");
   const returnedTitle = await waitFor(
-    "epilogueからタイトル復帰",
+    "通常playingからタイトル復帰",
     window,
     (snapshot) =>
       snapshot.titleVisible && snapshot.startupPhase === "running" &&
       Object.values(snapshot.roots).every((count) => count === 1)
   );
-  assertSingleRoots(returnedTitle, "epilogueタイトル復帰");
+  assertSingleRoots(returnedTitle, "通常playingタイトル復帰");
+
+  await window.webContents.executeJavaScript(`(() => {
+    const npcCount = document.querySelector('[data-ui="v2-settings-npc-count"]');
+    const playerBrainwashed = document.querySelector('[data-ui="v2-settings-player-brainwashed"]');
+    npcCount.value = "0";
+    npcCount.dispatchEvent(new Event("change", { bubbles: true }));
+    playerBrainwashed.checked = true;
+    playerBrainwashed.dispatchEvent(new Event("change", { bubbles: true }));
+  })()`, true);
+  await click(window, "#renderCanvas");
+  const epilogue = await waitFor(
+    "全human洗脳済み自動epilogue",
+    window,
+    (snapshot) =>
+      snapshot.phase === "assembly" && snapshot.missionHeading === "ミッション結果" &&
+      snapshot.missionResults.length === 2 && snapshot.help.includes("Enter: タイトルへ戻る")
+  );
+  assertSingleRoots(epilogue, "自動epilogue");
+  await sendKey(window, "Enter");
+  const epilogueReturnedTitle = await waitFor(
+    "自動epilogueからタイトル復帰",
+    window,
+    (snapshot) =>
+      snapshot.titleVisible && snapshot.startupPhase === "running" &&
+      Object.values(snapshot.roots).every((count) => count === 1)
+  );
+  assertSingleRoots(epilogueReturnedTitle, "自動epilogueタイトル復帰");
 
   await click(window, '[data-ui="title-instant-execution-toggle-button"]');
   await waitFor(
@@ -218,7 +236,7 @@ app.whenReady().then(async () => {
   }
   console.log(JSON.stringify({
     normalRetry: { fromSeed: firstSeed, toSeed: retried.seed, settings: retried.settings },
-    epilogue: { phase: epilogue.phase, missionResults: epilogue.missionResults },
+    autoEpilogue: { phase: epilogue.phase, missionResults: epilogue.missionResults },
     execution: { seed: executionSeed, venue, completed: completed.phase },
     finalRoots: finalTitle.roots,
     diagnostics: diagnostics.length

@@ -1115,10 +1115,6 @@ class StrictTraversalSurvivalHarness implements V2SurvivalRuntime {
     return this.unexpected("replayExecution");
   }
 
-  enterEpilogue(): never {
-    return this.unexpected("enterEpilogue");
-  }
-
   dispose() {
     this.assertActive();
     this.requests = [];

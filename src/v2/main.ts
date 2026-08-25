@@ -2080,10 +2080,11 @@ const updateGameplayHelp = (frame: ReturnType<typeof survival.getFrame>) => {
     return;
   }
   let nextText = V2_GAMEPLAY_BASE_HELP_TEXT;
-  if (frame.phase === "playing" && frame.playerCompletionUnlocked) {
-    nextText +=
-      "\nG：銃あり  N：銃なし  H：ハイグレ" +
-      "\nR: リトライ  Enter: エピローグへ";
+  if (frame.phase === "playing") {
+    if (frame.playerCompletionUnlocked) {
+      nextText += "\nG：銃あり  N：銃なし  H：ハイグレ";
+    }
+    nextText += "\nR: リトライ  Enter: タイトルへ戻る";
   } else if (frame.phase === "assembly") {
     nextText += "\nEnter: タイトルへ戻る";
   } else if (frame.phase === "execution-complete") {
@@ -2313,10 +2314,7 @@ engine.runRenderLoop(() => {
     const endFlowDecision = started
       ? dispatchV2RuntimeEndFlow(actions, survivalFrame)
       : "ignored";
-    if (endFlowDecision === "enter-epilogue") {
-      survival.enterEpilogue();
-      survivalFrame = survival.getFrame();
-    } else if (endFlowDecision === "replay-execution") {
+    if (endFlowDecision === "replay-execution") {
       survival.replayExecution();
       survivalFrame = survival.getFrame();
     } else if (endFlowDecision === "retry-normal-session") {

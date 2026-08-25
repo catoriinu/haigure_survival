@@ -1106,7 +1106,7 @@ const run = async () => {
   assertCondition(gunAgainSnapshot.crosshairVisible, "H→G後に照準が再表示されていません。");
   assertCondition(
     gunAgainSnapshot.helpText.includes("R: リトライ") &&
-      gunAgainSnapshot.helpText.includes("Enter: エピローグへ"),
+      gunAgainSnapshot.helpText.includes("Enter: タイトルへ戻る"),
     "Player洗脳後の左HUDにR／Enter案内が表示されていません。"
   );
   addCheck("G→N→H→G連続再選択", {

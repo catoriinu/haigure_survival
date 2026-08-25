@@ -1,6 +1,6 @@
 # HAIGURE SURVIVAL v2 T06-6C V1タイトル・ゲームオーバー・レスポンシブ表示 計画
 
-更新日: 2026-08-24
+更新日: 2026-08-25
 
 ## プロンプト
 
@@ -13,6 +13,12 @@
 > 通常ゲームはPlayer洗脳後だけRで同じ設定・新seedの即時再試行、Enterで`assembly` epilogueへ進み、`assembly`のEnterでタイトルへ戻してください。公開処刑は完了後だけRで同じscenarioを再演し、Enterでタイトルへ戻してください。R操作を汎用retryへ改名し、Enter用actionと純粋dispatcherを追加し、旧actionの互換aliasは残さないでください。通常epilogueと公開処刑完了でMission結果を表示してください。
 >
 > managed sessionの非活性化と破棄を分離し、Pointer Lock解除、入力停止、Mission／ミニマップ／HUD停止、Audio停止、動的session破棄、次session生成の順を固定してください。T06-6C fixture、関連typecheck・build、Web／Electron実環境、差分監査を完了し、個別計画と中央計画を更新してT06-6C差分だけをcommitしてください。push、Pull Request、レビュー、merge、T06-6Dは行わないでください。
+
+2026-08-25 追加修正指示:
+
+> Player未洗脳時もR／Enterを有効にしてください。Rはリトライ、Enterはタイトルに戻ります。
+>
+> タイトル画面右上の「保存済み」を削除してください。右パネルは文字サイズを変えずに要素間隔を詰め、通常画面ではスクロール不要にしてください。「ステージ」と「音量」の横幅は必要最小限まで細くしてください。
 
 ## 開始時調査
 
@@ -34,7 +40,7 @@ T06-6A／Bのsemantic groupをV1相当タイトルへ統合し、5基準点を�
 ## タイトル表示契約
 
 - rootは`100dvw`／`100dvh`、safe-area対応のCSS Gridとし、中央、左上、右上、左下、右下をnamed areaとして固定する。
-- 中央へタイトル・開始状態・モード、左上へ固定学校、右上へ警告／保存状態、左下へ補助設定、右下へ操作列と独立versionを配置する。
+- 中央へタイトル・開始状態・モード、左上へ固定学校、右上へ必要時の警告、左下へ補助設定、右下へ操作列と独立versionを配置する。「保存済み」は表示しない。
 - 広い画面は中央＋右設定、中程度は設定group折り返し、狭い画面は上部タイトル＋下部全幅設定へ切り替える。
 - 適応順はgap／padding縮小、group折り返し、font-size最低12pxまで縮小、設定viewportだけの縦scrollとする。labelを折り返し、全controlを最小32px高、`min-width: 0`にする。
 - media queryと`ResizeObserver`を併用し、実寸overflowにより`wide`／`compact`／`stacked` classを切り替える。DOMを再生成せず値、focus、modeを維持する。
@@ -42,8 +48,8 @@ T06-6A／Bのsemantic groupをV1相当タイトルへ統合し、5基準点を�
 
 ## 状態遷移契約
 
-- Player洗脳後もG／N／H操作を継続できる。通常game overのRは同じ設定snapshot、新seedでsessionを再作成し、開始地点、荒れvariant、Character、NPC／BIT配置を再抽選する。
-- 通常game overのEnterはepilogueへ進む。全human洗脳済みは3秒後に自動epilogueへ進む。
+- Player状態に関係なく通常playingのRは同じ設定snapshot、新seedでsessionを再作成し、開始地点、荒れvariant、Character、NPC／BIT配置を再抽選する。Player洗脳後もG／N／H操作を継続できる。
+- 通常playingのEnterはタイトルへ戻る。全human洗脳済みは3秒後に自動epilogueへ進み、assemblyのEnterでタイトルへ戻る。
 - 即時公開処刑完了のRはT06-6Bの同一scenario・会場を再演する。epilogue／公開処刑完了のEnterはタイトルへ戻る。
 - タイトル復帰はPointer Lock解除、入力停止、Mission／ミニマップ／HUD停止、Audio停止、動的session破棄の順に行い、二重購読を残さない。
 
@@ -70,10 +76,19 @@ T06-6A／Bのsemantic groupをV1相当タイトルへ統合し、5基準点を�
 - [x] 全viewportの自動fixtureとElectron目視を完了する
 - [x] 結果を更新してT06-6C差分だけをcommitする
 
+### 2026-08-25 追加修正
+
+- [x] 通常playingのRを状態に関係なくretry、Enterをタイトル復帰へ変更する
+- [x] 「保存済み」DOMと関連style／検証を削除する
+- [x] wide／compactの右パネル間隔とステージ／音量幅を詰める
+- [x] 自動fixtureと実ブラウザで通常画面・小画面・操作遷移を再検証する
+- [x] 追加修正結果を計画へ同期し、対象差分だけをcommitする
+
 ## 結果
 
-- `#titleOverlay`をsafe-area対応のGridへ変更し、`ResizeObserver`で`wide`／`compact`／`stacked`を切り替えるcontrollerを追加した。設定DOMを維持したまま値、開始モード、focus、scroll位置を保持し、独立した警告／保存済みstatusと設定scroll外のversionを配置した。
-- 通常ゲームはPlayer洗脳後だけRで同一設定・新seedの即時再試行、Enterで`assembly`へ移行する。`assembly`のEnterはタイトル復帰、公開処刑完了後のRは同一scenario再演、Enterはタイトル復帰とし、未洗脳時と公開処刑進行中は無効にした。通常epilogueと公開処刑完了ではMission結果を表示する。
+- `#titleOverlay`をsafe-area対応のGridへ変更し、`ResizeObserver`で`wide`／`compact`／`stacked`を切り替えるcontrollerを追加した。設定DOMを維持したまま値、開始モード、focusを保持し、必要時の警告と設定scroll外のversionを配置した。「保存済み」DOMは追加修正で削除した。
+- 通常playingはPlayer状態に関係なくRで同一設定・新seedの即時再試行、Enterでタイトル復帰とした。全human洗脳済み3秒後の自動`assembly`と、そのEnterによるタイトル復帰は維持した。公開処刑完了後のRは同一scenario再演、Enterはタイトル復帰とし、公開処刑進行中は無効にした。通常自動epilogueと公開処刑完了ではMission結果を表示する。
 - managed sessionの`deactivate()`と`dispose()`を分離し、Pointer Lock解除、入力・HUD・Mission・ミニマップ・Audio・購読停止、動的session破棄、次session生成の順を固定した。学校Scene／GLB／NavMeshは現行どおりsession単位で破棄し、静的資源再利用はT06-6Dへ残した。
-- 1920×1080、1280×720、1024×600、800×600、640×480、480×360の通常／即時公開処刑をElectron fixtureで確認し、横overflow 0、font 12px以上、操作高32px以上、全設定到達、連続resize時の値・mode・focus・scroll・version維持を確認した。実アプリでは通常retryの設定維持・seed更新、epilogue、公開処刑の進行中無効・完了後再演、複数周後のUI root単一性と診断0件を確認した。
+- 1920×1080、1280×720、1024×600、800×600、640×480、480×360の通常／即時公開処刑をElectron fixtureで確認し、横overflow 0、font 12px以上、小画面操作高32px以上、全設定到達、連続resize時の値・mode・focus・version維持を確認した。wideはT06-6C以前と同等の操作密度へ戻し、右パネル最大405px、ステージ300px、音量250pxとした。1920×1080の通常モードは右パネル縦overflow 0である。
+- 実アプリでは未洗脳Playerの通常retryで設定維持・seed更新、通常playing Enterのタイトル復帰、自動epilogue、公開処刑の進行中無効・完了後再演、複数周後のUI root単一性と診断0件を確認した。
 - `typecheck:v2`、T05／T06／T06-4／T06-6A／T06-6B／T06-6Cのtypecheck・build、通常build、Web配布監査、T06-6B／T06-6C Electron受入、`git diff --check`に合格した。配布licenseのcheckout改行差を再発させないため`.gitattributes`でLFを固定し、学校資産、GLB、NavMesh、生成器は変更していない。
