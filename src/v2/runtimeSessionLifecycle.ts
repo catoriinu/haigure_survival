@@ -27,6 +27,7 @@ export type V2RuntimeSessionTransitionOptions<
   isCancelled(): boolean;
   exitPointerLock(): void;
   showLoading(): void;
+  afterCurrentDispose?(): void;
   createSession(runtimeSeed: number): Promise<TSession>;
 }>;
 
@@ -38,12 +39,14 @@ export const transitionV2RuntimeSession = async <
   isCancelled,
   exitPointerLock,
   showLoading,
+  afterCurrentDispose,
   createSession
 }: V2RuntimeSessionTransitionOptions<TSession>): Promise<TSession | null> => {
   exitPointerLock();
   await currentSession?.deactivate();
   showLoading();
   await currentSession?.dispose();
+  afterCurrentDispose?.();
   if (isCancelled()) {
     return null;
   }

@@ -5,7 +5,7 @@ import type {
   StageDoorRuntime
 } from "../world/stageDoorRuntime";
 import type { StageBroadcastConsole } from "../world/stageLocationAssets";
-import type { StageSpatialContext } from "../world/stageSpatialContext";
+import type { StageSpatialSession } from "../world/stageSpatialContext";
 import { BLENDER_METERS_TO_WORLD_UNITS } from "../world/worldUnits";
 import type { V2PlayerCompletionState } from "./combatTypes";
 import {
@@ -61,7 +61,7 @@ export type V2BroadcastInteractionQuery = Readonly<{
   playerFootPosition: Vector3;
   camera: Camera;
   broadcastConsole: StageBroadcastConsole;
-  queries: StageSpatialContext["queries"];
+  queries: StageSpatialSession["queries"];
 }>;
 
 export const resolveV2BroadcastInteractionCandidate = ({

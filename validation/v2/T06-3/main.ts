@@ -21,11 +21,13 @@ import {
   SCHOOL_ALL_NORMAL_ROOM_VARIANT_SELECTIONS
 } from "../../../src/world/schoolRuntimeSettings";
 import {
-  createSchoolStageDynamicSpatialInitializer
+  createSchoolStageDynamicSpatialInitializationDescriptor
 } from "../../../src/world/schoolStageDynamicRuntime";
 import {
-  loadStageSpatialContext,
-  type StageSpatialContext
+  createStageSpatialSession,
+  loadStageStaticSpatialResources,
+  type OwnedStageStaticSpatialResources,
+  type StageSpatialSession
 } from "../../../src/world/stageSpatialContext";
 import { runV2MinimapTests } from "./minimap.test";
 import { createT063Check, type T063TestResult } from "./testUtils";
@@ -81,7 +83,8 @@ const browserWarnings: string[] = [];
 let validationRunning = false;
 let validationHasRun = false;
 let activeFloor: StageLocationFloorId = "f01";
-let activeStage: StageSpatialContext | null = null;
+let activeStage: StageSpatialSession | null = null;
+let activeStatic: OwnedStageStaticSpatialResources | null = null;
 let activeController: V2MinimapController | null = null;
 let visualElapsedSeconds = 100;
 
@@ -284,6 +287,8 @@ const disposeFixture = () => {
   activeController = null;
   activeStage?.dispose();
   activeStage = null;
+  activeStatic?.dispose();
+  activeStatic = null;
 };
 
 const runValidation = async () => {
@@ -302,9 +307,10 @@ const runValidation = async () => {
   const loggerErrorsAtStart = Logger.errorsCount;
   const checks: T063TestResult[] = [];
   try {
-    activeStage = await loadStageSpatialContext(scene, SCHOOL_STAGE, {
-      initializeDynamicSpatial:
-        createSchoolStageDynamicSpatialInitializer(0x063063),
+    activeStatic = await loadStageStaticSpatialResources(scene, SCHOOL_STAGE);
+    activeStage = await createStageSpatialSession(activeStatic, {
+      dynamicSpatialInitialization:
+        createSchoolStageDynamicSpatialInitializationDescriptor(0x063063),
       roomVariantSelections: SCHOOL_ALL_NORMAL_ROOM_VARIANT_SELECTIONS
     });
     await scene.whenReadyAsync(true);

@@ -26,7 +26,7 @@ import type { StageNavigationAreaCursor } from "../world/stageNavigationAreas";
 import { createStageNpcSpawnSampler } from "../world/stageSpawnSampler";
 import type {
   StagePlayerSpawn,
-  StageSpatialContext
+  StageSpatialSession
 } from "../world/stageSpatialContext";
 import type {
   V2PursuitPhase,
@@ -258,7 +258,7 @@ export type V2NpcNavigationRouteContext = Readonly<{
 
 export type V2NpcSystemOptions = Readonly<{
   scene: Scene;
-  stage: StageSpatialContext;
+  stage: StageSpatialSession;
   characterVisuals: V2CharacterVisualRuntime;
   npcCount: number;
   initialBrainwashedNpcCount: number;
@@ -977,7 +977,7 @@ const createNpcCommandRuntime = (
 });
 
 class SchoolV2NpcSystem implements V2NpcSystem {
-  private readonly stage: StageSpatialContext;
+  private readonly stage: StageSpatialSession;
   private readonly npcs: NpcRuntime[];
   private readonly npcsById: Map<string, NpcRuntime>;
   private readonly random: () => number;

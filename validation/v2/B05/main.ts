@@ -29,11 +29,13 @@ import {
   SCHOOL_ALL_NORMAL_ROOM_VARIANT_SELECTIONS
 } from "../../../src/world/schoolRuntimeSettings";
 import {
-  createSchoolStageDynamicSpatialInitializer
+  createSchoolStageDynamicSpatialInitializationDescriptor
 } from "../../../src/world/schoolStageDynamicRuntime";
 import {
-  loadStageSpatialContext,
-  type StageSpatialContext
+  createStageSpatialSession,
+  loadStageStaticSpatialResources,
+  type OwnedStageStaticSpatialResources,
+  type StageSpatialSession
 } from "../../../src/world/stageSpatialContext";
 import { BLENDER_METERS_TO_WORLD_UNITS } from "../../../src/world/worldUnits";
 import {
@@ -171,7 +173,8 @@ for (const input of categoryInputs) {
 let activeFloor: StageLocationFloorId = "f01";
 let validationRunning = false;
 let validationHasRun = false;
-let activeContext: StageSpatialContext | null = null;
+let activeContext: StageSpatialSession | null = null;
+let activeStatic: OwnedStageStaticSpatialResources | null = null;
 let activeInventory: B05Inventory | null = null;
 let visualEntries: VisualEntry[] = [];
 let debugMaterials: StandardMaterial[] = [];
@@ -365,10 +368,10 @@ const floorDisplayNames = new Map<StageLocationFloorId, string>([
 ]);
 
 const requireLocationAssets = (
-  context: StageSpatialContext
+  context: StageSpatialSession
 ): StageLocationAssetRegistry => {
   if (!context.locationAssets) {
-    throw new Error("学校StageSpatialContextにlocationAssetsがありません。");
+    throw new Error("学校StageSpatialSessionにlocationAssetsがありません。");
   }
   return context.locationAssets;
 };
@@ -413,7 +416,7 @@ const registerVisual = (
 };
 
 const resolveElevatorFloor = (
-  context: StageSpatialContext,
+  context: StageSpatialSession,
   elevatorId: string
 ): StageLocationFloorId => {
   const locationAssets = requireLocationAssets(context);
@@ -443,7 +446,7 @@ const resolveBroadcastFloor = (
   return floorId;
 };
 
-const prepareVisualization = (context: StageSpatialContext) => {
+const prepareVisualization = (context: StageSpatialSession) => {
   const locationAssets = requireLocationAssets(context);
   const mapMaterial = createDebugMaterial(
     "B05_Map",
@@ -706,6 +709,8 @@ const disposeVisualization = () => {
   visualEntries = [];
   activeContext?.dispose();
   activeContext = null;
+  activeStatic?.dispose();
+  activeStatic = null;
   for (const material of debugMaterials) {
     material.dispose();
   }
@@ -713,7 +718,7 @@ const disposeVisualization = () => {
 };
 
 const validateReachability = (
-  context: StageSpatialContext
+  context: StageSpatialSession
 ): ReachabilityResult => {
   const locationAssets = requireLocationAssets(context);
   const playerSpawn = context.playerSpawns.getById("player-spawn-main");
@@ -755,7 +760,7 @@ const validateReachability = (
 };
 
 const validateRegistry = (
-  context: StageSpatialContext,
+  context: StageSpatialSession,
   checks: CheckResult[]
 ) => {
   const locationAssets = requireLocationAssets(context);
@@ -970,15 +975,26 @@ const validateRegistry = (
   });
 };
 
-const loadSchoolContext = (
+const loadSchoolContext = async (
   targetScene: Scene,
   roomVariantSelections: readonly HumanNavRoomVariantSelection[]
-) =>
-  loadStageSpatialContext(targetScene, SCHOOL_STAGE, {
-    initializeDynamicSpatial:
-      createSchoolStageDynamicSpatialInitializer(DOOR_FIXTURE_SEED),
-    roomVariantSelections
-  });
+) => {
+  let staticResources: OwnedStageStaticSpatialResources | null = null;
+  let context: StageSpatialSession | null = null;
+  try {
+    staticResources = await loadStageStaticSpatialResources(targetScene, SCHOOL_STAGE);
+    context = await createStageSpatialSession(staticResources, {
+      dynamicSpatialInitialization:
+        createSchoolStageDynamicSpatialInitializationDescriptor(DOOR_FIXTURE_SEED),
+      roomVariantSelections
+    });
+    return Object.freeze({ staticResources, context });
+  } catch (error) {
+    context?.dispose();
+    staticResources?.dispose();
+    throw error;
+  }
+};
 
 const runValidation = async () => {
   if (validationRunning) {
@@ -1022,10 +1038,12 @@ const runValidation = async () => {
   try {
     checks.push(...(await runLocationAssetRegistryAcceptance()));
     checks.push(...(await runLocationAssetLoaderRejectionAcceptance()));
-    activeContext = await loadSchoolContext(
+    const activeSchool = await loadSchoolContext(
       scene,
       SCHOOL_ALL_NORMAL_ROOM_VARIANT_SELECTIONS
     );
+    activeStatic = activeSchool.staticResources;
+    activeContext = activeSchool.context;
     await scene.whenReadyAsync(true);
     inventoryBase = validateRegistry(activeContext, checks);
     normalReachability = validateReachability(activeContext);
@@ -1041,12 +1059,15 @@ const runValidation = async () => {
     );
 
     const disorderedScene = new Scene(engine);
-    let disorderedContext: StageSpatialContext | null = null;
+    let disorderedContext: StageSpatialSession | null = null;
+    let disorderedStatic: OwnedStageStaticSpatialResources | null = null;
     try {
-      disorderedContext = await loadSchoolContext(
+      const disorderedSchool = await loadSchoolContext(
         disorderedScene,
         SCHOOL_ALL_DISORDERED_ROOM_VARIANT_SELECTIONS
       );
+      disorderedStatic = disorderedSchool.staticResources;
+      disorderedContext = disorderedSchool.context;
       await disorderedScene.whenReadyAsync(true);
       disorderedReachability = validateReachability(disorderedContext);
       checks.push(
@@ -1064,6 +1085,7 @@ const runValidation = async () => {
       );
     } finally {
       disorderedContext?.dispose();
+      disorderedStatic?.dispose();
       disorderedScene.dispose();
     }
 

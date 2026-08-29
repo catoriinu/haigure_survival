@@ -11,7 +11,10 @@ import {
 } from "@babylonjs/core";
 import type { AbstractMesh } from "@babylonjs/core";
 
-import { SCHOOL_STAGE } from "../world/stageCatalog";
+import {
+  SCHOOL_STAGE,
+  createStageCatalogFingerprint
+} from "../world/stageCatalog";
 import {
   createSchoolRoomVariantSelections,
   createSchoolRuntimeRandom,
@@ -41,13 +44,16 @@ import { createV2MissionHudController } from "../ui/v2MissionHud";
 import { createV2MinimapController } from "../ui/v2Minimap";
 import {
   createSchoolStageDynamicRuntime,
-  createSchoolStageDynamicSpatialInitializer,
+  createSchoolStageDynamicSpatialInitializationDescriptor,
   type SchoolStageDynamicRuntime
 } from "../world/schoolStageDynamicRuntime";
 import { ELEVATOR_FIRST_PASSENGER_WAIT_SECONDS } from "../world/stageElevatorRuntime";
 import {
-  loadStageSpatialContext,
-  type StageSpatialContext
+  createStageSpatialSession,
+  getStageSpatialOwnershipDiagnostics,
+  loadStageStaticSpatialResources,
+  type OwnedStageStaticSpatialResources,
+  type StageSpatialSession
 } from "../world/stageSpatialContext";
 import {
   createV2PerformanceDiagnostics,
@@ -85,8 +91,18 @@ import {
   transitionV2RuntimeSession
 } from "./runtimeSessionLifecycle";
 import {
+  acquireV2ConstructionOwner,
+  installV2RuntimeApplicationTermination
+} from "./runtimeApplicationLifecycle";
+import { createV2RuntimeConstructionRollbackStack } from "./runtimeConstructionRollback";
+import {
+  assertV2RuntimeConstructionActive,
+  replaceV2StageStaticResourceSlot
+} from "./stageSessionLifecycle";
+import {
   createV2SessionStartSnapshot,
   doV2SessionStartSnapshotsMatch,
+  selectV2FailedSessionRetryRequest,
   type V2SessionStartSnapshot,
   type V2TitleStartMode
 } from "./titleSettingsSession";
@@ -325,37 +341,138 @@ const createSessionStartSnapshot = (
   });
 };
 
-const createRetriedSessionStartSnapshot = (
-  sessionSeed: number,
-  source: V2SessionStartSnapshot
-): V2SessionStartSnapshot =>
-  createV2SessionStartSnapshot({
-    startMode: source.startMode,
-    settings: source.settings,
-    runtimePopulation: source.runtimePopulation,
-    venueRandom: createSchoolRuntimeRandom(
-      sessionSeed,
-      "instant-execution-venue"
-    )
-  });
-
 if (performanceScenario) {
   canvas.style.width = "1920px";
   canvas.style.height = "1080px";
 }
 const engine = new Engine(canvas, true);
 markV2StartupPhase("engine-created");
+const scene = new Scene(engine);
+scene.collisionsEnabled = true;
+scene.clearColor = new Color4(0.48, 0.72, 0.92, 1);
+const ambientLight = new HemisphericLight(
+  "V2SchoolAmbientLight",
+  new Vector3(0.35, 1, -0.25),
+  scene
+);
+ambientLight.intensity = 0.9;
+ambientLight.groundColor = new Color3(0.16, 0.2, 0.22);
+let ownedStageStatic: OwnedStageStaticSpatialResources | null = null;
+let runtimeConstructionEpoch = 0;
+let stageStaticLoadCount = 0;
+let stageStaticIdentity = 0;
+let nextDynamicSessionIdentity = 1;
+const disposedDynamicSessionIdentities: number[] = [];
+const dynamicSessionDisposeInvocationIdentities: number[] = [];
+const DYNAMIC_OWNER_CATEGORIES = Object.freeze([
+  "actor", "room-active-set", "mission", "timer", "reservation",
+  "passenger", "input", "hud", "audio", "observer", "subscription",
+  "query", "human-navigation-world"
+] as const);
+type DynamicOwnerCategory = (typeof DYNAMIC_OWNER_CATEGORIES)[number];
+const disposedDynamicOwnerResiduals: Array<Readonly<{
+  generation: number;
+  residual: readonly DynamicOwnerCategory[];
+}>> = [];
+const countSceneResources = () => Object.freeze({
+  meshes: scene.meshes.length,
+  materials: scene.materials.length,
+  textures: scene.textures.length,
+  cameras: scene.cameras.length,
+  lights: scene.lights.length
+});
+let staticOnlyBaseline: ReturnType<typeof countSceneResources> | null = null;
+let staticOnlyBaselineMatchCount = 0;
+let staticOnlyBaselineMismatchCount = 0;
+const recordStaticOnlyBaseline = () => {
+  const current = countSceneResources();
+  if (staticOnlyBaseline === null) {
+    staticOnlyBaseline = current;
+    staticOnlyBaselineMatchCount += 1;
+    return;
+  }
+  if (JSON.stringify(current) === JSON.stringify(staticOnlyBaseline)) {
+    staticOnlyBaselineMatchCount += 1;
+  } else {
+    staticOnlyBaselineMismatchCount += 1;
+  }
+};
+
+const getOrLoadStageStatic = async (isCancelled: () => boolean) => {
+  const requestedFingerprint = createStageCatalogFingerprint(SCHOOL_STAGE);
+  const previous = ownedStageStatic;
+  await replaceV2StageStaticResourceSlot(
+    {
+      get: () => ownedStageStatic,
+      set: (value) => {
+        ownedStageStatic = value;
+      }
+    },
+    requestedFingerprint,
+    async () => {
+      const loaded = await loadStageStaticSpatialResources(scene, SCHOOL_STAGE);
+      stageStaticLoadCount += 1;
+      stageStaticIdentity += 1;
+      return loaded;
+    },
+    isCancelled
+  );
+  if (ownedStageStatic === null) {
+    throw new Error("Stage静的資源slotへload結果が設定されませんでした。");
+  }
+  if (ownedStageStatic !== previous) {
+    document.body.dataset.v2StageStaticLoadCount = String(stageStaticLoadCount);
+  }
+  document.body.dataset.v2StageCatalogFingerprint = ownedStageStatic.fingerprint;
+  return ownedStageStatic;
+};
+
+let dispatchTitleSettingsRebuild = () => {};
+const appTitleSettingsPanel = createV2TitleSettingsPanel({
+  parent: titleOverlay,
+  store: titleSettingsStore,
+  portraitDirectories: V2_PORTRAIT_ASSET_INVENTORY.directories,
+  voiceDirectories: audioAssets.voiceDirectories,
+  confirmEnableNoGunTouch: () =>
+    window.confirm(enableNoGunTouchBrainwashConfirmMessage),
+  onNoGunTouchEnabled: () => dispatchTitleSettingsRebuild(),
+  startMode: titleStartMode,
+  onStartModeChanged: (mode) => {
+    titleStartMode = mode;
+    titleOverlayController.setInstantExecutionMode(
+      mode === "instant-public-execution"
+    );
+  }
+});
+const appTitleLayoutController = createV2TitleLayoutController({
+  overlay: titleOverlay,
+  center: titleCenterBlock,
+  settingsRoot: appTitleSettingsPanel.root,
+  settingsViewport: appTitleSettingsPanel.layoutElements.mainHost,
+  settingsContent: appTitleSettingsPanel.layoutElements.mainContent
+});
 
 type V2RuntimeSession = Readonly<{
   deactivate(): Promise<void>;
+  disposeSynchronously(): void;
   dispose(): Promise<void>;
+  getOwnershipDiagnostics(): Readonly<{
+    generation: number;
+    active: readonly DynamicOwnerCategory[];
+  }>;
 }>;
 
 type V2RuntimeSessionRebuildOptions = Readonly<{
   startAfterCreate: boolean;
   preservePointerLock: boolean;
   retrySnapshot: V2SessionStartSnapshot | null;
+  retrySeed: number | null;
 }>;
+
+let constructingRuntimeRollback: (() => void) | null = null;
+
+const formatLoadError = (error: unknown) =>
+  error instanceof Error ? error.message : String(error);
 
 const createRuntimeSession = async (
   sessionSeed: number,
@@ -365,6 +482,43 @@ const createRuntimeSession = async (
   ) => void,
   startImmediately: boolean
 ): Promise<V2RuntimeSession> => {
+const constructionEpoch = runtimeConstructionEpoch;
+const assertConstructionActive = () =>
+  assertV2RuntimeConstructionActive(
+    () => runtimeTerminated || constructionEpoch !== runtimeConstructionEpoch
+  );
+const dynamicSessionIdentity = nextDynamicSessionIdentity;
+nextDynamicSessionIdentity += 1;
+document.body.dataset.v2DynamicSessionIdentity = String(dynamicSessionIdentity);
+document.body.dataset.v2SessionStartSnapshot = JSON.stringify(sessionStartSnapshot);
+const acquiredDynamicOwners = new Set<DynamicOwnerCategory>();
+let constructionResidualReported = false;
+const recordConstructionResidual = () => {
+  if (constructionResidualReported) {
+    return;
+  }
+  constructionResidualReported = true;
+  disposedDynamicOwnerResiduals.push(Object.freeze({
+    generation: dynamicSessionIdentity,
+    residual: Object.freeze([...acquiredDynamicOwners]),
+  }));
+};
+const acquireDynamicOwner = (category: DynamicOwnerCategory) => {
+  if (acquiredDynamicOwners.has(category)) {
+    throw new Error(`V2動的ownerの重複取得です: ${category}`);
+  }
+  acquiredDynamicOwners.add(category);
+};
+const releaseDynamicOwner = (category: DynamicOwnerCategory) => {
+  if (!acquiredDynamicOwners.delete(category)) {
+    throw new Error(`V2動的ownerの未取得releaseです: ${category}`);
+  }
+};
+const releaseDynamicOwnerIfAcquired = (category: DynamicOwnerCategory) => {
+  if (acquiredDynamicOwners.has(category)) {
+    releaseDynamicOwner(category);
+  }
+};
 markV2StartupPhase("runtime-session-creating");
 const settingsSnapshot = sessionStartSnapshot.settings;
 titleOverlayController.setInstantExecutionMode(
@@ -377,7 +531,6 @@ const roomVariantSelections = createSchoolRoomVariantSelections(
   sessionSeed
 );
 document.body.dataset.v2RuntimeSessionSeed = String(sessionSeed);
-const scene = new Scene(engine);
 const performanceDiagnostics = performanceScenario
   ? createV2PerformanceDiagnostics(
       engine,
@@ -449,22 +602,11 @@ const stageQueryDiagnostics = performanceDiagnostics
       }
     })
   : undefined;
-scene.collisionsEnabled = true;
-scene.clearColor = new Color4(0.48, 0.72, 0.92, 1);
-
 const camera = new FreeCamera("V2PlayerCamera", Vector3.Zero(), scene);
 camera.minZ = 0.02;
 camera.angularSensibility = 1500;
 camera.speed = 0;
 scene.activeCamera = camera;
-
-const ambientLight = new HemisphericLight(
-  "V2SchoolAmbientLight",
-  new Vector3(0.35, 1, -0.25),
-  scene
-);
-ambientLight.intensity = 0.9;
-ambientLight.groundColor = new Color3(0.16, 0.2, 0.22);
 
 titleHeading.textContent = "HAIGURE SURVIVAL V2";
 titleVersion.textContent = "ver.2.0.0";
@@ -475,11 +617,8 @@ staminaGauge.style.display = "none";
 statusInfo.style.display = "none";
 helpPanel.style.display = "none";
 
-const formatLoadError = (error: unknown) =>
-  error instanceof Error ? error.message : String(error);
-
 const initializeRuntime = async () => {
-  let ownedStage: StageSpatialContext | null = null;
+  let ownedStage: StageSpatialSession | null = null;
   let ownedDynamicRuntime: SchoolStageDynamicRuntime | null =
     null;
   let ownedTraversalCoordinator:
@@ -494,21 +633,56 @@ const initializeRuntime = async () => {
     null;
   let selectNavigationRoute: SchoolNpcNavigationPolicy | null =
     null;
+  const constructionRollback = createV2RuntimeConstructionRollbackStack();
+  if (performanceDiagnostics !== null) {
+    constructionRollback.register("performance", () => {
+      performanceDiagnostics.dispose();
+      delete window.__v2PerformanceDiagnostics;
+    });
+  }
+  constructionRollback.register("camera", () => {
+    camera.detachControl();
+    camera.dispose();
+  });
+  const rollbackInitializationSynchronously = () => {
+    if (constructingRuntimeRollback === rollbackInitializationSynchronously) {
+      constructingRuntimeRollback = null;
+    }
+    constructionRollback.rollback();
+    delete window.__v2PerformanceDiagnostics;
+  };
+  constructingRuntimeRollback = rollbackInitializationSynchronously;
 
   try {
     markV2StartupPhase("school-stage-loading");
-    ownedStage = await loadStageSpatialContext(
-      scene,
-      SCHOOL_STAGE,
-      {
-        queryDiagnostics: stageQueryDiagnostics,
-        initializeDynamicSpatial:
-          createSchoolStageDynamicSpatialInitializer(
-            sessionSeed
-          ),
-        roomVariantSelections
-      }
+    const dynamicSpatialInitialization =
+      createSchoolStageDynamicSpatialInitializationDescriptor(sessionSeed);
+    const staticResources = await getOrLoadStageStatic(
+      () => runtimeTerminated || constructionEpoch !== runtimeConstructionEpoch
     );
+    assertConstructionActive();
+    ownedStage = await acquireV2ConstructionOwner({
+      label: "Stage spatial session",
+      isCancelled: () =>
+        runtimeTerminated || constructionEpoch !== runtimeConstructionEpoch,
+      create: () => createStageSpatialSession(staticResources, {
+        queryDiagnostics: stageQueryDiagnostics,
+        dynamicSpatialInitialization,
+        roomVariantSelections
+      }),
+      dispose: (stage) => stage.dispose()
+    });
+    acquireDynamicOwner("room-active-set");
+    acquireDynamicOwner("query");
+    acquireDynamicOwner("human-navigation-world");
+    constructionRollback.register("stage", () => {
+      const stage = ownedStage;
+      ownedStage = null;
+      stage?.dispose();
+      releaseDynamicOwnerIfAcquired("human-navigation-world");
+      releaseDynamicOwnerIfAcquired("query");
+      releaseDynamicOwnerIfAcquired("room-active-set");
+    });
     markV2StartupPhase("school-stage-loaded");
     loadingSession.advance();
     if (ownedStage.worldBoundary === null) {
@@ -530,6 +704,19 @@ const initializeRuntime = async () => {
     document.body.dataset.v2PlayerSpawnExclusionId =
       playerSpawn.exclusionVolume.id;
     ownedInput = createV2PlayerInput(window);
+    acquireDynamicOwner("input");
+    constructionRollback.register("player-input", () => {
+      const player = ownedPlayer;
+      ownedPlayer = null;
+      if (player !== null) {
+        player.dispose();
+      } else {
+        const input = ownedInput;
+        ownedInput = null;
+        input?.dispose();
+      }
+      releaseDynamicOwnerIfAcquired("input");
+    });
     const playerInput = ownedInput;
     ownedPlayer = createV2PlayerController({
       scene,
@@ -560,16 +747,27 @@ const initializeRuntime = async () => {
       )
     });
     markV2StartupPhase("character-visuals-loading");
-    ownedCharacterVisuals = await createV2CharacterVisualRuntime({
-      scene,
-      assignments: characterAssignments,
-      showGroundShadows: settingsSnapshot.display.showGroundShadows,
-      includeNoGunTouchBlendFrames:
-        settingsSnapshot.brainwash.brainwashOnNoGunTouch,
-      orientationMode:
-        settingsSnapshot.display.enableCharacterSpriteVerticalAngle
-          ? "upright"
-          : "camera-facing"
+    ownedCharacterVisuals = await acquireV2ConstructionOwner({
+      label: "Character visual",
+      isCancelled: () =>
+        runtimeTerminated || constructionEpoch !== runtimeConstructionEpoch,
+      create: () => createV2CharacterVisualRuntime({
+        scene,
+        assignments: characterAssignments,
+        showGroundShadows: settingsSnapshot.display.showGroundShadows,
+        includeNoGunTouchBlendFrames:
+          settingsSnapshot.brainwash.brainwashOnNoGunTouch,
+        orientationMode:
+          settingsSnapshot.display.enableCharacterSpriteVerticalAngle
+            ? "upright"
+            : "camera-facing"
+      }),
+      dispose: (visuals) => visuals.dispose()
+    });
+    constructionRollback.register("character-visual", () => {
+      const characterVisuals = ownedCharacterVisuals;
+      ownedCharacterVisuals = null;
+      characterVisuals?.dispose();
     });
     markV2StartupPhase("character-visuals-loaded");
     loadingSession.advance();
@@ -656,6 +854,17 @@ const initializeRuntime = async () => {
         return selectNavigationRoute(context, candidates);
       }
     });
+    acquireDynamicOwner("actor");
+    acquireDynamicOwner("mission");
+    acquireDynamicOwner("timer");
+    constructionRollback.register("survival", () => {
+      const survival = ownedSurvival;
+      ownedSurvival = null;
+      survival?.dispose();
+      releaseDynamicOwnerIfAcquired("timer");
+      releaseDynamicOwnerIfAcquired("mission");
+      releaseDynamicOwnerIfAcquired("actor");
+    });
     markV2StartupPhase("survival-runtime-created");
     loadingSession.advance();
     const survivalRuntime = ownedSurvival;
@@ -719,8 +928,14 @@ const initializeRuntime = async () => {
     ) {
       ownedAlarmFloorVisual =
         createV2AlarmFloorVisualSystem(scene);
+      constructionRollback.register("alarm-floor-visual", () => {
+        const alarmFloorVisual = ownedAlarmFloorVisual;
+        ownedAlarmFloorVisual = null;
+        alarmFloorVisual?.dispose();
+      });
     }
     ownedDynamicRuntime = createSchoolStageDynamicRuntime({
+      initialization: dynamicSpatialInitialization,
       staticActiveSet: ownedStage.staticSpatialActiveSet,
       doorAssets: ownedStage.doorAssets,
       elevatorAssets: ownedStage.elevatorAssets,
@@ -732,6 +947,15 @@ const initializeRuntime = async () => {
         ownedStage
       )
     });
+    acquireDynamicOwner("reservation");
+    acquireDynamicOwner("passenger");
+    constructionRollback.register("dynamic-runtime", () => {
+      const dynamicRuntime = ownedDynamicRuntime;
+      ownedDynamicRuntime = null;
+      dynamicRuntime?.dispose();
+      releaseDynamicOwnerIfAcquired("passenger");
+      releaseDynamicOwnerIfAcquired("reservation");
+    });
     selectNavigationRoute = createSchoolNpcNavigationPolicy({
       seed: sessionSeed,
       elevatorAssets: ownedStage.elevatorAssets,
@@ -739,6 +963,11 @@ const initializeRuntime = async () => {
       queries: ownedStage.queries,
       getHumanTargets: () =>
         survivalRuntime.getHumanTargets()
+    });
+    constructionRollback.register("navigation-policy", () => {
+      const navigationPolicy = selectNavigationRoute;
+      selectNavigationRoute = null;
+      navigationPolicy?.dispose();
     });
     ownedTraversalCoordinator =
       createSchoolStageTraversalCoordinator({
@@ -751,6 +980,11 @@ const initializeRuntime = async () => {
           "door-behavior"
         )
       });
+    constructionRollback.register("traversal", () => {
+      const traversal = ownedTraversalCoordinator;
+      ownedTraversalCoordinator = null;
+      traversal?.dispose();
+    });
     survivalRuntime.activateStartupScenario();
     if (runtimeStressScenario) {
       const initialFrame = survivalRuntime.getFrame();
@@ -769,12 +1003,14 @@ const initializeRuntime = async () => {
       }
     }
     await scene.whenReadyAsync();
+    assertConstructionActive();
     markV2StartupPhase("scene-ready");
     loadingSession.advance();
     const visualPreparation =
       ownedSurvival.prepareVisualResources();
     scene.render();
     await visualPreparation;
+    assertConstructionActive();
     markV2StartupPhase("visual-resources-ready");
     loadingSession.advance();
     return {
@@ -790,23 +1026,26 @@ const initializeRuntime = async () => {
       navigationPolicy: selectNavigationRoute
     };
   } catch (error) {
-    console.error("V2実行環境の初期化に失敗しました。", error);
-    performanceDiagnostics?.dispose();
-    ownedTraversalCoordinator?.dispose();
-    ownedDynamicRuntime?.dispose();
-    ownedAlarmFloorVisual?.dispose();
-    ownedSurvival?.dispose();
-    ownedCharacterVisuals?.dispose();
-    selectNavigationRoute?.dispose();
-    ownedPlayer?.dispose();
-    ownedInput?.dispose();
-    ownedStage?.dispose();
-    delete window.__v2PerformanceDiagnostics;
-    scene.dispose();
+    if (!runtimeTerminated) {
+      console.error("V2実行環境の初期化に失敗しました。", error);
+    }
+    rollbackInitializationSynchronously();
+    recordConstructionResidual();
     throw error;
   }
 };
 
+let initializedRuntime: Awaited<ReturnType<typeof initializeRuntime>>;
+try {
+  initializedRuntime = await initializeRuntime();
+  assertConstructionActive();
+} catch (error) {
+  if (!runtimeTerminated) {
+    loadingSession.finish();
+    titleOverlayController.setError(formatLoadError(error));
+  }
+  throw error;
+}
 const {
   stage,
   dynamicRuntime,
@@ -818,10 +1057,11 @@ const {
   characterAssignments,
   alarmFloorVisual,
   navigationPolicy
-} =
-  await initializeRuntime();
+} = initializedRuntime;
 
 const eventScope = createV2RuntimeSessionEventScope();
+acquireDynamicOwner("observer");
+acquireDynamicOwner("subscription");
 let ownedRuntimeHud: ReturnType<
   typeof createV2RuntimeHudController
 > | null = null;
@@ -832,12 +1072,6 @@ let ownedMinimap: ReturnType<
   typeof createV2MinimapController
 > | null = null;
 let ownedAudio: AudioManager | null = null;
-let ownedTitleSettingsPanel: ReturnType<
-  typeof createV2TitleSettingsPanel
-> | null = null;
-let ownedTitleLayoutController: ReturnType<
-  typeof createV2TitleLayoutController
-> | null = null;
 let ownedGameplayAudioBridge: ReturnType<
   typeof createV2GameplayAudioBridge
 > | null = null;
@@ -849,37 +1083,54 @@ let ownedSchoolVisualAcceptanceBridge: HTMLTextAreaElement | null = null;
 let started = false;
 let deactivated = false;
 let disposed = false;
-const deactivateRuntime = async () => {
+let audioDisposalPromise: Promise<void> | null = null;
+let audioDisposeStarted = false;
+let disposalReported = false;
+const deactivateRuntimeSynchronously = () => {
   if (deactivated) {
     return;
   }
   deactivated = true;
-  engine.stopRenderLoop();
   started = false;
+  engine.stopRenderLoop();
   input.reset();
   eventScope.dispose();
+  releaseDynamicOwner("subscription");
+  releaseDynamicOwner("observer");
   ownedRuntimeHud?.clear();
   ownedMissionHud?.clear();
   ownedMinimap?.clear();
   ownedVoiceRuntime?.stopAll();
   ownedAudio?.stopBgm();
 };
-const disposeRuntime = async () => {
+const deactivateRuntime = async () => deactivateRuntimeSynchronously();
+const disposeRuntimeSynchronously = () => {
+  dynamicSessionDisposeInvocationIdentities.push(dynamicSessionIdentity);
   if (disposed) {
     return;
   }
   disposed = true;
-  await deactivateRuntime();
+  disposedDynamicSessionIdentities.push(dynamicSessionIdentity);
+  if (
+    document.body.dataset.v2DynamicSessionIdentity ===
+    String(dynamicSessionIdentity)
+  ) {
+    delete document.body.dataset.v2DynamicSessionIdentity;
+  }
+  deactivateRuntimeSynchronously();
   ownedRuntimeHud?.dispose();
   ownedMissionHud?.dispose();
   ownedMinimap?.dispose();
+  releaseDynamicOwnerIfAcquired("hud");
   ownedPlayerCharacterVisual?.dispose();
-  ownedTitleLayoutController?.dispose();
-  ownedTitleSettingsPanel?.dispose();
   ownedGameplayAudioBridge?.dispose();
   ownedVoiceRuntime?.dispose();
   ownedSchoolVisualAcceptanceBridge?.remove();
-  const audioDisposal = ownedAudio?.dispose();
+  if (ownedAudio !== null) {
+    audioDisposalPromise = ownedAudio.dispose();
+    audioDisposeStarted = true;
+  }
+  releaseDynamicOwnerIfAcquired("audio");
   performanceDiagnostics?.dispose();
   delete window.__v2PerformanceDiagnostics;
   delete document.body.dataset.v2PerformanceReport;
@@ -897,17 +1148,43 @@ const disposeRuntime = async () => {
   }
   traversalCoordinator.dispose();
   dynamicRuntime.dispose();
+  releaseDynamicOwner("passenger");
+  releaseDynamicOwner("reservation");
   alarmFloorVisual?.dispose();
   survival.dispose();
+  releaseDynamicOwner("timer");
+  releaseDynamicOwner("mission");
+  releaseDynamicOwner("actor");
   characterVisuals.dispose();
   navigationPolicy.dispose();
   player.dispose();
+  releaseDynamicOwner("input");
   stage.dispose();
-  scene.dispose();
-  if (audioDisposal) {
-    await audioDisposal;
+  releaseDynamicOwner("human-navigation-world");
+  releaseDynamicOwner("query");
+  releaseDynamicOwner("room-active-set");
+  camera.detachControl();
+  camera.dispose();
+  if (!disposalReported) {
+    disposalReported = true;
+    disposedDynamicOwnerResiduals.push(
+      Object.freeze({
+        generation: dynamicSessionIdentity,
+        residual: Object.freeze([...acquiredDynamicOwners])
+      })
+    );
+  }
+  if (constructingRuntimeRollback === disposeRuntimeSynchronously) {
+    constructingRuntimeRollback = null;
   }
 };
+const disposeRuntime = async () => {
+  disposeRuntimeSynchronously();
+  if (audioDisposeStarted) {
+    await audioDisposalPromise;
+  }
+};
+constructingRuntimeRollback = disposeRuntimeSynchronously;
 
 try {
 camera.attachControl(canvas, true);
@@ -1046,6 +1323,7 @@ const missionHud = settingsSnapshot.features.missionEnabled
   ? createV2MissionHudController({ host: document.body })
   : null;
 ownedMissionHud = missionHud;
+acquireDynamicOwner("hud");
 document.body.dataset.v2FeatureResources = JSON.stringify({
   ...survival.getFeatureResources(),
   missionHud: missionHud !== null,
@@ -1069,33 +1347,9 @@ const playerCharacterVisual = createV2PlayerCharacterVisual(
 ownedPlayerCharacterVisual = playerCharacterVisual;
 const audio = new AudioManager(camera);
 ownedAudio = audio;
+acquireDynamicOwner("audio");
 const audioVolumeLevels = settingsSnapshot.audio;
 applyV2AudioVolumeLevels(audio, audioVolumeLevels);
-const titleSettingsPanel = createV2TitleSettingsPanel({
-  parent: titleOverlay,
-  store: titleSettingsStore,
-  portraitDirectories: V2_PORTRAIT_ASSET_INVENTORY.directories,
-  voiceDirectories: audioAssets.voiceDirectories,
-  confirmEnableNoGunTouch: () =>
-    window.confirm(enableNoGunTouchBrainwashConfirmMessage),
-  onNoGunTouchEnabled: () => requestSessionRebuild(),
-  startMode: titleStartMode,
-  onStartModeChanged: (mode) => {
-    titleStartMode = mode;
-    titleOverlayController.setInstantExecutionMode(
-      mode === "instant-public-execution"
-    );
-  }
-});
-ownedTitleSettingsPanel = titleSettingsPanel;
-const titleLayoutController = createV2TitleLayoutController({
-  overlay: titleOverlay,
-  center: titleCenterBlock,
-  settingsRoot: titleSettingsPanel.root,
-  settingsViewport: titleSettingsPanel.layoutElements.mainHost,
-  settingsContent: titleSettingsPanel.layoutElements.mainContent
-});
-ownedTitleLayoutController = titleLayoutController;
 const gameplayAudioBridge = createV2GameplayAudioBridge({
   audio,
   assets: audioAssets,
@@ -2111,7 +2365,8 @@ const handleCanvasClick: EventListener = () => {
       Object.freeze({
         startAfterCreate: true,
         preservePointerLock: true,
-        retrySnapshot: null
+        retrySnapshot: null,
+        retrySeed: null
       })
     );
     return;
@@ -2315,8 +2570,21 @@ engine.runRenderLoop(() => {
       ? dispatchV2RuntimeEndFlow(actions, survivalFrame)
       : "ignored";
     if (endFlowDecision === "replay-execution") {
-      survival.replayExecution();
-      survivalFrame = survival.getFrame();
+      if (sessionStartSnapshot.startMode === "instant-public-execution") {
+        started = false;
+        input.reset();
+        requestSessionRebuild(
+          Object.freeze({
+            startAfterCreate: true,
+            preservePointerLock: false,
+            retrySnapshot: sessionStartSnapshot,
+            retrySeed: sessionSeed
+          })
+        );
+      } else {
+        survival.replayExecution();
+        survivalFrame = survival.getFrame();
+      }
     } else if (endFlowDecision === "retry-normal-session") {
       started = false;
       input.reset();
@@ -2324,7 +2592,8 @@ engine.runRenderLoop(() => {
         Object.freeze({
           startAfterCreate: true,
           preservePointerLock: false,
-          retrySnapshot: sessionStartSnapshot
+          retrySnapshot: sessionStartSnapshot,
+          retrySeed: null
         })
       );
     } else if (endFlowDecision === "return-to-title") {
@@ -2639,17 +2908,34 @@ engine.runRenderLoop(() => {
 const resize = () => engine.resize();
 eventScope.listen(window, "resize", resize);
 
+if (
+  !stage || !dynamicRuntime || !survival || !input || !ownedRuntimeHud ||
+  !ownedAudio || eventScope.getSubscriptionCount() === 0 ||
+  DYNAMIC_OWNER_CATEGORIES.some(
+    (category) => !acquiredDynamicOwners.has(category)
+  )
+) {
+  throw new Error("V2動的owner ledgerの取得前提が成立しません。");
+}
+
 return Object.freeze({
   deactivate: deactivateRuntime,
-  dispose: disposeRuntime
+  disposeSynchronously: disposeRuntimeSynchronously,
+  dispose: disposeRuntime,
+  getOwnershipDiagnostics: () => Object.freeze({
+    generation: dynamicSessionIdentity,
+    active: Object.freeze([...acquiredDynamicOwners])
+  })
 });
 } catch (error) {
-  console.error(
-    "V2 Runtime sessionの構築に失敗しました。",
-    error
-  );
-  loadingSession.finish();
-  titleOverlayController.setError(formatLoadError(error));
+  if (!runtimeTerminated) {
+    console.error(
+      "V2 Runtime sessionの構築に失敗しました。",
+      error
+    );
+    loadingSession.finish();
+    titleOverlayController.setError(formatLoadError(error));
+  }
   await disposeRuntime();
   throw error;
 }
@@ -2658,6 +2944,10 @@ return Object.freeze({
 let activeSession: V2RuntimeSession | null = null;
 let sessionTransition: Promise<void> | null = null;
 let runtimeTerminated = false;
+let failedSessionRequest: Readonly<{
+  seed: number;
+  snapshot: V2SessionStartSnapshot;
+}> | null = null;
 
 const showSessionLoading = () => {
   titleOverlay.style.display = "grid";
@@ -2672,18 +2962,21 @@ const rebuildSession = (
   options: V2RuntimeSessionRebuildOptions = Object.freeze({
     startAfterCreate: false,
     preservePointerLock: false,
-    retrySnapshot: null
+    retrySnapshot: null,
+    retrySeed: null
   })
 ) => {
   if (sessionTransition !== null || runtimeTerminated) {
     return;
   }
+  let requestedSeed: number | null = null;
+  let requestedSnapshot: V2SessionStartSnapshot | null = null;
   sessionTransition = (async () => {
     const previousSession = activeSession;
     activeSession = null;
     activeSession = await transitionV2RuntimeSession({
       currentSession: previousSession,
-      nextRuntimeSeed: nextRuntimeSessionSeed,
+      nextRuntimeSeed: () => options.retrySeed ?? nextRuntimeSessionSeed(),
       isCancelled: () => runtimeTerminated,
       exitPointerLock: () => {
         if (!options.preservePointerLock) {
@@ -2691,19 +2984,22 @@ const rebuildSession = (
         }
       },
       showLoading: showSessionLoading,
-      createSession: (sessionSeed) =>
-        createRuntimeSession(
-          sessionSeed,
+      afterCurrentDispose: recordStaticOnlyBaseline,
+      createSession: (sessionSeed) => {
+        requestedSeed = sessionSeed;
+        requestedSnapshot =
           options.retrySnapshot === null
             ? createSessionStartSnapshot(sessionSeed)
-            : createRetriedSessionStartSnapshot(
-                sessionSeed,
-                options.retrySnapshot
-              ),
+            : options.retrySnapshot;
+        return createRuntimeSession(
+          sessionSeed,
+          requestedSnapshot,
           rebuildSession,
           options.startAfterCreate
-        )
+        );
+      }
     });
+    failedSessionRequest = null;
   })()
     .catch((error: unknown) => {
       if (runtimeTerminated) {
@@ -2713,36 +3009,114 @@ const rebuildSession = (
         "V2 Runtime sessionの再初期化に失敗しました。",
         error
       );
+      if (requestedSeed !== null && requestedSnapshot !== null) {
+        failedSessionRequest = Object.freeze({
+          seed: requestedSeed,
+          snapshot: requestedSnapshot
+        });
+      }
+      titleOverlayController.setError(
+        `${formatLoadError(error)}\nタイトル画面をクリックすると再試行します。`
+      );
     })
     .finally(() => {
       sessionTransition = null;
     });
 };
 
+dispatchTitleSettingsRebuild = () => {
+  if (activeSession !== null) {
+    rebuildSession();
+  }
+};
+
+installV2RuntimeApplicationTermination({
+  eventTarget: window,
+  markTerminated: () => {
+    runtimeTerminated = true;
+    runtimeConstructionEpoch += 1;
+  },
+  stopRenderLoop: () => engine.stopRenderLoop(),
+  markPageUnloading: markV2PageUnloading,
+  takeConstructionRollback: () => {
+    const rollback = constructingRuntimeRollback;
+    constructingRuntimeRollback = null;
+    return activeSession === null ? rollback : null;
+  },
+  takeDynamicSession: () => {
+    const session = activeSession;
+    activeSession = null;
+    return session;
+  },
+  disposeApplicationUi: () => {
+    try {
+      appTitleLayoutController.dispose();
+    } finally {
+      appTitleSettingsPanel.dispose();
+    }
+  },
+  takeStaticResources: () => {
+    const staticResources = ownedStageStatic;
+    ownedStageStatic = null;
+    return staticResources;
+  },
+  disposeAmbientLight: () => ambientLight.dispose(),
+  disposeScene: () => scene.dispose(),
+  disposeEngine: () => engine.dispose()
+});
+
+const initialSessionSeed = nextRuntimeSessionSeed();
+const initialSnapshot = createSessionStartSnapshot(initialSessionSeed);
 try {
-  const initialSessionSeed = nextRuntimeSessionSeed();
-  activeSession = await createRuntimeSession(
+  const initialSession = await createRuntimeSession(
     initialSessionSeed,
-    createSessionStartSnapshot(initialSessionSeed),
+    initialSnapshot,
     rebuildSession,
     false
   );
-  markV2StartupPhase("runtime-session-ready");
+  if (runtimeTerminated) {
+    await initialSession.dispose();
+  } else {
+    activeSession = initialSession;
+    markV2StartupPhase("runtime-session-ready");
+  }
 } catch (error) {
-  activeSession = null;
-  throw error;
+  if (!runtimeTerminated) {
+    activeSession = null;
+    failedSessionRequest = Object.freeze({
+      seed: initialSessionSeed,
+      snapshot: initialSnapshot
+    });
+    titleOverlayController.setError(
+      `${formatLoadError(error)}\nタイトル画面をクリックすると再試行します。`
+    );
+  }
 }
 
-window.addEventListener(
-  "beforeunload",
-  () => {
-    runtimeTerminated = true;
-    activeSession = null;
-    engine.stopRenderLoop();
-    markV2PageUnloading();
-  },
-  { once: true }
-);
+titleOverlay.addEventListener("click", () => {
+  if (
+    activeSession !== null ||
+    sessionTransition !== null ||
+    runtimeTerminated ||
+    failedSessionRequest === null
+  ) {
+    return;
+  }
+  const failed = failedSessionRequest;
+  const retry = selectV2FailedSessionRetryRequest(
+    failed,
+    createSessionStartSnapshot,
+    nextRuntimeSessionSeed
+  );
+  rebuildSession(
+    Object.freeze({
+      startAfterCreate: true,
+      preservePointerLock: false,
+      retrySnapshot: retry.snapshot,
+      retrySeed: retry.seed
+    })
+  );
+});
 
 type V2SchoolVisualAcceptancePose = Readonly<{
   footPosition: readonly [number, number, number];
@@ -2773,5 +3147,78 @@ declare global {
       ): V2SchoolVisualAcceptanceSnapshot;
       getSnapshot(): V2SchoolVisualAcceptanceSnapshot;
     }>;
+    __v2StaticReuseDiagnostics?: () => Readonly<{
+      staticLoadCount: number;
+      glbParseCount: number;
+      staticIdentity: number;
+      dynamicIdentity: number | null;
+      sessionSeed: number | null;
+      sessionStartSnapshot: string | null;
+      transitionInProgress: boolean;
+      runtimeTerminated: boolean;
+      disposedDynamicIdentities: readonly number[];
+      dynamicDisposeInvocationIdentities: readonly number[];
+      humanNavigationWorldCount: number;
+      staticDecodedHumanBundleOwnerCount: number;
+      staticBitNavigationOwnerCount: number;
+      staticOnlyBaseline: ReturnType<typeof countSceneResources> | null;
+      staticOnlyBaselineMatchCount: number;
+      staticOnlyBaselineMismatchCount: number;
+      dynamicOwners: Readonly<{
+        generation: number | null;
+        active: readonly string[];
+        disposedResiduals: readonly Readonly<{
+          generation: number;
+          residual: readonly string[];
+        }>[];
+      }>;
+      scene: Readonly<{
+        meshes: number;
+        materials: number;
+        textures: number;
+        cameras: number;
+        lights: number;
+      }>;
+    }>;
   }
 }
+
+window.__v2StaticReuseDiagnostics = () => {
+  const ownership = getStageSpatialOwnershipDiagnostics();
+  return Object.freeze({
+  staticLoadCount: stageStaticLoadCount,
+  glbParseCount: ownership.glbParseCount,
+  staticIdentity: stageStaticIdentity,
+  dynamicIdentity:
+    document.body.dataset.v2DynamicSessionIdentity === undefined
+      ? null
+      : Number(document.body.dataset.v2DynamicSessionIdentity),
+  sessionSeed:
+    document.body.dataset.v2RuntimeSessionSeed === undefined
+      ? null
+      : Number(document.body.dataset.v2RuntimeSessionSeed),
+  sessionStartSnapshot:
+    document.body.dataset.v2SessionStartSnapshot ?? null,
+  transitionInProgress: sessionTransition !== null,
+  runtimeTerminated,
+  disposedDynamicIdentities: Object.freeze([
+    ...disposedDynamicSessionIdentities
+  ]),
+  dynamicDisposeInvocationIdentities: Object.freeze([
+    ...dynamicSessionDisposeInvocationIdentities
+  ]),
+  humanNavigationWorldCount: ownership.sessionHumanNavigationWorldOwnerCount,
+  staticDecodedHumanBundleOwnerCount:
+    ownership.staticDecodedHumanBundleOwnerCount,
+  staticBitNavigationOwnerCount: ownership.staticBitNavigationOwnerCount,
+  staticOnlyBaseline,
+  staticOnlyBaselineMatchCount,
+  staticOnlyBaselineMismatchCount,
+  dynamicOwners: Object.freeze({
+    generation: activeSession?.getOwnershipDiagnostics().generation ?? null,
+    active: activeSession?.getOwnershipDiagnostics().active ?? Object.freeze([]),
+    disposedResiduals: Object.freeze([...disposedDynamicOwnerResiduals])
+  }),
+  scene: countSceneResources()
+  });
+};

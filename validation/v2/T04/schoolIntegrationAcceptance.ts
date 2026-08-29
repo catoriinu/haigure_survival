@@ -19,7 +19,7 @@ import {
 } from "../../../src/world/schoolRuntimeSettings";
 import {
   createSchoolStageDynamicRuntime,
-  createSchoolStageDynamicSpatialInitializer,
+  createSchoolStageDynamicSpatialInitializationDescriptor,
   type SchoolStageActorPort,
   type SchoolStageDynamicRuntime,
   type SchoolStageDynamicRuntimeSnapshot
@@ -48,8 +48,10 @@ import {
   type StageCatalogEntry
 } from "../../../src/world/stageCatalog";
 import {
-  loadStageSpatialContext,
-  type StageSpatialContext
+  createStageSpatialSession,
+  loadStageStaticSpatialResources,
+  type OwnedStageStaticSpatialResources,
+  type StageSpatialSession
 } from "../../../src/world/stageSpatialContext";
 import type {
   DynamicStageSpatialSnapshot
@@ -165,6 +167,7 @@ const CURRENT_BEAM_ORIGIN_KINDS = Object.freeze(
     "npc-gun": true,
     "npc-no-gun-touch": true,
     "player-gun": true,
+    "player-no-gun-touch": true,
     "execution-bit": true,
     "execution-npc": true,
     "execution-player": true
@@ -476,6 +479,26 @@ class StrictTraversalSurvivalHarness implements V2SurvivalRuntime {
     private readonly getPlayerTarget:
       () => V2HumanTargetSnapshot
   ) {}
+
+  activateStartupScenario() {
+    this.assertActive();
+    return false;
+  }
+
+  getFeatureResources() {
+    this.assertActive();
+    return Object.freeze({
+      missionRuntime: false,
+      broadcastRuntime: false,
+      alarmCandidateProvider: false,
+      alarmSystem: false
+    });
+  }
+
+  releaseAssemblyPlayerControl() {
+    this.assertActive();
+    return false;
+  }
 
   private assertActive() {
     if (!this.active) {
@@ -1157,7 +1180,7 @@ const isMeshAbsentFromEveryDynamicSet = (
   !snapshot.bitObstacles.includes(mesh);
 
 const inspectDoorSpatialContract = (
-  context: StageSpatialContext,
+  context: StageSpatialSession,
   snapshot: SchoolStageDynamicRuntimeSnapshot,
   door: StageDoorAsset,
   expectedActive: boolean
@@ -1250,7 +1273,7 @@ const createDoorRaySegment = (collider: Mesh): DoorRaySegment => {
 
 const createDoorDynamicRayProbe = (
   scene: Scene,
-  context: StageSpatialContext,
+  context: StageSpatialSession,
   door: StageDoorAsset,
   closedSegment: DoorRaySegment
 ) => {
@@ -1266,7 +1289,7 @@ const createDoorDynamicRayProbe = (
     observedRevisions.push(context.queries.revision);
     queryCount += 1;
   };
-  const queryProxy: StageSpatialContext["queries"] = {
+  const queryProxy: StageSpatialSession["queries"] = {
     get revision() {
       const revision = context.queries.revision;
       if (recording) {
@@ -1502,7 +1525,7 @@ const inspectElevatorMotionPanels = (
 };
 
 const createRuntimeDriver = (
-  context: StageSpatialContext,
+  context: StageSpatialSession,
   runtime: SchoolStageDynamicRuntime
 ) => {
   let lastPlayerSnapshot: DynamicStageSpatialSnapshot | null = null;
@@ -1544,7 +1567,7 @@ const createRuntimeDriver = (
   });
 };
 
-const getExteriorBitProjectionCount = (context: StageSpatialContext) => {
+const getExteriorBitProjectionCount = (context: StageSpatialSession) => {
   const worldBoundary = context.worldBoundary;
   if (!worldBoundary) {
     throw new Error("実学校にworldBoundaryがありません。");
@@ -1606,7 +1629,7 @@ const createTraversalEllipsoid = (
   });
 
 const requireDoorTraversalPositions = (
-  context: StageSpatialContext,
+  context: StageSpatialSession,
   door: StageDoorAsset
 ) => {
   const normal = Vector3.TransformNormal(
@@ -1656,7 +1679,7 @@ const requireDoorTraversalPositions = (
 };
 
 const requireDoorPlanePositionOutsideDoorVolumes = (
-  context: StageSpatialContext,
+  context: StageSpatialSession,
   door: StageDoorAsset
 ) => {
   const normal = Vector3.TransformNormal(
@@ -1699,7 +1722,7 @@ const requireDoorPlanePositionOutsideDoorVolumes = (
 };
 
 const requireElevatorRoute = (
-  context: StageSpatialContext,
+  context: StageSpatialSession,
   elevator: StageElevatorAsset
 ): V2NpcElevatorTraversalRoute => {
   const fromStop = elevator.initialStop;
@@ -1761,7 +1784,8 @@ const runTraversalCoordinatorAcceptance = async (
   >,
   checks: SchoolIntegrationCheck[]
 ) => {
-  let context: Nullable<StageSpatialContext> = null;
+  let context: Nullable<StageSpatialSession> = null;
+  let staticResources: Nullable<OwnedStageStaticSpatialResources> = null;
   let runtime: Nullable<SchoolStageDynamicRuntime> = null;
   let player: Nullable<TraversalFixturePlayer> = null;
   let survival: Nullable<StrictTraversalSurvivalHarness> = null;
@@ -1769,17 +1793,14 @@ const runTraversalCoordinatorAcceptance = async (
     ReturnType<typeof createSchoolStageTraversalCoordinator>
   > = null;
   try {
-    context = await loadStageSpatialContext(
-      scene,
-      SCHOOL_VALIDATION_STAGE,
-      {
-        initializeDynamicSpatial:
-          createSchoolStageDynamicSpatialInitializer(
+    staticResources = await loadStageStaticSpatialResources(scene, SCHOOL_VALIDATION_STAGE);
+    context = await createStageSpatialSession(staticResources, {
+        dynamicSpatialInitialization:
+          createSchoolStageDynamicSpatialInitializationDescriptor(
             SCHOOL_INTEGRATION_SEED
           ),
         roomVariantSelections: selections
-      }
-    );
+      });
     player = createTraversalFixturePlayer(
       new Vector3(1_500, 1_000, 1_000)
     );
@@ -1818,6 +1839,7 @@ const runTraversalCoordinatorAcceptance = async (
       position: farPosition
     });
     runtime = createSchoolStageDynamicRuntime({
+      initialization: context.dynamicSpatialInitialization!,
       staticActiveSet: context.staticSpatialActiveSet,
       doorAssets: context.doorAssets,
       elevatorAssets: context.elevatorAssets,
@@ -3105,6 +3127,7 @@ const runTraversalCoordinatorAcceptance = async (
     survival?.dispose();
     player?.dispose();
     context?.dispose();
+    staticResources?.dispose();
   }
   return countSceneResources(scene);
 };
@@ -3116,7 +3139,8 @@ const runPlayerElevatorTraversalAcceptance = async (
   >,
   checks: SchoolIntegrationCheck[]
 ) => {
-  let context: Nullable<StageSpatialContext> = null;
+  let context: Nullable<StageSpatialSession> = null;
+  let staticResources: Nullable<OwnedStageStaticSpatialResources> = null;
   let runtime: Nullable<SchoolStageDynamicRuntime> = null;
   let player: Nullable<TraversalFixturePlayer> = null;
   let survival: Nullable<StrictTraversalSurvivalHarness> = null;
@@ -3124,17 +3148,14 @@ const runPlayerElevatorTraversalAcceptance = async (
     ReturnType<typeof createSchoolStageTraversalCoordinator>
   > = null;
   try {
-    context = await loadStageSpatialContext(
-      scene,
-      SCHOOL_VALIDATION_STAGE,
-      {
-        initializeDynamicSpatial:
-          createSchoolStageDynamicSpatialInitializer(
+    staticResources = await loadStageStaticSpatialResources(scene, SCHOOL_VALIDATION_STAGE);
+    context = await createStageSpatialSession(staticResources, {
+        dynamicSpatialInitialization:
+          createSchoolStageDynamicSpatialInitializationDescriptor(
             SCHOOL_INTEGRATION_SEED
           ),
         roomVariantSelections: selections
-      }
-    );
+      });
     const elevator = context.elevatorAssets.all[0];
     if (!elevator) {
       throw new Error(
@@ -3172,6 +3193,7 @@ const runPlayerElevatorTraversalAcceptance = async (
       () => player!.createTargetSnapshot()
     );
     runtime = createSchoolStageDynamicRuntime({
+      initialization: context.dynamicSpatialInitialization!,
       staticActiveSet: context.staticSpatialActiveSet,
       doorAssets: context.doorAssets,
       elevatorAssets: context.elevatorAssets,
@@ -3698,6 +3720,7 @@ const runPlayerElevatorTraversalAcceptance = async (
     survival?.dispose();
     player?.dispose();
     context?.dispose();
+    staticResources?.dispose();
   }
   return countSceneResources(scene);
 };
@@ -3812,22 +3835,21 @@ export const runSchoolIntegrationAcceptance = async (): Promise<
   const engine = new NullEngine();
   const scene = new Scene(engine);
   const baseline = countSceneResources(scene);
-  let context: Nullable<StageSpatialContext> = null;
+  let context: Nullable<StageSpatialSession> = null;
+  let staticResources: Nullable<OwnedStageStaticSpatialResources> = null;
   let runtime: Nullable<SchoolStageDynamicRuntime> = null;
   try {
-    context = await loadStageSpatialContext(
-      scene,
-      SCHOOL_VALIDATION_STAGE,
-      {
-        initializeDynamicSpatial:
-          createSchoolStageDynamicSpatialInitializer(
+    staticResources = await loadStageStaticSpatialResources(scene, SCHOOL_VALIDATION_STAGE);
+    context = await createStageSpatialSession(staticResources, {
+        dynamicSpatialInitialization:
+          createSchoolStageDynamicSpatialInitializationDescriptor(
             SCHOOL_INTEGRATION_SEED
           ),
         roomVariantSelections: level2
-      }
-    );
+      });
     const actors = createFixtureActors();
     runtime = createSchoolStageDynamicRuntime({
+      initialization: context.dynamicSpatialInitialization!,
       staticActiveSet: context.staticSpatialActiveSet,
       doorAssets: context.doorAssets,
       elevatorAssets: context.elevatorAssets,
@@ -4771,6 +4793,8 @@ export const runSchoolIntegrationAcceptance = async (): Promise<
     runtime = null;
     context.dispose();
     context = null;
+    staticResources.dispose();
+    staticResources = null;
     const afterFirstDispose = countSceneResources(scene);
     const afterCoordinatorDispose =
       await runTraversalCoordinatorAcceptance(
@@ -4785,19 +4809,22 @@ export const runSchoolIntegrationAcceptance = async (): Promise<
         checks
       );
 
-    const reloadedContext = await loadStageSpatialContext(
-      scene,
-      SCHOOL_VALIDATION_STAGE,
-      {
-        initializeDynamicSpatial:
-          createSchoolStageDynamicSpatialInitializer(
+    let reloadedStatic: Nullable<OwnedStageStaticSpatialResources> = null;
+    let reloadedContext: Nullable<StageSpatialSession> = null;
+    let reloadedRuntime: Nullable<SchoolStageDynamicRuntime> = null;
+    let reloadStateClean = false;
+    try {
+    reloadedStatic = await loadStageStaticSpatialResources(scene, SCHOOL_VALIDATION_STAGE);
+    reloadedContext = await createStageSpatialSession(reloadedStatic, {
+        dynamicSpatialInitialization:
+          createSchoolStageDynamicSpatialInitializationDescriptor(
             SCHOOL_INTEGRATION_SEED
           ),
         roomVariantSelections: level2
-      }
-    );
+      });
     const reloadedActors = createFixtureActors();
-    const reloadedRuntime = createSchoolStageDynamicRuntime({
+    reloadedRuntime = createSchoolStageDynamicRuntime({
+      initialization: reloadedContext.dynamicSpatialInitialization!,
       staticActiveSet: reloadedContext.staticSpatialActiveSet,
       doorAssets: reloadedContext.doorAssets,
       elevatorAssets: reloadedContext.elevatorAssets,
@@ -4806,7 +4833,7 @@ export const runSchoolIntegrationAcceptance = async (): Promise<
       actors: reloadedActors.port
     });
     const reloadedSnapshot = reloadedRuntime.getSnapshot();
-    const reloadStateClean =
+    reloadStateClean =
       reloadedSnapshot.revision === 0 &&
       reloadedSnapshot.elevators.every(
         (elevator) =>
@@ -4814,8 +4841,11 @@ export const runSchoolIntegrationAcceptance = async (): Promise<
           elevator.reservations.length === 0 &&
           elevator.passengers.length === 0
       );
-    reloadedRuntime.dispose();
-    reloadedContext.dispose();
+    } finally {
+      reloadedRuntime?.dispose();
+      reloadedContext?.dispose();
+      reloadedStatic?.dispose();
+    }
     const afterSecondDispose = countSceneResources(scene);
     pushCheck(
       checks,
@@ -4842,6 +4872,7 @@ export const runSchoolIntegrationAcceptance = async (): Promise<
   } finally {
     runtime?.dispose();
     context?.dispose();
+    staticResources?.dispose();
     scene.dispose();
     engine.dispose();
   }

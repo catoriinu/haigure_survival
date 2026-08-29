@@ -28,7 +28,7 @@ import {
   type BitFlightTransition,
   type BitFlightTransitionTraversal
 } from "../../../src/world/bitFlightNavigation";
-import type { StageSpatialContext } from "../../../src/world/stageSpatialContext";
+import type { StageSpatialSession } from "../../../src/world/stageSpatialContext";
 import type { StageVolume } from "../../../src/world/stageSpatialQueries";
 import {
   V2_BIT_MUZZLE_COLOR_BY_MODE,
@@ -599,7 +599,7 @@ const createHarness = (
       containsVolumeById: () => false,
       dispose: () => {}
     })
-  }) as unknown as StageSpatialContext;
+  }) as unknown as StageSpatialSession;
   const random = createQueuedRandom(
     createInitialRandomValues(initialBitCount, createRedProfile)
   );
@@ -1787,7 +1787,7 @@ const runRedTransitionSpeedCheck = (
       containsVolumeById: () => false,
       dispose: () => {}
     })
-  }) as unknown as StageSpatialContext;
+  }) as unknown as StageSpatialSession;
   const random = createQueuedRandom(
     createInitialRandomValues(1, true)
   );

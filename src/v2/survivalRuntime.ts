@@ -9,7 +9,7 @@ import type {
 import type {
   StageAssemblyVenue,
   StagePlayerSpawn,
-  StageSpatialContext
+  StageSpatialSession
 } from "../world/stageSpatialContext";
 import {
   createV2NavigationAlarmCandidateProvider
@@ -408,7 +408,7 @@ export const V2_PERFORMANCE_ACCEPTANCE_POPULATION:
 
 export type V2SurvivalRuntimeOptions = Readonly<{
   scene: Scene;
-  stage: StageSpatialContext;
+  stage: StageSpatialSession;
   playerSpawn: StagePlayerSpawn;
   player: V2PlayerController;
   initialPlayerState: V2CharacterState;
@@ -440,6 +440,23 @@ export type V2SurvivalRuntimeOptions = Readonly<{
     context: V2NpcNavigationRouteContext,
     candidates: readonly NavigationRouteCandidate[]
   ): NavigationRouteCandidate | null;
+}>;
+
+export type V2SurvivalConstructionOwnerLabel =
+  | "target-navigation-area-tracker"
+  | "npc-system"
+  | "mission-runtime"
+  | "broadcast-runtime"
+  | "bit-system"
+  | "alert-coordinator"
+  | "alarm-system"
+  | "execution-system"
+  | "hit-effect-system"
+  | "beam-system";
+
+export type V2SurvivalConstructionDependencies = Readonly<{
+  ownerAcquired?(label: V2SurvivalConstructionOwnerLabel): void;
+  ownerRolledBack?(label: V2SurvivalConstructionOwnerLabel): void;
 }>;
 
 const assertNonNegativeFiniteNumber = (name: string, value: number) => {
@@ -534,7 +551,9 @@ export const createV2SurvivalRuntime = ({
   performanceWorkloadScenario,
   releaseStageTraversalForScriptedPhase,
   selectNavigationRoute
-}: V2SurvivalRuntimeOptions): V2SurvivalRuntime => {
+}: V2SurvivalRuntimeOptions,
+constructionDependencies: V2SurvivalConstructionDependencies = Object.freeze({})
+): V2SurvivalRuntime => {
   if (typeof random !== "function") {
     throw new Error("V2SurvivalRuntimeのrandomには関数が必要です。");
   }
@@ -603,10 +622,25 @@ export const createV2SurvivalRuntime = ({
   let ownedExecutionSystem: V2PublicExecutionSystem | null = null;
   let ownedBeamSystem: V2BeamSystem | null = null;
   let ownedHitEffectSystem: V2HitEffectSystem | null = null;
-  let ownedTargetNavigationAreaTracker: V2TargetNavigationAreaTracker | null =
-    createV2TargetNavigationAreaTracker(stage.navigationAreas);
+  let ownedTargetNavigationAreaTracker: V2TargetNavigationAreaTracker | null = null;
   let ownedMissionRuntime: V2MissionRuntime | null = null;
   let ownedBroadcastRuntime: V2BroadcastRuntime | null = null;
+  const constructionCleanupStack: Array<Readonly<{
+    label: V2SurvivalConstructionOwnerLabel;
+    dispose(): void;
+  }>> = [];
+  const acquireConstructionOwner = <T>(
+    label: V2SurvivalConstructionOwnerLabel,
+    owner: T,
+    dispose: (owner: T) => void
+  ): T => {
+    constructionCleanupStack.push(Object.freeze({
+      label,
+      dispose: () => dispose(owner)
+    }));
+    constructionDependencies.ownerAcquired?.(label);
+    return owner;
+  };
   let humanTargets: readonly V2HumanTargetSnapshot[] =
     Object.freeze([]);
   let frameOrbVisibilityPredicate:
@@ -643,7 +677,12 @@ export const createV2SurvivalRuntime = ({
   };
 
   try {
-    ownedNpcSystem = createV2NpcSystem({
+    ownedTargetNavigationAreaTracker = acquireConstructionOwner(
+      "target-navigation-area-tracker",
+      createV2TargetNavigationAreaTracker(stage.navigationAreas),
+      (owner) => owner.dispose()
+    );
+    ownedNpcSystem = acquireConstructionOwner("npc-system", createV2NpcSystem({
       scene,
       stage,
       characterVisuals,
@@ -658,29 +697,29 @@ export const createV2SurvivalRuntime = ({
       resolveTargetNavigationArea: (target) =>
         ownedTargetNavigationAreaTracker!.resolve(target.id),
       selectNavigationRoute
-    });
+    }), (owner) => owner.dispose());
     const completedBrainwashedBroadcastState =
       brainwashSettings.brainwashOnNoGunTouch
         ? "brainwash-complete-no-gun"
         : "brainwash-complete-gun";
     if (featureResources.missionRuntime) {
-      ownedMissionRuntime = createV2MissionRuntime({
+      ownedMissionRuntime = acquireConstructionOwner("mission-runtime", createV2MissionRuntime({
         locations: locationAssets,
         playerRandom: playerMissionRandom,
         npcRandom: npcMissionRandom,
         broadcastRandom: broadcastMissionRandom,
         completedBrainwashedBroadcastState,
         npcPort: ownedNpcSystem
-      });
+      }), (owner) => owner.dispose());
     } else {
-      ownedBroadcastRuntime = createV2BroadcastRuntime({
+      ownedBroadcastRuntime = acquireConstructionOwner("broadcast-runtime", createV2BroadcastRuntime({
         locations: locationAssets,
         random: broadcastMissionRandom,
         completedBrainwashedState: completedBrainwashedBroadcastState,
         npcPort: ownedNpcSystem
-      });
+      }), (owner) => owner.dispose());
     }
-    ownedBitSystem = createV2BitSystem(scene, stage, {
+    ownedBitSystem = acquireConstructionOwner("bit-system", createV2BitSystem(scene, stage, {
       initialBitCount: population.initialBitCount,
       reinforcementIntervalSeconds:
         population.bitReinforcementIntervalSeconds,
@@ -696,24 +735,27 @@ export const createV2SurvivalRuntime = ({
       playerSpawn,
       resolveTargetNavigationArea: (target) =>
         ownedTargetNavigationAreaTracker!.resolve(target.id)
-    });
+    }), (owner) => owner.dispose());
     if (performanceWorkloadScenario !== null) {
       ownedBitSystem.prepareForScriptedPhase();
     }
-    ownedAlertCoordinator = createV2AlertCoordinator({
+    ownedAlertCoordinator = acquireConstructionOwner("alert-coordinator", createV2AlertCoordinator({
       alertDuration: ALERT_DURATION_SECONDS
-    });
+    }), (owner) => owner.clear());
     if (featureResources.alarmSystem) {
-      ownedAlarmSystem = createV2AlarmSystem({
+      ownedAlarmSystem = acquireConstructionOwner("alarm-system", createV2AlarmSystem({
         candidateProvider:
           createV2NavigationAlarmCandidateProvider(stage),
         diagnosticsEnabled: performanceDiagnostics !== null,
         random
-      });
+      }), (owner) => owner.dispose());
     }
-    ownedExecutionSystem =
-      createV2PublicExecutionSystem(random);
-    ownedHitEffectSystem = createV2HitEffectSystem({
+    ownedExecutionSystem = acquireConstructionOwner(
+      "execution-system",
+      createV2PublicExecutionSystem(random),
+      (owner) => owner.reset()
+    );
+    ownedHitEffectSystem = acquireConstructionOwner("hit-effect-system", createV2HitEffectSystem({
       scene,
       random: visualRandom,
       isIndirectLightVisible,
@@ -729,7 +771,7 @@ export const createV2SurvivalRuntime = ({
           height: size.height
         });
       }
-    });
+    }), (owner) => owner.dispose());
     humanTargets = Object.freeze([
       playerCombat.createTargetSnapshot(
         player.getFootPosition(),
@@ -738,7 +780,7 @@ export const createV2SurvivalRuntime = ({
       ...ownedNpcSystem.getFrameView().targets
     ]);
     ownedTargetNavigationAreaTracker.beginFrame(humanTargets);
-    ownedBeamSystem = createV2BeamSystem({
+    ownedBeamSystem = acquireConstructionOwner("beam-system", createV2BeamSystem({
       scene,
       stage,
       getHumanTargets: () => humanTargets,
@@ -764,18 +806,12 @@ export const createV2SurvivalRuntime = ({
             }
           })
         : undefined
-    });
+    }), (owner) => owner.dispose());
   } catch (error) {
-    ownedMissionRuntime?.dispose();
-    ownedBroadcastRuntime?.dispose();
-    ownedBeamSystem?.dispose();
-    ownedHitEffectSystem?.dispose();
-    ownedExecutionSystem?.reset();
-    ownedAlarmSystem?.dispose();
-    ownedAlertCoordinator?.clear();
-    ownedBitSystem?.dispose();
-    ownedNpcSystem?.dispose();
-    ownedTargetNavigationAreaTracker?.dispose();
+    for (const owner of [...constructionCleanupStack].reverse()) {
+      owner.dispose();
+      constructionDependencies.ownerRolledBack?.(owner.label);
+    }
     throw error;
   }
 

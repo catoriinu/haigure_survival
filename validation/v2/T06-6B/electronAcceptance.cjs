@@ -31,6 +31,8 @@ const waitFor = async (label, window, predicate, timeoutMilliseconds) => {
       titleMessageText: document.querySelector("#titleMessage")?.textContent ?? null,
       titleOverlayVisible: getComputedStyle(document.querySelector("#titleOverlay")).display !== "none",
       statusText: document.querySelector("#statusInfo")?.textContent ?? "",
+      helpText: document.querySelector("#helpPanel")?.textContent ?? "",
+      pointerLockId: document.pointerLockElement?.id ?? null,
       missionHudCount: document.querySelectorAll('[data-v2-mission-hud="root"]').length,
       modeButtonText: document.querySelector('[data-ui="title-instant-execution-toggle-button"]')?.textContent ?? null,
       modeButtonClass: document.querySelector('[data-ui="title-instant-execution-toggle-button"]')?.className ?? null,
@@ -52,6 +54,7 @@ const waitFor = async (label, window, predicate, timeoutMilliseconds) => {
         return element !== null && getComputedStyle(element).display !== "none" && element.getClientRects().length > 0;
       })(),
       featureResources: JSON.parse(document.body.dataset.v2FeatureResources ?? "null")
+      ,staticReuse: window.__v2StaticReuseDiagnostics?.() ?? null
     }))()`);
     lastSnapshot = snapshot;
     if (predicate(snapshot)) {
@@ -66,6 +69,21 @@ const waitFor = async (label, window, predicate, timeoutMilliseconds) => {
 };
 
 const sendClick = async (window, selector) => {
+  window.show();
+  window.moveTop();
+  window.focus();
+  window.webContents.focus();
+  const focusDeadline = Date.now() + 2_000;
+  while (!window.isFocused() && Date.now() < focusDeadline) {
+    window.moveTop();
+    window.focus();
+    window.webContents.focus();
+    await wait(100);
+  }
+  if (!window.isFocused()) {
+    throw new Error("Electron受入windowへfocusできません。");
+  }
+  await wait(250);
   const point = await window.webContents.executeJavaScript(`(() => {
     const element = document.querySelector(${JSON.stringify(selector)});
     if (!(element instanceof HTMLElement)) {
@@ -74,7 +92,9 @@ const sendClick = async (window, selector) => {
     const rect = element.getBoundingClientRect();
     return { x: Math.round(rect.left + rect.width / 2), y: Math.round(rect.top + rect.height / 2) };
   })()`);
+  window.webContents.sendInputEvent({ type: "mouseMove", x: point.x, y: point.y });
   window.webContents.sendInputEvent({ type: "mouseDown", x: point.x, y: point.y, button: "left", clickCount: 1 });
+  await wait(50);
   window.webContents.sendInputEvent({ type: "mouseUp", x: point.x, y: point.y, button: "left", clickCount: 1 });
 };
 
@@ -217,17 +237,19 @@ app.whenReady().then(async () => {
     await waitFor(
       "即時公開処刑完了",
       testWindow,
-      (snapshot) => snapshot.statusText.includes("フェーズ execution-complete"),
+      (snapshot) => snapshot.statusText.includes("フェーズ execution-complete") &&
+        snapshot.staticReuse?.transitionInProgress === false,
       120_000
     );
 
+    const executionIdentity = execution.staticReuse?.dynamicIdentity;
     testWindow.webContents.sendInputEvent({ type: "keyDown", keyCode: "R" });
     testWindow.webContents.sendInputEvent({ type: "keyUp", keyCode: "R" });
-    await wait(500);
     const replay = await waitFor(
       "R再演",
       testWindow,
-      (snapshot) => snapshot.statusText.includes("フェーズ execution"),
+      (snapshot) => snapshot.statusText.includes("フェーズ execution") &&
+        snapshot.staticReuse?.dynamicIdentity !== executionIdentity,
       10_000
     );
     if (!replay.statusText.includes(`集合地点 ${assemblyVenueId}`)) {
@@ -237,7 +259,9 @@ app.whenReady().then(async () => {
     await waitFor(
       "R再演完了",
       testWindow,
-      (snapshot) => snapshot.statusText.includes("フェーズ execution-complete"),
+      (snapshot) => snapshot.statusText.includes("フェーズ execution-complete") &&
+        snapshot.staticReuse?.transitionInProgress === false &&
+        snapshot.helpText.includes("Enter"),
       120_000
     );
 
@@ -256,6 +280,7 @@ app.whenReady().then(async () => {
         (snapshot) =>
           snapshot.startupPhase === "running" &&
           snapshot.titleOverlayVisible &&
+          snapshot.staticReuse?.transitionInProgress === false &&
           snapshot.modeButtonText === "サバイバルモードに変更",
         120_000
       );
@@ -294,6 +319,15 @@ app.whenReady().then(async () => {
         `[T06-6B Electron] PASS ${method.id} NPC${method.npcCount} BIT${method.bitCount} ${method.playerState}\n`
       );
       if (method.id === "npc-player") {
+        if (methodExecution.pointerLockId !== "renderCanvas") {
+          await sendClick(testWindow, "#renderCanvas");
+          await waitFor(
+            "npc-player射撃前のPointer Lock",
+            testWindow,
+            (snapshot) => snapshot.pointerLockId === "renderCanvas",
+            10_000
+          );
+        }
         for (let shot = 0; shot < 8; shot += 1) {
           await sendClick(testWindow, "#renderCanvas");
           await wait(500);
@@ -302,7 +336,9 @@ app.whenReady().then(async () => {
       await waitFor(
         `${method.id}公開処刑完了`,
         testWindow,
-        (snapshot) => snapshot.statusText.includes("フェーズ execution-complete"),
+        (snapshot) => snapshot.statusText.includes("フェーズ execution-complete") &&
+          snapshot.staticReuse?.transitionInProgress === false &&
+          snapshot.helpText.includes("Enter"),
         120_000
       );
     }
@@ -315,6 +351,7 @@ app.whenReady().then(async () => {
       (snapshot) =>
         snapshot.startupPhase === "running" &&
         snapshot.titleOverlayVisible &&
+        snapshot.staticReuse?.transitionInProgress === false &&
         snapshot.modeButtonText === "サバイバルモードに変更",
       120_000
     );
@@ -379,14 +416,7 @@ app.whenReady().then(async () => {
         `[T06-6B Electron] PASS Mission ${combination.missionEnabled ? "ON" : "OFF"} / Alarm ${combination.alarmEnabled ? "ON" : "OFF"}\n`
       );
       if (combination !== featureCombinations[featureCombinations.length - 1]) {
-        testWindow.webContents.sendInputEvent({ type: "keyDown", keyCode: "Enter" });
-        testWindow.webContents.sendInputEvent({ type: "keyUp", keyCode: "Enter" });
-        await waitFor(
-          "通常epilogue",
-          testWindow,
-          (snapshot) => snapshot.statusText.includes("フェーズ assembly"),
-          10_000
-        );
+        const previousDynamicIdentity = resources.staticReuse?.dynamicIdentity;
         testWindow.webContents.sendInputEvent({ type: "keyDown", keyCode: "Enter" });
         testWindow.webContents.sendInputEvent({ type: "keyUp", keyCode: "Enter" });
         await waitFor(
@@ -395,6 +425,8 @@ app.whenReady().then(async () => {
           (snapshot) =>
             snapshot.startupPhase === "running" &&
             snapshot.titleOverlayVisible &&
+            snapshot.staticReuse?.transitionInProgress === false &&
+            snapshot.staticReuse?.dynamicIdentity !== previousDynamicIdentity &&
             snapshot.modeButtonText === "いきなり公開処刑モードに変更",
           120_000
         );

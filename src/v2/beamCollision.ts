@@ -12,7 +12,7 @@ import {
   VertexBuffer
 } from "@babylonjs/core";
 
-import type { StageSpatialContext } from "../world/stageSpatialContext";
+import type { StageSpatialSession } from "../world/stageSpatialContext";
 import type { SpatialHit } from "../world/stageSpatialQueries";
 import type {
   V2BeamOriginKind,
@@ -131,7 +131,7 @@ export type V2BeamVisualPoolSnapshot = Readonly<
 
 export type V2BeamSystemConfig = Readonly<{
   scene: Scene;
-  stage: StageSpatialContext;
+  stage: StageSpatialSession;
   getHumanTargets(): readonly V2HumanTargetSnapshot[];
   random(): number;
   getOrbVisibilityPredicate(): (position: Vector3) => boolean;
@@ -568,7 +568,7 @@ const createHumanTargetSpatialIndex = (
 };
 
 const castValidatedV2BeamSegment = (
-  stage: StageSpatialContext,
+  stage: StageSpatialSession,
   from: Vector3,
   to: Vector3,
   targets: readonly V2HumanTargetSnapshot[],
@@ -619,7 +619,7 @@ const castValidatedV2BeamSegment = (
  * sourceId自身とtargetPolicy対象外を除き、同距離では壁を優先する。
  */
 export const castV2BeamSegment = (
-  stage: StageSpatialContext,
+  stage: StageSpatialSession,
   from: Vector3,
   to: Vector3,
   targets: readonly V2HumanTargetSnapshot[],
@@ -649,7 +649,7 @@ export const castV2BeamSegment = (
  * ゼロ長は開始点が遮蔽物内の場合だけ遮蔽として扱う。
  */
 export const castV2SightSegment = (
-  stage: StageSpatialContext,
+  stage: StageSpatialSession,
   from: Vector3,
   to: Vector3
 ): V2SightSegmentResult => {
@@ -1035,7 +1035,7 @@ export const createV2BeamSystem = (
     typeof config.stage.worldBoundary?.findExitPoint !== "function"
   ) {
     throw new Error(
-      "StageSpatialContext.worldBoundaryにはStageWorldBoundaryまたはnullが必要です"
+      "StageSpatialSession.worldBoundaryにはStageWorldBoundaryまたはnullが必要です"
     );
   }
   const visualPool = createBeamVisualPool(config.scene);

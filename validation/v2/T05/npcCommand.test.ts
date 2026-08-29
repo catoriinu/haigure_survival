@@ -62,7 +62,7 @@ import {
   type NavigationRouteCandidate,
   type NavigationWorld
 } from "../../../src/world/navigationWorld";
-import type { StageSpatialContext } from "../../../src/world/stageSpatialContext";
+import type { StageSpatialSession } from "../../../src/world/stageSpatialContext";
 import type { StageVolume } from "../../../src/world/stageSpatialQueries";
 import { createStageWorldBoundary } from "../../../src/world/stageWorldBoundary";
 import { BLENDER_METERS_TO_WORLD_UNITS } from "../../../src/world/worldUnits";
@@ -81,7 +81,7 @@ export type NpcCommandTestResult = Readonly<{
 
 type NpcCommandFixture = Readonly<{
   scene: Scene;
-  stage: StageSpatialContext;
+  stage: StageSpatialSession;
   system: V2NpcSystem;
   setSightResolver(
     resolver: ((from: Vector3, to: Vector3) => boolean) | null
@@ -448,7 +448,7 @@ const createNpcCommandFixture = async (
       findContainingBlocker: () => null,
       dispose: () => undefined
     })
-  } as unknown as StageSpatialContext;
+  } as unknown as StageSpatialSession;
 
   const characterVisuals = await createDefaultV2CharacterVisualRuntime(
     scene,
@@ -2855,7 +2855,7 @@ const testActualBeamCompletionEvents = async () => {
     const boundaryStage = Object.freeze({
       ...fixture.stage,
       worldBoundary
-    }) as StageSpatialContext;
+    }) as StageSpatialSession;
     boundaryBeamSystem = createV2BeamSystem({
       scene: fixture.scene,
       stage: boundaryStage,

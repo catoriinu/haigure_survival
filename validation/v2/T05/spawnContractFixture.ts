@@ -4,7 +4,7 @@ import type { NavigationSurfaceTriangle } from "../../../src/world/navigationWor
 import type {
   StagePlayerSpawn,
   StagePlayerSpawnRegistry,
-  StageSpatialContext
+  StageSpatialSession
 } from "../../../src/world/stageSpatialContext";
 import type { StageVolume } from "../../../src/world/stageSpatialQueries";
 
@@ -142,9 +142,9 @@ export const createFixturePlayerSpawnRegistry = (
   });
 
 export const createFixturePlayerSpawnStage = (
-  stage: StageSpatialContext,
+  stage: StageSpatialSession,
   playerSpawnId: string
-): StageSpatialContext => {
+): StageSpatialSession => {
   const playerSpawn = stage.playerSpawns.getById(playerSpawnId);
   if (!playerSpawn) {
     throw new Error(
@@ -158,7 +158,7 @@ export const createFixturePlayerSpawnStage = (
 };
 
 export const requireFirstFixturePlayerSpawn = (
-  stage: StageSpatialContext
+  stage: StageSpatialSession
 ): StagePlayerSpawn => {
   const playerSpawn = stage.playerSpawns.all[0];
   if (!playerSpawn) {
@@ -168,10 +168,10 @@ export const requireFirstFixturePlayerSpawn = (
 };
 
 export const createFixtureSpawnRoleStage = (
-  stage: StageSpatialContext,
+  stage: StageSpatialSession,
   role: StageVolume["role"],
   volumeIds: readonly string[]
-): StageSpatialContext => {
+): StageSpatialSession => {
   const selectedVolumes = volumeIds.map((volumeId) => {
     const volume = stage.volumes.getById(volumeId);
     if (!volume || volume.role !== role) {

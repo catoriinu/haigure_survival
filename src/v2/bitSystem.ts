@@ -55,7 +55,7 @@ import {
 } from "../world/navigationSurfaceVolumeSampler";
 import type {
   StagePlayerSpawn,
-  StageSpatialContext
+  StageSpatialSession
 } from "../world/stageSpatialContext";
 import type { StageNavigationAreaCursor } from "../world/stageNavigationAreas";
 import {
@@ -1070,7 +1070,7 @@ const EMPTY_ROUTE_SAFETY_CACHE_DIAGNOSTICS =
 
 export const createV2BitSystem = (
   scene: Scene,
-  spatial: StageSpatialContext,
+  spatial: StageSpatialSession,
   config: V2BitSystemConfig
 ): V2BitSystem => {
   assertConfig(config);

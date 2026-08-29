@@ -13,7 +13,7 @@ import type {
   StageElevatorStopAsset
 } from "../../../src/world/stageDynamicAssets";
 import type {
-  StageSpatialContext
+  StageSpatialSession
 } from "../../../src/world/stageSpatialContext";
 import {
   createV2PlayerController
@@ -290,7 +290,7 @@ export const runElevatorThresholdPlayerAcceptance = ({
   update
 }: Readonly<{
   scene: Scene;
-  stage: StageSpatialContext;
+  stage: StageSpatialSession;
   runtime: SchoolStageDynamicRuntime;
   update: (
     deltaSeconds: number

@@ -28,7 +28,7 @@ import type {
 import type {
   StagePlayerSpawn,
   StagePlayerSpawnRegistry,
-  StageSpatialContext
+  StageSpatialSession
 } from "../../../src/world/stageSpatialContext";
 import type { StageVolume } from "../../../src/world/stageSpatialQueries";
 
@@ -41,7 +41,7 @@ export type SceneResourceCounts = Readonly<{
 }>;
 
 export type SyntheticStageFixture = Readonly<{
-  stage: StageSpatialContext;
+  stage: StageSpatialSession;
   selectedPlayerSpawn: StagePlayerSpawn;
   otherPlayerSpawn: StagePlayerSpawn;
   queriedExclusionIds: string[];
@@ -514,7 +514,7 @@ export const createSyntheticStageFixture = (
       dispose: () => {}
     }),
     dispose: () => {}
-  }) as unknown as StageSpatialContext;
+  }) as unknown as StageSpatialSession;
 
   return Object.freeze({
     stage,

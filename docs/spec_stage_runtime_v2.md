@@ -1,6 +1,6 @@
 # HAIGURE SURVIVAL v2 3Dステージランタイム仕様書
 
-更新日: 2026-08-09
+更新日: 2026-08-29
 対象バージョン: v2
 
 ## 1. 文書の位置付け
@@ -67,9 +67,9 @@ export type StageCatalogEntry = Readonly<{
 - GLB、静的人間用NavMesh、対応時の部屋variant bundle、ビット用NavMeshのいずれかのハッシュが不一致なら読込失敗とし、古い成果物を継続使用しない。
 - 当面のカタログ件数は学校1件とする。
 
-## 4. `StageSpatialContext`
+## 4. Stage静的view・静的owner・session
 
-`StageSpatialContext`は、1回のステージ読込で生成したすべての空間資源を所有する。
+学校の作者資源はアプリ寿命、ゲーム固有の選択・問い合わせ・状態はsession寿命とする。`StageStaticSpatialView`は静的資源への非所有viewであり、`OwnedStageStaticSpatialResources`だけが静的資源を破棄できる。`StageSpatialSession`は静的viewを参照するが、その資源を破棄しない。
 
 ```ts
 export type StageWorldBoundary = Readonly<{
@@ -79,25 +79,63 @@ export type StageWorldBoundary = Readonly<{
   findExitPoint(from: Vector3, to: Vector3): Vector3 | null;
 }>;
 
-export type StageSpatialContext = Readonly<{
+export type StageStaticSpatialView = Readonly<{
+  scene: Scene;
+  fingerprint: string;
   stage: StageCatalogEntry;
   metadata: StageMetadata;
   resources: StageSpatialResources;
+  doorAssets: StageDoorAssetRegistry;
+  elevatorAssets: StageElevatorAssetRegistry;
+  roomVariants: StageRoomVariantAssetRegistry | null;
+  locationAssets: AuthoredStageLocationAssetRegistry | null;
+  humanNavigationBundle: HumanNavTileBundle | null;
+  humanNavigationData: Uint8Array | null;
+  bitNavigation: BitFlightNavigationWorld;
+  markers: StageMarkerRegistry;
+  volumes: StageVolumeRegistry;
+  assemblyVenues: StageAssemblyVenueRegistry;
+  links: StageLinkRegistry;
+  boundary: StageBoundary;
+  worldBoundary: StageWorldBoundary | null;
+}>;
+
+export type OwnedStageStaticSpatialResources = Readonly<{
+  view: StageStaticSpatialView;
+  fingerprint: string;
+  cancelSessionConstructionSynchronously(): void;
+  dispose(): void;
+}>;
+
+export type StageSpatialSession = Readonly<{
+  staticView: StageStaticSpatialView;
+  stage: StageCatalogEntry;
+  metadata: StageMetadata;
+  resources: StageSpatialResources;
+  staticSpatialActiveSet: DynamicStageSpatialActiveSet;
   dynamicVariants: DynamicStageSpatialVariants;
+  doorAssets: StageDoorAssetRegistry;
+  elevatorAssets: StageElevatorAssetRegistry;
+  roomVariants: StageRoomVariantAssetRegistry | null;
+  locationAssets: StageLocationAssetRegistry | null;
+  roomVariantSelection: readonly HumanNavRoomVariantSelection[];
   navigation: NavigationWorld;
   bitNavigation: BitFlightNavigationWorld;
   markers: StageMarkerRegistry;
   volumes: StageVolumeRegistry;
   playerSpawns: StagePlayerSpawnRegistry;
+  navigationAreas: StageNavigationAreaRegistry;
   assemblyVenues: StageAssemblyVenueRegistry;
   links: StageLinkRegistry;
   boundary: StageBoundary;
   worldBoundary: StageWorldBoundary | null;
-  locationAssets: StageLocationAssetRegistry | null;
   queries: StageSpatialQueries;
+  dynamicSpatialInitialization: StageDynamicSpatialInitializationDescriptor | null;
   dispose(): void;
 }>;
 ```
+
+`createStageCatalogFingerprint()`は`StageCatalogEntry`の全fieldを固定順で正規化する。`loadStageStaticSpatialResources()`はfingerprintに対応する静的ownerを構築し、`createStageSpatialSession()`は選択Room Variant、人間用`NavigationWorld`、active set、session query／Location binding、PlayerSpawn検証を構築する。作者Location定義とsession固有の`polygonRef`／query bindingを混在させない。
 
 移動者は共通して次の型で区別する。
 
@@ -396,13 +434,13 @@ T04-3Aでは`door_sweep`、`elevator_call_mat`、`elevator_threshold`、`elevato
 
 `BND_Stage`はプレイ可能な3D空間を定義する。範囲外時の再配置先は`MRK_PlayerSpawn_*`または最後に確認したNavMesh上の安全点とする。AABBだけで凹形状や上下階を判定しない。
 
-B04対応ステージの`BND_WorldLimit`は、表示と光線が存在してよい最終空間を定義する。`BND_Stage`とは別の境界として必須property `StageSpatialContext.worldBoundary`へ公開し、プレイヤー・NPCの領域外判定や再配置へ流用しない。`findExitPoint()`は内側から外側へ出る線分上の最初の交点だけを返し、それ以外は`null`を返す。学校BITは既存の塀内飛行帯へ維持し、この境界を利用する外周経路を持たない。
+B04対応ステージの`BND_WorldLimit`は、表示と光線が存在してよい最終空間を定義する。`BND_Stage`とは別の境界として必須property `StageStaticSpatialView.worldBoundary`へ公開し、プレイヤー・NPCの領域外判定や再配置へ流用しない。`findExitPoint()`は内側から外側へ出る線分上の最初の交点だけを返し、それ以外は`null`を返す。学校BITは既存の塀内飛行帯へ維持し、この境界を利用する外周経路を持たない。
 
 - `worldBoundaryMode="required"`では、閉じた`BND_WorldLimit`が正確に1件あり、`hs_id="world-limit"`、`hs_role="world_boundary"`を持ち、`BND_Stage`を内包することを読込時に検査する。欠落、重複、参照不正、非閉鎖、非内包は読込失敗とする。
-- `worldBoundaryMode="unsupported"`では`BND_WorldLimit`を持たず、`StageSpatialContext.worldBoundary`を`null`とする。Objectが混入していた場合も読込失敗とし、境界終了処理は呼び出さない。
+- `worldBoundaryMode="unsupported"`では`BND_WorldLimit`を持たず、`StageStaticSpatialView.worldBoundary`を`null`とする。Objectが混入していた場合も読込失敗とし、境界終了処理は呼び出さない。
 - T05-2Vの非学校fixtureは`required`として先行実装する。B04前の学校と既存の非対応fixtureは`unsupported`を維持し、B04で学校資産へ`BND_WorldLimit`を追加する同じ変更内で学校カタログを`required`へ切り替える。
 - `unsupported`は対応外を明示する契約であり、欠落時のfallbackではない。`BND_Stage`、GLB全体AABB、最大寿命を世界境界の代用にしない。
-- `BND_WorldLimit` Meshは`semanticMeshes`とAssetContainerが所有する。`StageWorldBoundary`はMesh参照と境界問い合わせcacheだけを所有し、Context破棄時はAssetContainerより先に無効化する。
+- `BND_WorldLimit` Meshは`semanticMeshes`とAssetContainerが所有する。`StageWorldBoundary`はMesh参照と境界問い合わせcacheだけを所有し、静的owner破棄時はAssetContainerより先に無効化する。
 
 BITの通常探索、待機、CHASE、逃走、総当たり探索、Alert集合、初期出現、時間増援は既存の塀内飛行帯だけを利用する。選択された`player_spawn_exclusion`だけを初期洗脳済みNPC、初期BIT、時間増援、Alert新規生成へ適用し、未選択の10件はこの理由で除外しない。B04は外周飛行帯と塀越え`boundary`遷移を追加しない。
 
@@ -488,7 +526,7 @@ export interface StageLocationAssetRegistry {
 - エレベーター乗場のfloorとelevatorが存在し、`available`とstop有無が一致する。stopがある場合は`floorIndex`がfloor Mapのorderと一致する。
 - 放送卓Markerとtargetが1件ずつ存在し、相互参照、floor、表示名が有効である。
 
-学校の確定件数は5 Map、53 Area／85 piece、25 Mission Location、17階段踊り場、4エレベーター乗場、放送卓1件である。`locationAssetsMode="unsupported"`ではLocation意味資産を0件とし、`StageSpatialContext.locationAssets`を`null`にする。対応外を欠落扱いして座標や既存Volumeから補完しない。
+学校の確定件数は5 Map、53 Area／85 piece、25 Mission Location、17階段踊り場、4エレベーター乗場、放送卓1件である。`locationAssetsMode="unsupported"`ではLocation意味資産を0件とし、`StageStaticSpatialView.locationAssets`を`null`にする。対応外を欠落扱いして座標や既存Volumeから補完しない。
 
 エレベーターの現在階表示には`StageElevatorSnapshot.displayStopId`を使用する。停止中は現在stop、移動中は到着するまで出発stopを保持し、到着時に目的stopへ切り替える。物理判定用`currentStopId`は移動中`null`の既存契約を維持する。
 
@@ -559,7 +597,7 @@ T05-1Aが提供する帯別NavMeshと接続グラフへ、T05-1Bが以下の実�
 
 学校GLBへ必要な`MRK_*`または`VOL_*`がないシステムは、対応資産が追加されるまで明示的に無効化する。セル互換、既定座標、全面床、AABB代用を追加しない。
 
-- T04は`StageMoverKind`、`NavigationLocation.polygonRef`、`surface`／`transition`経路、`StageSpatialContext.links`、移動者別`castMovementSegment()`、`transition-required`、水Volumeの読込・問い合わせ・NavMesh到達までの共通基盤を担当する。
+- T04は`StageMoverKind`、`NavigationLocation.polygonRef`、`surface`／`transition`経路、`StageSpatialSession.links`、移動者別`castMovementSegment()`、`transition-required`、水Volumeの読込・問い合わせ・NavMesh到達までの共通基盤を担当する。
 - T05-1Aは汎用飛行ゾーン・帯、別ビットNavMesh bundle、接続グラフ、非学校fixture、学校データ移行を担当する。
 - T05-1Bは11.1節のV1飛行表現、高度・天井・衝突安全、探索・追跡、全遷移の実飛行を担当する。
 - T05-2は既存の戦闘モード、射程維持、通常CHASE・固定・ランダム・カーペット・NPC gun・プレイヤーgun・公開処刑の全光線物理、警報、標的状態遷移を3D空間へ統合する。
@@ -573,16 +611,20 @@ T05-1Aが提供する帯別NavMeshと接続グラフへ、T05-1Bが以下の実�
 
 ## 13. ライフサイクル
 
-- `StageSpatialContext`構築に失敗した場合、新ContextのAssetContainer、人間用NavMesh、生成済みの全帯ビットNavMesh、debug Mesh、イベント購読を破棄し、旧Contextは維持する。
-- 成功時は入力停止、プレイヤー再配置、新Context有効化、旧Context破棄の順に交換する。
-- `dispose()`は`StageSpatialQueries`、`DynamicStageSpatialVariants`、`StageWorldBoundary`の問い合わせcache・参照を先に無効化し、その後にステージ所有の`StageLocationAssetRegistry`参照、Mesh、TransformNode、Material、Texture参照、人間用NavMesh adapter、ビット用NavMesh群、Crowd、debug Mesh、イベント購読を1回だけ解放する。破棄済みのquery、variant、world boundary、Location意味Nodeを保持して使用しない。
-- `recast-navigation`のWASM moduleはアプリ寿命で1回だけ初期化する。ステージごとの`NavMeshQuery`、`NavMesh`、debug Meshは`NavigationWorld.dispose()`で明示的に破棄する。
+- 同じcatalog fingerprintでは、旧`StageSpatialSession`を破棄してから新sessionを生成し、`OwnedStageStaticSpatialResources`と`StageStaticSpatialView`のidentityを維持する。
+- catalog fingerprint変更時は、動的session破棄、旧静的owner破棄、新静的owner load、新動的session生成の順に直列化する。新しい静的loadが失敗しても、部分静的資源を回収し、破棄済みの旧静的ownerへ戻すfallbackは行わない。
+- 動的session構築に失敗した場合は取得済みownerを逆順で破棄し、静的ownerを保持する。自動再試行は行わず、タイトルの明示操作だけが再試行を開始する。
+- `V2RuntimeSession`はPlayer／NPC／BIT、扉・エレベーターRuntime、Mission、timer、予約、乗客、入力、HUD、Audio、observer／subscriptionを所有し、これらを破棄してから`StageSpatialSession.dispose()`を呼ぶ。
+- `StageSpatialSession.dispose()`はquery、選択Room Variant、active set、人間用`NavigationWorld`を1回だけ解放する。activation leaseで扉、エレベーター、Room Variantの静的Nodeを作者基準状態へ戻し、静的Mesh／Material／Texture、作者registry、BIT用`NavigationWorld`は破棄しない。
+- `OwnedStageStaticSpatialResources.dispose()`はsession構築を停止した後、AssetContainer、作者資源、decode済み人間NavMesh bundle、Room Variant bundle、BIT用`NavigationWorld`を1回だけ解放する。静的viewに`dispose()`を公開しない。
+- Cameraはsessionごとに生成し、`detachControl()`後に破棄する。Sceneと環境Lightはアプリ所有とする。アプリ終了は構築中rollbackまたはactive dynamicの一方、静的owner、Scene、Engineの順に各1回だけ破棄する。
+- `recast-navigation`のWASM moduleはアプリ寿命で1回だけ初期化する。人間用`NavigationWorld`はsessionごと、BIT用`NavigationWorld`は静的ownerごとに明示的に破棄する。
 - 複数3Dステージを再導入する前に、NavMesh再構築時の明示破棄とWASMメモリ推移を専用試験する。
 
 ## 14. 検証条件
 
 - V2モジュールにステージJSON、`GridLayout`、`FloorCell`、`worldToCell`、`cellToWorld`、セルBFS参照がない。
-- `StageSpatialContext.links`は人間用pairだけ、`StageSpatialContext.bitNavigation.transitions`はビット用遷移だけを公開し、相互に混在しない。
+- `StageSpatialSession.links`は人間用pairだけ、`StageStaticSpatialView.bitNavigation.transitions`はビット用遷移だけを公開し、相互に混在しない。
 - 同じX/Zに重なる上下床の`NavigationLocation`が異なる`polygonRef`を保持し、現在地・目的地・移動結果が別階へ誤投影されない。
 - tiled NavMesh境界の固定回帰では、速度0.3・`deltaSeconds=0.0168`のNPC更新中にYが約0.475から0.5へsnapして隣接polygonへ遷移しても、XZ移動が0.00504の予算内なら追跡を継続し、実際のXZ超過は例外にする。
 - 学校の主玄関、教室扉、校庭、渡り廊下、体育館、北西階段の1階～屋上、北東・南西階段の1階～4階が連続NavMeshで接続される。北東・南西から屋上へは接続せず、屋上移動は北西階段を使う。承認済み特殊接続は通常NavMeshが成立しない場合だけ補助する。
@@ -594,7 +636,7 @@ T05-1Aが提供する帯別NavMeshと接続グラフへ、T05-1Bが以下の実�
 - T05-1Bでは全モードが帯の許可高度、物理床・天井、V1物理半径0.44m＋安全余裕0.10m＝半径0.54mの移動包絡を満たす。上下揺れは中心Sweepとして検査し、半径へ二重加算しない。標的喪失時は近い遷移端または隣接帯へ離脱し、帯変更前にカーペット編隊を解除する。
 - 壁越しに通常索敵せず、窓越しには視認する。T05-2で実装済みの通常CHASE、固定、ランダム、カーペット、NPC gun、プレイヤーgun、公開処刑の全発射元が壁へ着弾し、両種の窓を透過する。
 - T04-3Aでは閉→開→閉、開閉中の教室扉遮蔽無効、移動中エレベーター扉パネルの遮蔽追従、旧revision由来cacheの不使用を非学校fixtureで検証する。
-- 動的variantを含む学校の破棄・再読込後に、snapshot、動的索引、world boundary cache、イベント購読が増加しない。
+- 同一fingerprintで3回以上session交換しても、静的load／GLB parseは各1回、静的identityは不変、各動的identityのdispose呼出しは1回、static-only baselineに対する動的owner残留は0とする。catalog変更、部分構築失敗後の手動再試行、session生成中終了、`beforeunload`も専用fixtureで固定する。
 - B05／B06-4では5/53/25/17/4/1の目録、85 Area piece、全5階のBarrier／Passage、通常版・全荒れ版の25 Anchor到達、NavMesh全triangleのArea被覆、同順位正体積重複0、欠落metadata、未知role・未知`hs_*`、ID重複、参照不整合の拒否を専用fixtureで検証する。
 - エレベーター移動中は`currentStopId=null`かつ`displayStopId=departureStopId`を維持し、到着時だけ目的stopへ切り替える。
 - T06で全階と屋上を含む学校全域のゲーム進行を統合確認する。

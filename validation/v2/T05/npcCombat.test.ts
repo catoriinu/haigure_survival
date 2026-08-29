@@ -58,7 +58,7 @@ import {
   type StageNavigationAreaPortal
 } from "../../../src/world/stageNavigationAreas";
 import type { StageVolume } from "../../../src/world/stageSpatialQueries";
-import type { StageSpatialContext } from "../../../src/world/stageSpatialContext";
+import type { StageSpatialSession } from "../../../src/world/stageSpatialContext";
 import type { V2NpcTraversalState } from "../../../src/v2/npcTraversal";
 import { createV2PlanarSpatialIndex } from "../../../src/v2/planarSpatialIndex";
 import type { V2TargetNavigationAreaSnapshot } from "../../../src/v2/pursuitNavigation";
@@ -473,7 +473,7 @@ const createNpcFixture = async (
       findContainingBlocker: () => null,
       dispose: () => undefined
     })
-  } as unknown as StageSpatialContext;
+  } as unknown as StageSpatialSession;
 
   const characterVisuals = await createDefaultV2CharacterVisualRuntime(
     scene,

@@ -58,6 +58,34 @@ export const STAGE_CATALOG: readonly StageCatalogEntry[] = Object.freeze([
   SCHOOL_STAGE
 ]);
 
+export const createStageCatalogFingerprint = (
+  stage: StageCatalogEntry
+): string =>
+  JSON.stringify({
+    id: stage.id,
+    label: stage.label,
+    glbUrl: stage.glbUrl,
+    navmeshUrl: stage.navmeshUrl,
+    bitNavmeshUrl: stage.bitNavmeshUrl,
+    roomVariantNavmesh:
+      stage.roomVariantNavmesh.mode === "required"
+        ? {
+            mode: stage.roomVariantNavmesh.mode,
+            url: stage.roomVariantNavmesh.url,
+            sha256: stage.roomVariantNavmesh.sha256
+          }
+        : { mode: stage.roomVariantNavmesh.mode },
+    assetSchemaVersion: stage.assetSchemaVersion,
+    navProfileId: stage.navProfileId,
+    bitNavProfileId: stage.bitNavProfileId,
+    glbSha256: stage.glbSha256,
+    navmeshSha256: stage.navmeshSha256,
+    bitNavmeshSha256: stage.bitNavmeshSha256,
+    depthPrePassMaterialNames: [...stage.depthPrePassMaterialNames],
+    worldBoundaryMode: stage.worldBoundaryMode,
+    locationAssetsMode: stage.locationAssetsMode
+  });
+
 export const getStageCatalogEntry = (stageId: string): StageCatalogEntry => {
   const stage = STAGE_CATALOG.find((entry) => entry.id === stageId);
   if (!stage) {

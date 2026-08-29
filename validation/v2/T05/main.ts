@@ -51,11 +51,13 @@ import {
   SCHOOL_ALL_NORMAL_ROOM_VARIANT_SELECTIONS
 } from "../../../src/world/schoolRuntimeSettings";
 import {
-  createSchoolStageDynamicSpatialInitializer
+  createSchoolStageDynamicSpatialInitializationDescriptor
 } from "../../../src/world/schoolStageDynamicRuntime";
 import {
-  loadStageSpatialContext,
-  type StageSpatialContext
+  createStageSpatialSession,
+  loadStageStaticSpatialResources,
+  type OwnedStageStaticSpatialResources,
+  type StageSpatialSession
 } from "../../../src/world/stageSpatialContext";
 import type { StageVolume } from "../../../src/world/stageSpatialQueries";
 import { createStageWorldBoundary } from "../../../src/world/stageWorldBoundary";
@@ -658,7 +660,7 @@ const showcaseStage = Object.freeze({
   worldBoundary: showcaseWorldBoundary,
   dynamicVariants: showcaseSpatial.dynamicVariants,
   queries: showcaseQueries
-}) as unknown as StageSpatialContext;
+}) as unknown as StageSpatialSession;
 let showcaseRandomState = 0xa511e9b3;
 const showcaseRandom = () => {
   showcaseRandomState =
@@ -889,7 +891,7 @@ const runValidation = async () => {
         containsVolumeById: () => false,
         dispose: () => {}
       })
-    }) as unknown as StageSpatialContext;
+    }) as unknown as StageSpatialSession;
     let randomState = 0x6d2b79f5;
     const runtimeRandom = () => {
       randomState = (Math.imul(randomState, 1664525) + 1013904223) >>> 0;
@@ -1096,7 +1098,7 @@ const runValidation = async () => {
         containsVolumeById: () => false,
         dispose: () => {}
       })
-    }) as unknown as StageSpatialContext;
+    }) as unknown as StageSpatialSession;
     const transitionBitSystem = createV2BitSystem(
       scene,
       transitionRuntimeStage,
@@ -1812,18 +1814,16 @@ const runValidation = async () => {
       await new Promise<void>((resolve) =>
         requestAnimationFrame(() => resolve())
       );
-      let lifecycleStage: StageSpatialContext | null = null;
+      let lifecycleStage: StageSpatialSession | null = null;
+      let lifecycleStatic: OwnedStageStaticSpatialResources | null = null;
       try {
-        lifecycleStage = await loadStageSpatialContext(
-          scene,
-          SCHOOL_VALIDATION_STAGE,
-          {
-            initializeDynamicSpatial:
-              createSchoolStageDynamicSpatialInitializer(0),
+        lifecycleStatic = await loadStageStaticSpatialResources(scene, SCHOOL_VALIDATION_STAGE);
+        lifecycleStage = await createStageSpatialSession(lifecycleStatic, {
+            dynamicSpatialInitialization:
+              createSchoolStageDynamicSpatialInitializationDescriptor(0),
             roomVariantSelections:
               SCHOOL_ALL_NORMAL_ROOM_VARIANT_SELECTIONS
-          }
-        );
+          });
         runtimeLifecycleResults.push(
           ...(await runSurvivalRuntimeLifecycleTests(
             scene,
@@ -1853,6 +1853,7 @@ const runValidation = async () => {
         });
       } finally {
         lifecycleStage?.dispose();
+        lifecycleStatic?.dispose();
       }
     }
 

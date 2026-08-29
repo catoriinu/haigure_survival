@@ -8,7 +8,7 @@ import type {
 import {
   intersectsStageDoorClosedPose
 } from "../world/stageDoorRuntime";
-import type { StageSpatialContext } from "../world/stageSpatialContext";
+import type { StageSpatialSession } from "../world/stageSpatialContext";
 import type {
   SchoolStageActorPort,
   SchoolStageDynamicRuntime,
@@ -99,7 +99,7 @@ type ReadyElevatorReservationCandidate =
     }>;
 
 export type SchoolStageTraversalCoordinatorInput = Readonly<{
-  stage: StageSpatialContext;
+  stage: StageSpatialSession;
   runtime: SchoolStageDynamicRuntime;
   survival: V2SurvivalRuntime;
   player: V2PlayerController;
@@ -150,7 +150,7 @@ const createElevatorIdentity = (
 export const createSchoolStageActorPort = (
   player: V2PlayerController,
   survival: V2SurvivalRuntime,
-  stage: StageSpatialContext
+  stage: StageSpatialSession
 ): SchoolStageActorPort =>
   Object.freeze({
     getActorPosition: (actorId: string) =>
@@ -302,7 +302,7 @@ const calculateDoorSide = (
 };
 
 const hasVisibleBoardingFactionConflict = (
-  stage: StageSpatialContext,
+  stage: StageSpatialSession,
   requester: V2HumanTargetSnapshot,
   passengerIds: readonly string[],
   targets: readonly V2HumanTargetSnapshot[]
@@ -332,7 +332,7 @@ const hasVisibleBoardingFactionConflict = (
 };
 
 const collectVisibleUnbrainwashedNpcIds = (
-  stage: StageSpatialContext,
+  stage: StageSpatialSession,
   requester: V2HumanTargetSnapshot,
   actorIds: readonly string[],
   targets: readonly V2HumanTargetSnapshot[]

@@ -4,15 +4,17 @@ import {
   SCHOOL_ALL_NORMAL_ROOM_VARIANT_SELECTIONS
 } from "../../../src/world/schoolRuntimeSettings";
 import {
-  createSchoolStageDynamicSpatialInitializer
+  createSchoolStageDynamicSpatialInitializationDescriptor
 } from "../../../src/world/schoolStageDynamicRuntime";
 import {
   SCHOOL_STAGE,
   type StageCatalogEntry
 } from "../../../src/world/stageCatalog";
 import {
-  loadStageSpatialContext,
-  type StageSpatialContext
+  createStageSpatialSession,
+  loadStageStaticSpatialResources,
+  type OwnedStageStaticSpatialResources,
+  type StageSpatialSession
 } from "../../../src/world/stageSpatialContext";
 
 export type LocationAssetLoaderRejectionAcceptanceCheck = Readonly<{
@@ -355,16 +357,18 @@ const loadMutationAndCaptureRejection = async (
   testCase: LoaderRejectionCase
 ): Promise<string | null> => {
   const scene = new Scene(engine);
-  let context: StageSpatialContext | null = null;
+  let staticResources: OwnedStageStaticSpatialResources | null = null;
+  let context: StageSpatialSession | null = null;
   const stage: StageCatalogEntry = Object.freeze({
     ...SCHOOL_STAGE,
     glbUrl: testCase.fakeGlbUrl,
     glbSha256: testCase.sha256
   });
   try {
-    context = await loadStageSpatialContext(scene, stage, {
-      initializeDynamicSpatial:
-        createSchoolStageDynamicSpatialInitializer(DOOR_FIXTURE_SEED),
+    staticResources = await loadStageStaticSpatialResources(scene, stage);
+    context = await createStageSpatialSession(staticResources, {
+      dynamicSpatialInitialization:
+        createSchoolStageDynamicSpatialInitializationDescriptor(DOOR_FIXTURE_SEED),
       roomVariantSelections: SCHOOL_ALL_NORMAL_ROOM_VARIANT_SELECTIONS
     });
     return null;
@@ -372,6 +376,7 @@ const loadMutationAndCaptureRejection = async (
     return error instanceof Error ? error.message : String(error);
   } finally {
     context?.dispose();
+    staticResources?.dispose();
     scene.dispose();
   }
 };

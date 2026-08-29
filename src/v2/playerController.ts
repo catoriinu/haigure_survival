@@ -14,7 +14,7 @@ import type {
 } from "../world/dynamicStageSpatialVariants";
 import type {
   StagePlayerSpawn,
-  StageSpatialContext
+  StageSpatialSession
 } from "../world/stageSpatialContext";
 import type { V2PlayerInput } from "./playerInput";
 
@@ -36,7 +36,7 @@ const HORIZONTAL_FORWARD_EPSILON_SQUARED = 0.000001;
 export type V2PlayerControllerOptions = Readonly<{
   scene: Scene;
   camera: FreeCamera;
-  stage: StageSpatialContext;
+  stage: StageSpatialSession;
   playerSpawn: StagePlayerSpawn;
   input: V2PlayerInput;
   eyeHeightScale?: number;
