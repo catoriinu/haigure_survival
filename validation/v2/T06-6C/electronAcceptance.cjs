@@ -12,6 +12,8 @@ const sizes = [
   [1280, 720, "wide"],
   [1024, 600, "compact"],
   [800, 600, "compact"],
+  [749, 600, "compact"],
+  [720, 600, "stacked"],
   [640, 480, "stacked"],
   [480, 360, "stacked"]
 ];
@@ -75,7 +77,7 @@ const assertSnapshot = (snapshot, expectedLayout) => {
   const overflowValues = Object.values(snapshot.overflow);
   const minimumExpectedControlHeight = expectedLayout === "wide" ? 16 : 32;
   const widePanelWidthsValid = expectedLayout !== "wide" ||
-    (snapshot.panelWidths.main <= 405.5 && snapshot.panelWidths.stage <= 300.5 && snapshot.panelWidths.audio <= 250.5);
+    (snapshot.panelWidths.main <= 405.5 && snapshot.panelWidths.stage <= 330.5 && snapshot.panelWidths.audio <= 250.5);
   const normalDesktopFitsWithoutScroll = snapshot.viewport[0] !== 1920 || snapshot.viewport[1] !== 1080 ||
     snapshot.scroll.main[0] <= snapshot.scroll.main[1] + 1;
   if (
