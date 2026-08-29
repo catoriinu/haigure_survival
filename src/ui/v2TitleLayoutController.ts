@@ -37,6 +37,9 @@ const fitsHorizontally = (
   overlay: HTMLDivElement,
   elements: readonly HTMLElement[]
 ): boolean => {
+  if (overlay.scrollWidth > overlay.clientWidth + 1) {
+    return false;
+  }
   const overlayRect = overlay.getBoundingClientRect();
   return elements.every((element) => {
     if (element.hidden || getComputedStyle(element).display === "none") {
@@ -80,7 +83,7 @@ export const createV2TitleLayoutController = ({
     const { width, height } = overlay.getBoundingClientRect();
     applyMode(resolveV2TitleLayoutMode(width, height));
     while (
-      mode === "wide" &&
+      mode !== "stacked" &&
       !fitsHorizontally(overlay, [center, settingsRoot, settingsViewport, settingsContent])
     ) {
       applyMode(NEXT_MODE[mode]);
