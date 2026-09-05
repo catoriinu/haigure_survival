@@ -2349,16 +2349,29 @@ const updateGameplayHelp = (frame: ReturnType<typeof survival.getFrame>) => {
   }
 };
 
+const requiresSettingsRebuild = () => !doV2SessionStartSnapshotsMatch(
+  sessionStartSnapshot,
+  createSessionStartSnapshot(sessionSeed)
+);
+const syncTitleStartHint = () => {
+  titleOverlayController.setStartHintMessage(
+    requiresSettingsRebuild()
+      ? "左クリック：開始\n（開始前に設定反映を行います）"
+      : "左クリック：開始"
+  );
+};
+eventScope.listen(titleOverlay, "input", syncTitleStartHint);
+eventScope.listen(titleOverlay, "change", syncTitleStartHint);
+eventScope.listen(titleOverlay, "click", syncTitleStartHint);
+syncTitleStartHint();
+
 const handleCanvasClick: EventListener = () => {
   const wasStarted = started;
   const hadPointerLock =
     document.pointerLockElement === canvasElement;
   if (
     !wasStarted &&
-    !doV2SessionStartSnapshotsMatch(
-      sessionStartSnapshot,
-      createSessionStartSnapshot(sessionSeed)
-    )
+    requiresSettingsRebuild()
   ) {
     requestCanvasPointerLock();
     requestSessionRebuild(

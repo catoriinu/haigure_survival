@@ -1,8 +1,10 @@
 # HAIGURE SURVIVAL v2 T06-6D 静的学校資源再利用 計画
 
-更新日: 2026-08-29
+更新日: 2026-09-06
 
 ## プロンプト
+
+2026-09-06追加依頼：挙動的には問題ありませんでした。タイトル画面で設定変更をしたために開始前に再読み込みが必要なときは「左クリック：開始\n（開始前に設定反映を行います）」という文字を2行で表示するように修正してください。
 
 T06-6D「静的学校資源再利用」を実装する。
 
@@ -43,6 +45,9 @@ T06-6D「静的学校資源再利用」を実装する。
 
 ## ステップ
 
+- [x] 開始前の再構築判定を表示と共有し、設定変更時の2行注記と設定復元時の解除を実装する
+- [x] 追加表示の型検査・実画面確認・差分検査を行い、追加修正をcommitする
+
 - [x] remote／branch／worktreeと現行所有グラフを固定し、Fingerprint・静的／session公開契約を定義する
 - [x] 静的loader、作者Location、decode済みNavMesh bundle、activation leaseを実装する
 - [x] session factory、Location／PlayerSpawn binding、明示的動的初期化descriptor、逆順rollbackを実装する
@@ -58,6 +63,8 @@ T06-6D「静的学校資源再利用」を実装する。
 - [x] T06-6D差分だけをローカルcommitする
 
 ## 結果
+
+2026-09-06追加修正：タイトルの開始判定と同じsnapshot比較で、再構築が必要なときだけ「左クリック：開始」の次行に「（開始前に設定反映を行います）」を表示する。session所有のイベント購読で設定操作後に更新し、設定を元へ戻したときや新session生成時は再判定する。型検査・依存監査はPASS。通常ゲームの実画面で設定変更時の2行表示、重なりなし、設定復元時の注記解除を確認し、操作した設定を元に戻した。
 
 開始時に`HEAD`、`origin/develop`とも`3587e50476ebaa506dec33fac38c1f50af3c9893`、ahead／behind `0/0`、worktree clean、同名local／remote branch不在を確認し、管理worktree上で`codex/v2-static-school-resource-reuse`を作成した。
 
