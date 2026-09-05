@@ -104,7 +104,7 @@ export type V2CharacterVisualRuntimeOptions = Readonly<{
   includeNoGunTouchBlendFrames: boolean;
 }>;
 
-type V2CharacterVisualSheet = Readonly<{
+export type V2CharacterVisualSheet = Readonly<{
   url: string;
   cellWidth: number;
   cellHeight: number;
@@ -113,6 +113,13 @@ type V2CharacterVisualSheet = Readonly<{
   height: number;
   source: V2CharacterVisualSpriteSource;
   blobUrl: string | null;
+}>;
+
+export type V2CharacterVisualRuntimeDependencies = Readonly<{
+  resolvePortraitFiles: typeof resolveV2PortraitFiles;
+  createPortraitSheet: typeof createPortraitSheet;
+  createPresentationMaterial: typeof createPresentationMaterial;
+  revokeObjectUrl(url: string): void;
 }>;
 
 type V2CharacterVisualManagerResource = {
@@ -597,7 +604,13 @@ export const createV2CharacterVisualRuntime = async ({
   orientationMode,
   showGroundShadows,
   includeNoGunTouchBlendFrames,
-}: V2CharacterVisualRuntimeOptions): Promise<V2CharacterVisualRuntime> => {
+}: V2CharacterVisualRuntimeOptions,
+dependencies: V2CharacterVisualRuntimeDependencies = Object.freeze({
+  resolvePortraitFiles: resolveV2PortraitFiles,
+  createPortraitSheet,
+  createPresentationMaterial,
+  revokeObjectUrl: (url) => URL.revokeObjectURL(url)
+})): Promise<V2CharacterVisualRuntime> => {
   assertAssignments(assignments);
   const assignmentsByActorId = new Map(
     assignments.map((assignment) => [assignment.actorId, assignment] as const),
@@ -620,19 +633,21 @@ export const createV2CharacterVisualRuntime = async ({
   >();
   const spriteRecords = new Set<V2CharacterVisualSpriteRecord>();
   const blobUrls = new Set<string>();
-  const groundShadowManager = showGroundShadows
-    ? createGroundShadowManager(scene, V2_TRANSPARENT_ALPHA_INDEX_SPATIAL)
-    : null;
+  let groundShadowManager: ReturnType<typeof createGroundShadowManager> | null =
+    null;
 
   try {
+    groundShadowManager = showGroundShadows
+      ? createGroundShadowManager(scene, V2_TRANSPARENT_ALPHA_INDEX_SPATIAL)
+      : null;
     const directories = [...capacitiesByDirectory.keys()].sort();
     for (const directory of directories) {
       const sheet =
         directory === V2_DEFAULT_PORTRAIT_DIRECTORY
           ? createDefaultSheet(includeNoGunTouchBlendFrames)
-          : await createPortraitSheet(
+          : await dependencies.createPortraitSheet(
               directory,
-              resolveV2PortraitFiles(directory, inventory),
+              dependencies.resolvePortraitFiles(directory, inventory),
               import.meta.env.BASE_URL,
               includeNoGunTouchBlendFrames,
             );
@@ -640,26 +655,38 @@ export const createV2CharacterVisualRuntime = async ({
         blobUrls.add(sheet.blobUrl);
       }
       const capacity = capacitiesByDirectory.get(directory) as number;
-      const manager = new SpriteManager(
-        `V2CharacterVisual_${directory}`,
-        sheet.url,
-        capacity,
-        { width: sheet.cellWidth, height: sheet.cellHeight },
-        scene,
-      );
-      if (orientationMode === "upright") {
-        manager.layerMask = 0;
+      let manager: SpriteManager | null = null;
+      let presentationMaterial: StandardMaterial | null = null;
+      try {
+        manager = new SpriteManager(
+          `V2CharacterVisual_${directory}`,
+          sheet.url,
+          capacity,
+          { width: sheet.cellWidth, height: sheet.cellHeight },
+          scene,
+        );
+        if (orientationMode === "upright") {
+          manager.layerMask = 0;
+          presentationMaterial = dependencies.createPresentationMaterial(
+            directory,
+            manager,
+            scene,
+          );
+        }
+        managerResources.set(directory, {
+          manager,
+          presentationMaterial,
+          sheet,
+          capacity,
+          activeSpriteCount: 0,
+        });
+        manager = null;
+        presentationMaterial = null;
+      } catch (error) {
+        presentationMaterial?.dispose(false, false);
+        manager?.dispose();
+        throw error;
       }
-      managerResources.set(directory, {
-        manager,
-        presentationMaterial:
-          orientationMode === "upright"
-            ? createPresentationMaterial(directory, manager, scene)
-            : null,
-        sheet,
-        capacity,
-        activeSpriteCount: 0,
-      });
     }
   } catch (error) {
     for (const resource of managerResources.values()) {
@@ -667,8 +694,9 @@ export const createV2CharacterVisualRuntime = async ({
       resource.manager.dispose();
     }
     for (const blobUrl of blobUrls) {
-      URL.revokeObjectURL(blobUrl);
+      dependencies.revokeObjectUrl(blobUrl);
     }
+    groundShadowManager?.dispose();
     throw error;
   }
 
@@ -869,7 +897,7 @@ export const createV2CharacterVisualRuntime = async ({
       managerResources.clear();
       groundShadowManager?.dispose();
       for (const blobUrl of blobUrls) {
-        URL.revokeObjectURL(blobUrl);
+        dependencies.revokeObjectUrl(blobUrl);
       }
       blobUrls.clear();
     },

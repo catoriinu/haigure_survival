@@ -34,7 +34,7 @@ import {
   V2_TRANSPARENT_ALPHA_INDEX_PLAYER_CHARACTER,
   V2_TRANSPARENT_ALPHA_INDEX_SPATIAL
 } from "../../../src/v2/v2TransparentRenderingOrder";
-import type { StageSpatialContext } from "../../../src/world/stageSpatialContext";
+import type { StageSpatialSession } from "../../../src/world/stageSpatialContext";
 import { createDynamicStageSpatialQueryFixture } from "../T05/stageSpatialQueryFixture";
 import { assert, executeTest, type T06TestResult } from "./testUtils";
 
@@ -866,7 +866,7 @@ export const runStageTransparentRenderingOrderTests = async (): Promise<
           }),
           worldBoundary: null,
           queries: spatialFixture.queries
-        }) as unknown as StageSpatialContext;
+        }) as unknown as StageSpatialSession;
         const system = createV2BeamSystem({
           scene,
           stage,

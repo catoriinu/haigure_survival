@@ -10,7 +10,7 @@ import {
 import { createV2MissionHudController } from "../../../src/ui/v2MissionHud";
 import type { StageDoorInteractionCandidate } from "../../../src/world/stageDoorRuntime";
 import type { StageBroadcastConsole } from "../../../src/world/stageLocationAssets";
-import type { StageSpatialContext } from "../../../src/world/stageSpatialContext";
+import type { StageSpatialSession } from "../../../src/world/stageSpatialContext";
 import {
   resolveV2MissionAssemblyVenueId,
   type V2BroadcastCommand,
@@ -341,7 +341,7 @@ export const runBroadcastRuntimeTests = async (): Promise<
       }) satisfies StageBroadcastConsole;
       const clearQueries = Object.freeze({
         castSightSegment: () => null
-      }) as unknown as StageSpatialContext["queries"];
+      }) as unknown as StageSpatialSession["queries"];
       const query = Object.freeze({
         phase: "playing" as const,
         playerState: "normal" as const,
@@ -367,7 +367,7 @@ export const runBroadcastRuntimeTests = async (): Promise<
           ...query,
           queries: Object.freeze({
             castSightSegment: () => Object.freeze({ kind: "blocker" })
-          }) as unknown as StageSpatialContext["queries"]
+          }) as unknown as StageSpatialSession["queries"]
         })
       );
       assert(blocked === null, "遮蔽越しに放送候補になりました。");

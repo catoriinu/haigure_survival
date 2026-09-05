@@ -59,7 +59,10 @@ import {
   type StageDoorAssetRegistry,
   type StageElevatorAssetRegistry
 } from "./stageDynamicAssets";
-import type { StageCatalogEntry } from "./stageCatalog";
+import {
+  createStageCatalogFingerprint,
+  type StageCatalogEntry
+} from "./stageCatalog";
 import {
   createStageNavigationAreaRegistry,
   type AuthoredStageNavigationAreaPortal,
@@ -99,7 +102,7 @@ import {
   type StageRoomVariantSelectionByRoom
 } from "./stageRoomVariantAssets";
 import {
-  createStageLocationAssetRegistry,
+  createAuthoredStageLocationAssetRegistry,
   STAGE_LOCATION_FLOOR_IDS,
   STAGE_STAIR_LANDING_DIRECTIONS,
   type AuthoredStageBroadcastConsoleMarker,
@@ -112,11 +115,24 @@ import {
   type AuthoredStageMissionAnchor,
   type AuthoredStageMissionLocationVolume,
   type AuthoredStageStairLanding,
+  type AuthoredStageLocationAssetRegistry,
   type StageLocationAssetRegistry,
   type StageLocationAssetRegistrySource,
   type StageLocationFloorId,
   type StageStairLandingDirection
 } from "./stageLocationAssets";
+
+let stageGlbParseCount = 0;
+let staticDecodedHumanBundleOwnerCount = 0;
+let staticBitNavigationOwnerCount = 0;
+let sessionHumanNavigationWorldOwnerCount = 0;
+
+export const getStageSpatialOwnershipDiagnostics = () => Object.freeze({
+  glbParseCount: stageGlbParseCount,
+  staticDecodedHumanBundleOwnerCount,
+  staticBitNavigationOwnerCount,
+  sessionHumanNavigationWorldOwnerCount
+});
 import { BLENDER_METERS_TO_WORLD_UNITS } from "./worldUnits";
 
 export type { StageWorldBoundary } from "./stageWorldBoundary";
@@ -231,7 +247,43 @@ export type StageVolumeRegistry = Readonly<{
   getByRole(role: StageVolumeRole): readonly StageVolume[];
 }>;
 
-export type StageSpatialContext = Readonly<{
+export type StageDynamicSpatialInitializationDescriptor = Readonly<{
+  seed: number;
+  initialize(
+    input: StageDynamicSpatialInitializationInput
+  ): StageDynamicSpatialInitialization;
+}>;
+
+export type StageStaticSpatialView = Readonly<{
+  scene: Scene;
+  fingerprint: string;
+  stage: StageCatalogEntry;
+  metadata: StageMetadata;
+  resources: StageSpatialResources;
+  doorAssets: StageDoorAssetRegistry;
+  elevatorAssets: StageElevatorAssetRegistry;
+  roomVariants: StageRoomVariantAssetRegistry | null;
+  locationAssets: AuthoredStageLocationAssetRegistry | null;
+  humanNavigationBundle: HumanNavTileBundle | null;
+  humanNavigationData: Uint8Array | null;
+  bitNavigation: BitFlightNavigationWorld;
+  markers: StageMarkerRegistry;
+  volumes: StageVolumeRegistry;
+  assemblyVenues: StageAssemblyVenueRegistry;
+  links: StageLinkRegistry;
+  boundary: StageBoundary;
+  worldBoundary: StageWorldBoundary | null;
+}>;
+
+export type OwnedStageStaticSpatialResources = Readonly<{
+  view: StageStaticSpatialView;
+  fingerprint: string;
+  cancelSessionConstructionSynchronously(): void;
+  dispose(): void;
+}>;
+
+export type StageSpatialSession = Readonly<{
+  staticView: StageStaticSpatialView;
   stage: StageCatalogEntry;
   metadata: StageMetadata;
   resources: StageSpatialResources;
@@ -253,6 +305,7 @@ export type StageSpatialContext = Readonly<{
   boundary: StageBoundary;
   worldBoundary: StageWorldBoundary | null;
   queries: StageSpatialQueries;
+  dynamicSpatialInitialization: StageDynamicSpatialInitializationDescriptor | null;
   dispose(): void;
 }>;
 
@@ -2709,7 +2762,15 @@ const loadGlbContainer = async (
   const file = new File([bytes.buffer], fileName, {
     type: "model/gltf-binary"
   });
-  return SceneLoader.LoadAssetContainerAsync("", file, scene, null, ".glb");
+  const container = await SceneLoader.LoadAssetContainerAsync(
+    "",
+    file,
+    scene,
+    null,
+    ".glb"
+  );
+  stageGlbParseCount += 1;
+  return container;
 };
 
 const configureStageMaterials = (
@@ -2769,14 +2830,6 @@ const applyRoomVariantActivation = (
   }
 };
 
-export type StageSpatialContextLoadOptions = Readonly<{
-  queryDiagnostics?: StageSpatialQueryDiagnostics;
-  roomVariantSelections?: readonly HumanNavRoomVariantSelection[];
-  initializeDynamicSpatial?(
-    input: StageDynamicSpatialInitializationInput
-  ): StageDynamicSpatialInitialization;
-}>;
-
 export type StageDynamicSpatialInitializationInput = Readonly<{
   activeSet: DynamicStageSpatialActiveSet;
   doorAssets: StageDoorAssetRegistry;
@@ -2788,28 +2841,94 @@ export type StageDynamicSpatialInitialization = Readonly<{
   initialActiveSet: DynamicStageSpatialActiveSet;
 }>;
 
-export const loadStageSpatialContext = async (
+export type StageSpatialSessionOptions = Readonly<{
+  queryDiagnostics?: StageSpatialQueryDiagnostics;
+  roomVariantSelections?: readonly HumanNavRoomVariantSelection[];
+  dynamicSpatialInitialization?: StageDynamicSpatialInitializationDescriptor;
+}>;
+
+export type StageStaticSessionSource = Readonly<{
+  classification: StageAssetClassification;
+  humanNavigationBundle: HumanNavTileBundle | null;
+  humanNavigationData: Uint8Array | null;
+}>;
+
+type StageStaticSessionOwnership = {
+  status: "available" | "constructing" | "active" | "disposed";
+  source: StageStaticSessionSource;
+  cancelConstruction: (() => void) | null;
+};
+
+const stageStaticSessionOwnership = new WeakMap<
+  OwnedStageStaticSpatialResources,
+  StageStaticSessionOwnership
+>();
+
+type StageNodeActivationLease = Readonly<{
+  release(): void;
+}>;
+
+const createStageNodeActivationLease = (
+  container: AssetContainer
+): StageNodeActivationLease => {
+  const nodeStates = container.transformNodes.map((node) =>
+    Object.freeze({
+      node,
+      enabled: node.isEnabled(),
+      position: node.position.clone(),
+      rotation: node.rotation.clone(),
+      rotationQuaternion: node.rotationQuaternion?.clone() ?? null,
+      scaling: node.scaling.clone()
+    })
+  );
+  const meshStates = container.meshes.map((mesh) =>
+    Object.freeze({
+      mesh,
+      enabled: mesh.isEnabled(),
+      position: mesh.position.clone(),
+      rotation: mesh.rotation.clone(),
+      rotationQuaternion: mesh.rotationQuaternion?.clone() ?? null,
+      scaling: mesh.scaling.clone(),
+      isVisible: mesh.isVisible,
+      isPickable: mesh.isPickable,
+      checkCollisions: mesh.checkCollisions
+    })
+  );
+  let released = false;
+  return Object.freeze({
+    release: () => {
+      if (released) {
+        throw new Error("Stage静的Node activation leaseは解放済みです。");
+      }
+      for (const state of nodeStates) {
+        state.node.position.copyFrom(state.position);
+        state.node.rotation.copyFrom(state.rotation);
+        state.node.rotationQuaternion = state.rotationQuaternion?.clone() ?? null;
+        state.node.scaling.copyFrom(state.scaling);
+        state.node.setEnabled(state.enabled);
+        state.node.computeWorldMatrix(true);
+      }
+      for (const state of meshStates) {
+        state.mesh.position.copyFrom(state.position);
+        state.mesh.rotation.copyFrom(state.rotation);
+        state.mesh.rotationQuaternion = state.rotationQuaternion?.clone() ?? null;
+        state.mesh.scaling.copyFrom(state.scaling);
+        state.mesh.isVisible = state.isVisible;
+        state.mesh.isPickable = state.isPickable;
+        state.mesh.checkCollisions = state.checkCollisions;
+        state.mesh.setEnabled(state.enabled);
+        state.mesh.computeWorldMatrix(true);
+      }
+      released = true;
+    }
+  });
+};
+
+export const loadStageStaticSpatialResources = async (
   scene: Scene,
-  stage: StageCatalogEntry,
-  options: StageSpatialContextLoadOptions = {}
-): Promise<StageSpatialContext> => {
+  stage: StageCatalogEntry
+): Promise<OwnedStageStaticSpatialResources> => {
   assertCatalogEntry(stage);
-  if (
-    stage.roomVariantNavmesh.mode === "required" &&
-    !options.roomVariantSelections
-  ) {
-    throw new Error(
-      `roomVariantNavmesh=requiredでは全室variant選択が必要です: ${stage.id}`
-    );
-  }
-  if (
-    stage.roomVariantNavmesh.mode === "unsupported" &&
-    options.roomVariantSelections
-  ) {
-    throw new Error(
-      `roomVariantNavmesh=unsupportedへvariant選択は指定できません: ${stage.id}`
-    );
-  }
   const roomVariantNavmeshRequest =
     stage.roomVariantNavmesh.mode === "required"
       ? fetchBinary(stage.roomVariantNavmesh.url)
@@ -2851,14 +2970,10 @@ export const loadStageSpatialContext = async (
   await Promise.all(hashChecks);
 
   let container: AssetContainer | null = null;
-  let navigation: NavigationWorld | null = null;
   let bitNavigation: BitFlightNavigationWorld | null = null;
-  let dynamicVariants: DynamicStageSpatialVariants | null = null;
-  let queries: StageSpatialQueries | null = null;
   let worldBoundary: OwnedStageWorldBoundary | null = null;
-  let roomVariantActivation: StageRoomVariantActivation | null = null;
-  let roomVariantSelection: readonly HumanNavRoomVariantSelection[] =
-    Object.freeze([]);
+  let humanNavigationBundle: HumanNavTileBundle | null = null;
+  let humanNavigationData: Uint8Array | null = null;
   try {
     container = await loadGlbContainer(scene, stage, glbData);
     configureStageMaterials(container, stage);
@@ -2885,36 +3000,22 @@ export const loadStageSpatialContext = async (
     if (stage.roomVariantNavmesh.mode === "required") {
       if (
         !roomVariantNavmeshData ||
-        !options.roomVariantSelections ||
         !classification.roomVariants
       ) {
         throw new Error(
           `必須の部屋variant資源を組み立てられません: ${stage.id}`
         );
       }
-      const roomVariantBundle = await decodeHumanNavTileBundle(
+      humanNavigationBundle = await decodeHumanNavTileBundle(
         roomVariantNavmeshData,
         navmeshData,
         stage.id,
         stage.navProfileId
       );
+      staticDecodedHumanBundleOwnerCount += 1;
       assertRoomVariantRegistryMatchesBundle(
         classification.roomVariants,
-        roomVariantBundle
-      );
-      roomVariantActivation = createRoomVariantActivation(
-        classification.roomVariants,
-        options.roomVariantSelections
-      );
-      applyRoomVariantActivation(roomVariantActivation);
-      const assembly = await assembleHumanNavTileBundle(
-        roomVariantBundle,
-        options.roomVariantSelections
-      );
-      roomVariantSelection = assembly.selectedVariants;
-      navigation = createNavigationWorldFromNavMesh(
-        assembly.navMesh,
-        links.all
+        humanNavigationBundle
       );
     } else {
       if (classification.roomVariants) {
@@ -2922,46 +3023,21 @@ export const loadStageSpatialContext = async (
           `roomVariantNavmesh=unsupportedにroom variant registryがあります: ${stage.id}`
         );
       }
-      navigation = await createNavigationWorld(navmeshData, links.all);
+      humanNavigationData = Uint8Array.from(navmeshData);
     }
     bitNavigation = await createBitFlightNavigationWorld(
       bitFlightDefinition,
       bitNavmeshPayloads
     );
+    staticBitNavigationOwnerCount += 1;
     container.addAllToScene();
 
-    const inactiveVisualMeshes = new Set(
-      roomVariantActivation?.inactive.visualMeshes ?? []
-    );
-    const inactiveNormalColliders = new Set(
-      roomVariantActivation?.inactive.colliderMeshes ?? []
-    );
-    const inactiveBeamSightOnlyColliders = new Set(
-      roomVariantActivation?.inactive.beamSightOnlyColliders ?? []
-    );
-    const inactiveHumanNavSources = new Set(
-      roomVariantActivation?.inactive.humanNavSourceMeshes ?? []
-    );
-    const activeVisualMeshes = Object.freeze(
-      classification.visualMeshes.filter(
-        (mesh) => !inactiveVisualMeshes.has(mesh)
-      )
-    );
-    const activeNormalColliders = Object.freeze(
-      classification.normalColliders.filter(
-        (mesh) => !inactiveNormalColliders.has(mesh)
-      )
-    );
-    const activeBeamSightOnlyColliders = Object.freeze(
-      classification.beamSightOnlyColliders.filter(
-        (mesh) => !inactiveBeamSightOnlyColliders.has(mesh)
-      )
-    );
-    const activeHumanNavSources = Object.freeze(
-      classification.navSources.filter(
-        (source) => !inactiveHumanNavSources.has(source.mesh)
-      )
-    );
+    const activeVisualMeshes = Object.freeze([...classification.visualMeshes]);
+    const activeNormalColliders = Object.freeze([...classification.normalColliders]);
+    const activeBeamSightOnlyColliders = Object.freeze([
+      ...classification.beamSightOnlyColliders
+    ]);
+    const activeHumanNavSources = Object.freeze([...classification.navSources]);
     const humanMovementColliders = Object.freeze([
       ...activeNormalColliders,
       ...classification.actorOnlyColliders,
@@ -2993,39 +3069,6 @@ export const loadStageSpatialContext = async (
       humanOnlyColliders: classification.humanOnlyColliders,
       links: links.all
     });
-    const fullActiveSet: DynamicStageSpatialActiveSet = Object.freeze({
-      movementColliders: fullMovementColliders,
-      groundColliders: activeNormalColliders,
-      beamBlockers: fullBeamBlockers,
-      sightBlockers: fullSightBlockers,
-      bitObstacles: bitMovementColliders
-    });
-    const hasDynamicAssets =
-      dynamicAssets.doors.all.length > 0 ||
-      dynamicAssets.elevators.all.length > 0;
-    if (
-      hasDynamicAssets &&
-      options.initializeDynamicSpatial === undefined
-    ) {
-      throw new Error(
-        `動的資産を持つStageにはinitializeDynamicSpatialが必要です: ${stage.id}`
-      );
-    }
-    const dynamicSpatialInitialization =
-      options.initializeDynamicSpatial
-        ? options.initializeDynamicSpatial({
-            activeSet: fullActiveSet,
-            doorAssets: dynamicAssets.doors,
-            elevatorAssets: dynamicAssets.elevators
-          })
-        : Object.freeze({
-            staticActiveSet: fullActiveSet,
-            initialActiveSet: fullActiveSet
-          });
-    const staticSpatialActiveSet =
-      dynamicSpatialInitialization.staticActiveSet;
-    const initialActiveSet =
-      dynamicSpatialInitialization.initialActiveSet;
     const humanNavigationSources = Object.freeze([
       ...activeHumanNavSources
     ]);
@@ -3083,45 +3126,6 @@ export const loadStageSpatialContext = async (
     });
     const markers = createMarkerRegistry(classification.markers);
     const volumes = createVolumeRegistry(classification.volumes);
-    const playerSpawns = createPlayerSpawnRegistry(
-      markers,
-      volumes,
-      navigation
-    );
-    const navigationAreas = createStageNavigationAreaRegistry(
-      volumes.all,
-      classification.portals
-        .filter((portal) => portal.role === "navigation_area_portal")
-        .map((portal): AuthoredStageNavigationAreaPortal =>
-          Object.freeze({
-            id: portal.id,
-            fromAreaId: portal.fromAreaId!,
-            toAreaId: portal.toAreaId!,
-            bidirectional: portal.bidirectional!,
-            mesh: portal.mesh
-          })
-        ),
-      options.queryDiagnostics
-    );
-    dynamicVariants =
-      createDynamicStageSpatialVariants(initialActiveSet);
-    queries = createStageSpatialQueries(
-      scene,
-      dynamicVariants,
-      {
-        volumes: volumes.all,
-        diagnostics: options.queryDiagnostics
-      }
-    );
-    const locationAssets =
-      stage.locationAssetsMode === "required"
-        ? createStageLocationAssetRegistry(
-            classification.locationAssetSource,
-            navigation,
-            dynamicAssets.elevators,
-            queries
-          )
-        : null;
     const boundary: StageBoundary = Object.freeze({
       id: "stage" as const,
       mesh: classification.boundaryMesh,
@@ -3153,57 +3157,370 @@ export const loadStageSpatialContext = async (
 
     let disposed = false;
     const ownedContainer = container;
-    const ownedNavigation = navigation;
     const ownedBitNavigation = bitNavigation;
-    const ownedDynamicVariants = dynamicVariants;
-    const ownedQueries = queries;
-    const ownedNavigationAreas = navigationAreas;
     const ownedWorldBoundary = worldBoundary;
-    return Object.freeze({
+    const sessionSource: StageStaticSessionSource = Object.freeze({
+      classification,
+      humanNavigationBundle,
+      humanNavigationData
+    });
+    const staticView: StageStaticSpatialView = Object.freeze({
+      scene,
+      fingerprint: createStageCatalogFingerprint(stage),
       stage,
       metadata: classification.metadata,
       resources,
-      staticSpatialActiveSet,
-      dynamicVariants: ownedDynamicVariants,
       doorAssets: dynamicAssets.doors,
       elevatorAssets: dynamicAssets.elevators,
       roomVariants: classification.roomVariants,
-      roomVariantSelection,
-      locationAssets,
-      navigation: ownedNavigation,
+      locationAssets:
+        stage.locationAssetsMode === "required"
+          ? createAuthoredStageLocationAssetRegistry(
+              classification.locationAssetSource,
+              dynamicAssets.elevators
+            )
+          : null,
+      humanNavigationBundle,
+      humanNavigationData,
       bitNavigation: ownedBitNavigation,
       markers,
       volumes,
-      playerSpawns,
-      navigationAreas: ownedNavigationAreas,
       assemblyVenues,
       links,
       boundary,
-      worldBoundary: ownedWorldBoundary,
-      queries: ownedQueries,
+      worldBoundary: ownedWorldBoundary
+    });
+    const sessionOwnership: StageStaticSessionOwnership = {
+      status: "available",
+      source: sessionSource,
+      cancelConstruction: null
+    };
+    const owner: OwnedStageStaticSpatialResources = Object.freeze({
+      view: staticView,
+      fingerprint: staticView.fingerprint,
+      cancelSessionConstructionSynchronously: () => {
+        sessionOwnership.cancelConstruction?.();
+      },
       dispose: () => {
         if (disposed) {
-          throw new Error(`StageSpatialContextは破棄済みです: ${stage.id}`);
+          throw new Error(`Stage静的空間資源は破棄済みです: ${stage.id}`);
+        }
+        if (
+          sessionOwnership.status === "active" ||
+          sessionOwnership.status === "constructing"
+        ) {
+          throw new Error(
+            `有効または生成中のStage空間sessionより先に静的資源を破棄できません: ${stage.id}`
+          );
         }
         disposed = true;
-        ownedQueries.dispose();
-        ownedNavigationAreas.dispose();
-        ownedDynamicVariants.dispose();
+        sessionOwnership.status = "disposed";
         ownedWorldBoundary?.dispose();
         ownedBitNavigation.dispose();
-        ownedNavigation.dispose();
+        staticBitNavigationOwnerCount -= 1;
+        if (humanNavigationBundle !== null) {
+          staticDecodedHumanBundleOwnerCount -= 1;
+        }
         ownedContainer.removeAllFromScene();
         ownedContainer.dispose();
       }
     });
+    stageStaticSessionOwnership.set(owner, sessionOwnership);
+    return owner;
   } catch (error) {
-    queries?.dispose();
-    dynamicVariants?.dispose();
     worldBoundary?.dispose();
-    bitNavigation?.dispose();
-    navigation?.dispose();
+    if (bitNavigation) {
+      bitNavigation.dispose();
+      staticBitNavigationOwnerCount -= 1;
+    }
+    if (humanNavigationBundle !== null) {
+      staticDecodedHumanBundleOwnerCount -= 1;
+    }
     container?.removeAllFromScene();
     container?.dispose();
+    throw error;
+  }
+};
+
+export const createStageSpatialSession = async (
+  staticResources: OwnedStageStaticSpatialResources,
+  options: StageSpatialSessionOptions = {}
+): Promise<StageSpatialSession> => {
+  const staticView = staticResources.view;
+  const ownership = stageStaticSessionOwnership.get(staticResources);
+  if (!ownership) {
+    throw new Error("loadStageStaticSpatialResources()が生成したownerが必要です。");
+  }
+  const source = ownership.source;
+  if (ownership.status === "disposed") {
+    throw new Error("破棄済みのStage静的資源からsessionは生成できません。");
+  }
+  if (ownership.status !== "available") {
+    throw new Error("同じStage静的資源へ複数sessionは生成できません。");
+  }
+  const { stage } = staticView;
+  if (stage.roomVariantNavmesh.mode === "required" && !options.roomVariantSelections) {
+    throw new Error(`roomVariantNavmesh=requiredでは全室variant選択が必要です: ${stage.id}`);
+  }
+  if (stage.roomVariantNavmesh.mode === "unsupported" && options.roomVariantSelections) {
+    throw new Error(`roomVariantNavmesh=unsupportedへvariant選択は指定できません: ${stage.id}`);
+  }
+  ownership.status = "constructing";
+  const isStaticDisposed = () => ownership.status === "disposed";
+
+  const activationLease = createStageNodeActivationLease(
+    staticView.resources.assetContainer
+  );
+  let navigation: NavigationWorld | null = null;
+  let navigationOwnerCounted = false;
+  let dynamicVariants: DynamicStageSpatialVariants | null = null;
+  let queries: StageSpatialQueries | null = null;
+  let navigationAreas: StageNavigationAreaRegistry | null = null;
+  let constructionCancelled = false;
+  let constructionRolledBack = false;
+  const rollbackConstruction = () => {
+    if (constructionRolledBack) {
+      return;
+    }
+    constructionRolledBack = true;
+    navigationAreas?.dispose();
+    navigationAreas = null;
+    queries?.dispose();
+    queries = null;
+    dynamicVariants?.dispose();
+    dynamicVariants = null;
+    if (navigation !== null && navigationOwnerCounted) {
+      navigation.dispose();
+      sessionHumanNavigationWorldOwnerCount -= 1;
+      navigationOwnerCounted = false;
+      navigation = null;
+    }
+    activationLease.release();
+    if (ownership.status !== "disposed") {
+      ownership.status = "available";
+    }
+    ownership.cancelConstruction = null;
+  };
+  ownership.cancelConstruction = () => {
+    constructionCancelled = true;
+    rollbackConstruction();
+  };
+  try {
+    let roomVariantActivation: StageRoomVariantActivation | null = null;
+    let roomVariantSelection: readonly HumanNavRoomVariantSelection[] = Object.freeze([]);
+    if (stage.roomVariantNavmesh.mode === "required") {
+      if (!staticView.roomVariants || !source.humanNavigationBundle || !options.roomVariantSelections) {
+        throw new Error(`必須の部屋variant資源を組み立てられません: ${stage.id}`);
+      }
+      roomVariantActivation = createRoomVariantActivation(
+        staticView.roomVariants,
+        options.roomVariantSelections
+      );
+      applyRoomVariantActivation(roomVariantActivation);
+      const assembly = await assembleHumanNavTileBundle(
+        source.humanNavigationBundle,
+        options.roomVariantSelections
+      );
+      if (constructionCancelled) {
+        assembly.navMesh.destroy();
+        throw new Error("Stage session生成は終了処理でcancelされました。");
+      }
+      roomVariantSelection = assembly.selectedVariants;
+      navigation = createNavigationWorldFromNavMesh(assembly.navMesh, staticView.links.all);
+      sessionHumanNavigationWorldOwnerCount += 1;
+      navigationOwnerCounted = true;
+    } else {
+      if (!source.humanNavigationData) {
+        throw new Error(`人間用NavMesh dataがありません: ${stage.id}`);
+      }
+      const createdNavigation = await createNavigationWorld(
+        source.humanNavigationData,
+        staticView.links.all
+      );
+      if (constructionCancelled) {
+        createdNavigation.dispose();
+        throw new Error("Stage session生成は終了処理でcancelされました。");
+      }
+      navigation = createdNavigation;
+      sessionHumanNavigationWorldOwnerCount += 1;
+      navigationOwnerCounted = true;
+    }
+
+    const classification = source.classification;
+    const inactiveVisualMeshes = new Set(roomVariantActivation?.inactive.visualMeshes ?? []);
+    const inactiveNormalColliders = new Set(roomVariantActivation?.inactive.colliderMeshes ?? []);
+    const inactiveBeamSightOnlyColliders = new Set(
+      roomVariantActivation?.inactive.beamSightOnlyColliders ?? []
+    );
+    const inactiveHumanNavSources = new Set(
+      roomVariantActivation?.inactive.humanNavSourceMeshes ?? []
+    );
+    const activeVisualMeshes = Object.freeze(
+      classification.visualMeshes.filter((mesh) => !inactiveVisualMeshes.has(mesh))
+    );
+    const activeNormalColliders = Object.freeze(
+      classification.normalColliders.filter((mesh) => !inactiveNormalColliders.has(mesh))
+    );
+    const activeBeamSightOnlyColliders = Object.freeze(
+      classification.beamSightOnlyColliders.filter(
+        (mesh) => !inactiveBeamSightOnlyColliders.has(mesh)
+      )
+    );
+    const activeHumanNavSources = Object.freeze(
+      classification.navSources.filter(
+        (navSource) => !inactiveHumanNavSources.has(navSource.mesh)
+      )
+    );
+    const humanMovementColliders = Object.freeze([
+      ...activeNormalColliders,
+      ...classification.actorOnlyColliders,
+      ...classification.humanOnlyColliders
+    ]);
+    const bitMovementColliders = Object.freeze([
+      ...activeNormalColliders,
+      ...classification.actorOnlyColliders
+    ]);
+    const movementColliders: StageMovementColliderSets = Object.freeze({
+      player: humanMovementColliders,
+      npc: humanMovementColliders,
+      bit: bitMovementColliders
+    });
+    const beamBlockers = Object.freeze([
+      ...activeNormalColliders,
+      ...activeBeamSightOnlyColliders
+    ]);
+    const sightBlockers = Object.freeze([
+      ...activeNormalColliders,
+      ...activeBeamSightOnlyColliders
+    ]);
+    const fullActiveSet: DynamicStageSpatialActiveSet = Object.freeze({
+      movementColliders,
+      groundColliders: activeNormalColliders,
+      beamBlockers,
+      sightBlockers,
+      bitObstacles: bitMovementColliders
+    });
+    const hasDynamicAssets =
+      staticView.doorAssets.all.length > 0 || staticView.elevatorAssets.all.length > 0;
+    if (hasDynamicAssets && !options.dynamicSpatialInitialization) {
+      throw new Error(`動的資産を持つStageには動的初期化descriptorが必要です: ${stage.id}`);
+    }
+    const spatialInitialization = options.dynamicSpatialInitialization
+      ? options.dynamicSpatialInitialization.initialize({
+          activeSet: fullActiveSet,
+          doorAssets: staticView.doorAssets,
+          elevatorAssets: staticView.elevatorAssets
+        })
+      : Object.freeze({
+          staticActiveSet: fullActiveSet,
+          initialActiveSet: fullActiveSet
+        });
+    dynamicVariants = createDynamicStageSpatialVariants(
+      spatialInitialization.initialActiveSet
+    );
+    queries = createStageSpatialQueries(staticView.scene, dynamicVariants, {
+      volumes: staticView.volumes.all,
+      diagnostics: options.queryDiagnostics
+    });
+    navigationAreas = createStageNavigationAreaRegistry(
+      staticView.volumes.all,
+      classification.portals
+        .filter((portal) => portal.role === "navigation_area_portal")
+        .map((portal): AuthoredStageNavigationAreaPortal =>
+          Object.freeze({
+            id: portal.id,
+            fromAreaId: portal.fromAreaId!,
+            toAreaId: portal.toAreaId!,
+            bidirectional: portal.bidirectional!,
+            mesh: portal.mesh
+          })
+        ),
+      options.queryDiagnostics
+    );
+    const playerSpawns = createPlayerSpawnRegistry(
+      staticView.markers,
+      staticView.volumes,
+      navigation
+    );
+    const locationAssets = staticView.locationAssets
+      ? staticView.locationAssets.bindSession(
+          navigation,
+          queries
+        )
+      : null;
+    const resources: StageSpatialResources = Object.freeze({
+      visualMeshes: activeVisualMeshes,
+      normalColliders: activeNormalColliders,
+      actorOnlyColliders: Object.freeze([...classification.actorOnlyColliders]),
+      humanOnlyColliders: Object.freeze([...classification.humanOnlyColliders]),
+      beamSightOnlyColliders: activeBeamSightOnlyColliders,
+      movementColliders,
+      beamBlockers,
+      sightBlockers,
+      humanNavigationSources: Object.freeze([...activeHumanNavSources]),
+      bitFlightNavSourceMeshes: staticView.resources.bitFlightNavSourceMeshes,
+      semanticMeshes: staticView.resources.semanticMeshes,
+      semanticNodes: staticView.resources.semanticNodes,
+      metadataNode: staticView.resources.metadataNode,
+      assetContainer: staticView.resources.assetContainer,
+      managementRoot: staticView.resources.managementRoot
+    });
+
+    const ownedNavigation = navigation;
+    const ownedDynamicVariants = dynamicVariants;
+    const ownedQueries = queries;
+    const ownedNavigationAreas = navigationAreas;
+    if (isStaticDisposed()) {
+      throw new Error("Stage session生成中に静的資源が破棄されました。");
+    }
+    ownership.status = "active";
+    ownership.cancelConstruction = null;
+    let disposed = false;
+    return Object.freeze({
+      staticView,
+      stage,
+      metadata: staticView.metadata,
+      resources,
+      staticSpatialActiveSet: spatialInitialization.staticActiveSet,
+      dynamicVariants: ownedDynamicVariants,
+      doorAssets: staticView.doorAssets,
+      elevatorAssets: staticView.elevatorAssets,
+      roomVariants: staticView.roomVariants,
+      locationAssets,
+      roomVariantSelection,
+      navigation: ownedNavigation,
+      bitNavigation: staticView.bitNavigation,
+      markers: staticView.markers,
+      volumes: staticView.volumes,
+      playerSpawns,
+      navigationAreas: ownedNavigationAreas,
+      assemblyVenues: staticView.assemblyVenues,
+      links: staticView.links,
+      boundary: staticView.boundary,
+      worldBoundary: staticView.worldBoundary,
+      queries: ownedQueries,
+      dynamicSpatialInitialization: options.dynamicSpatialInitialization ?? null,
+      dispose: () => {
+        if (disposed) {
+          throw new Error(`Stage空間sessionは破棄済みです: ${stage.id}`);
+        }
+        disposed = true;
+        ownedNavigationAreas.dispose();
+        ownedQueries.dispose();
+        ownedDynamicVariants.dispose();
+        if (navigationOwnerCounted) {
+          ownedNavigation.dispose();
+          sessionHumanNavigationWorldOwnerCount -= 1;
+          navigationOwnerCounted = false;
+        }
+        activationLease.release();
+        if (!isStaticDisposed()) {
+          ownership.status = "available";
+        }
+      }
+    });
+  } catch (error) {
+    rollbackConstruction();
     throw error;
   }
 };

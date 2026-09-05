@@ -19,6 +19,7 @@ import {
   ELEVATOR_CAPACITY,
   type ElevatorDoorMotion,
   type StageElevatorActorAdapter,
+  type StageElevatorCallIndicatorAdapter,
   type StageElevatorRuntime,
   type StageElevatorRuntimeInput,
   type StageElevatorSnapshot,
@@ -36,6 +37,7 @@ import {
   type StageSpatialQueries
 } from "./stageSpatialQueries";
 import { createSchoolRuntimeRandom } from "./schoolRuntimeSettings";
+import type { StageDynamicSpatialInitializationDescriptor } from "./stageSpatialContext";
 
 const ELEVATOR_BOARDING_SLOT_OFFSETS = Object.freeze([
   new Vector3(-0.65, 0, -0.45),
@@ -85,6 +87,7 @@ export type SchoolStageInitialActiveSetInput =
 export type SchoolStageDynamicRuntimeInput =
   SchoolStageDynamicAssetInput &
     Readonly<{
+      initialization: StageDynamicSpatialInitializationDescriptor;
       dynamicVariants: DynamicStageSpatialVariants;
       queries: StageSpatialQueries;
       actors: SchoolStageActorPort;
@@ -107,11 +110,6 @@ export interface SchoolStageDynamicRuntime {
   update(deltaSeconds: number): SchoolStageDynamicRuntimeSnapshot;
   dispose(): void;
 }
-
-const initializationSeedByStaticActiveSet = new WeakMap<
-  DynamicStageSpatialActiveSet,
-  number
->();
 
 const freezeMeshes = (meshes: Iterable<Mesh>): readonly Mesh[] =>
   Object.freeze([...new Set(meshes)]);
@@ -381,7 +379,13 @@ const createPanelAdapter = (panel: StageDoorPanelAsset) =>
       applyStageDoorPanelOpenness(panel, openness)
   });
 
-const createElevatorRuntimeInput = (
+type PreparedElevatorRuntimeInput = Readonly<{
+  input: StageElevatorRuntimeInput;
+  transfer(): void;
+  dispose(): void;
+}>;
+
+const prepareElevatorRuntimeInput = (
   elevator: StageElevatorAsset,
   actors: StageElevatorActorAdapter,
   isDoorMotionBlocked: (
@@ -389,10 +393,16 @@ const createElevatorRuntimeInput = (
     stopId: string,
     motion: ElevatorDoorMotion
   ) => boolean
-): StageElevatorRuntimeInput => ({
-  id: elevator.id,
-  stops: elevator.stops.map((stop) =>
-    Object.freeze({
+): PreparedElevatorRuntimeInput => {
+  const ownedIndicators: StageElevatorCallIndicatorAdapter[] = [];
+  let transferred = false;
+  try {
+    const stops = elevator.stops.map((stop) => {
+      const callIndicator = createStageElevatorCallIndicatorAdapter(
+        stop.callIndicator
+      );
+      ownedIndicators.push(callIndicator);
+      return Object.freeze({
       id: stop.id,
       floorIndex: stop.floorIndex,
       carPosition: stop.node.getAbsolutePosition().clone(),
@@ -403,11 +413,12 @@ const createElevatorRuntimeInput = (
       setHumanGateEnabled: (enabled: boolean) => {
         stop.humanGate.collider.checkCollisions = enabled;
       },
-      callIndicator: createStageElevatorCallIndicatorAdapter(
-        stop.callIndicator
-      )
-    })
-  ),
+      callIndicator
+    });
+    });
+    const input: StageElevatorRuntimeInput = {
+  id: elevator.id,
+  stops,
   carDoorPanels: Object.freeze(
     elevator.car.door.panels.map(createPanelAdapter)
   ),
@@ -457,11 +468,46 @@ const createElevatorRuntimeInput = (
     isDoorMotionBlocked: (stopId, motion) =>
       isDoorMotionBlocked(elevator, stopId, motion)
   }
-});
+};
+    return Object.freeze({
+      input,
+      transfer: () => {
+        transferred = true;
+      },
+      dispose: () => {
+        if (transferred) {
+          return;
+        }
+        for (let index = ownedIndicators.length - 1; index >= 0; index -= 1) {
+          ownedIndicators[index]!.dispose();
+        }
+        ownedIndicators.length = 0;
+      }
+    });
+  } catch (error) {
+    for (let index = ownedIndicators.length - 1; index >= 0; index -= 1) {
+      ownedIndicators[index]!.dispose();
+    }
+    throw error;
+  }
+};
+
+const createOwnedElevatorRuntime = (
+  prepared: PreparedElevatorRuntimeInput
+): StageElevatorRuntime => {
+  try {
+    const runtime = createStageElevatorRuntime(prepared.input);
+    prepared.transfer();
+    return runtime;
+  } catch (error) {
+    prepared.dispose();
+    throw error;
+  }
+};
 
 const createInitialElevatorRuntimes = (
   elevators: StageElevatorAssetRegistry
-) => {
+): readonly StageElevatorRuntime[] => {
   const actors: StageElevatorActorAdapter = {
     getActorPosition: (actorId) => {
       throw new Error(
@@ -474,15 +520,22 @@ const createInitialElevatorRuntimes = (
       );
     }
   };
-  return elevators.all.map((elevator) =>
-    createStageElevatorRuntime(
-      createElevatorRuntimeInput(
-        elevator,
-        actors,
-        () => false
-      )
-    )
-  );
+  const runtimes: StageElevatorRuntime[] = [];
+  try {
+    for (const elevator of elevators.all) {
+      runtimes.push(
+        createOwnedElevatorRuntime(
+          prepareElevatorRuntimeInput(elevator, actors, () => false)
+        )
+      );
+    }
+    return runtimes;
+  } catch (error) {
+    for (let index = runtimes.length - 1; index >= 0; index -= 1) {
+      runtimes[index]!.dispose();
+    }
+    throw error;
+  }
 };
 
 export const createSchoolStageInitialActiveSet = (
@@ -492,35 +545,36 @@ export const createSchoolStageInitialActiveSet = (
     random: input.doorInitialRandom,
     resolveClosingOccupancy: () => {}
   });
-  const elevators = createInitialElevatorRuntimes(input.elevatorAssets);
-  const initialActiveSet = composeActiveSet(
-    input.staticActiveSet,
-    doors.getSpatialSnapshot(),
-    elevators.map((elevator) => elevator.getSpatialSnapshot())
-  );
-  doors.dispose();
-  for (const elevator of elevators) {
-    elevator.dispose();
+  let elevators: readonly StageElevatorRuntime[] = [];
+  try {
+    elevators = createInitialElevatorRuntimes(input.elevatorAssets);
+    return composeActiveSet(
+      input.staticActiveSet,
+      doors.getSpatialSnapshot(),
+      elevators.map((elevator) => elevator.getSpatialSnapshot())
+    );
+  } finally {
+    for (let index = elevators.length - 1; index >= 0; index -= 1) {
+      elevators[index]!.dispose();
+    }
+    doors.dispose();
   }
-  return initialActiveSet;
 };
 
-export const createSchoolStageDynamicSpatialInitializer = (
+export const createSchoolStageDynamicSpatialInitializationDescriptor = (
   seed: number
 ) =>
-  (input: Readonly<{
-    activeSet: DynamicStageSpatialActiveSet;
-    doorAssets: StageDoorAssetRegistry;
-    elevatorAssets: StageElevatorAssetRegistry;
-  }>) => {
+  Object.freeze({
+    seed,
+    initialize: (input: Readonly<{
+      activeSet: DynamicStageSpatialActiveSet;
+      doorAssets: StageDoorAssetRegistry;
+      elevatorAssets: StageElevatorAssetRegistry;
+    }>) => {
     const staticActiveSet = createSchoolStageStaticActiveSet(
       input.activeSet,
       input.doorAssets,
       input.elevatorAssets
-    );
-    initializationSeedByStaticActiveSet.set(
-      staticActiveSet,
-      seed
     );
     return Object.freeze({
       staticActiveSet,
@@ -534,7 +588,8 @@ export const createSchoolStageDynamicSpatialInitializer = (
         )
       })
     });
-  };
+    }
+  });
 
 const haveSameMeshes = (
   left: readonly Mesh[],
@@ -590,16 +645,8 @@ class SchoolStageDynamicRuntimeImplementation
   constructor(input: SchoolStageDynamicRuntimeInput) {
     this.staticActiveSet = input.staticActiveSet;
     this.dynamicVariants = input.dynamicVariants;
-    const initializationSeed =
-      initializationSeedByStaticActiveSet.get(
-        input.staticActiveSet
-      );
-    if (initializationSeed === undefined) {
-      throw new Error(
-        "SchoolStageDynamicRuntimeにはcreateSchoolStageDynamicSpatialInitializer()が生成したstaticActiveSetが必要です。"
-      );
-    }
-    this.doors = createStageDoorRuntime(input.doorAssets, {
+    const initializationSeed = input.initialization.seed;
+    const doors = createStageDoorRuntime(input.doorAssets, {
       random: createSchoolRuntimeRandom(
         initializationSeed,
         "door-initial"
@@ -607,10 +654,11 @@ class SchoolStageDynamicRuntimeImplementation
       resolveClosingOccupancy: (request) =>
         resolveDoorClosingOccupancy(request, input.actors)
     });
-    this.elevators = Object.freeze(
-      input.elevatorAssets.all.map((asset) =>
-        createStageElevatorRuntime(
-          createElevatorRuntimeInput(
+    const elevators: StageElevatorRuntime[] = [];
+    try {
+      for (const asset of input.elevatorAssets.all) {
+        elevators.push(createOwnedElevatorRuntime(
+          prepareElevatorRuntimeInput(
             asset,
             input.actors,
             (elevator, stopId) => {
@@ -639,9 +687,10 @@ class SchoolStageDynamicRuntimeImplementation
                 );
             }
           )
-        )
-      )
-    );
+        ));
+      }
+      this.doors = doors;
+      this.elevators = Object.freeze(elevators);
     this.elevatorById = new Map(
       input.elevatorAssets.all.map((asset, index) => [
         asset.id,
@@ -666,6 +715,13 @@ class SchoolStageDynamicRuntimeImplementation
       initial,
       input.dynamicVariants.getSnapshot()
     );
+    } catch (error) {
+      for (let index = elevators.length - 1; index >= 0; index -= 1) {
+        elevators[index]!.dispose();
+      }
+      doors.dispose();
+      throw error;
+    }
   }
 
   get revision() {

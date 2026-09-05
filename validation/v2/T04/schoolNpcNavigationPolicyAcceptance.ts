@@ -19,7 +19,7 @@ import type {
   StageElevatorStopAsset
 } from "../../../src/world/stageDynamicAssets";
 import type {
-  StageSpatialContext
+  StageSpatialSession
 } from "../../../src/world/stageSpatialContext";
 import type {
   V2CharacterState,
@@ -44,7 +44,7 @@ export type SchoolNpcNavigationPolicyCheck = Readonly<{
 
 export type SchoolNpcNavigationPolicyAcceptanceInput =
   Readonly<{
-    stage: StageSpatialContext;
+    stage: StageSpatialSession;
     runtime: SchoolStageDynamicRuntime;
     updateRuntime(deltaSeconds: number): void;
     trackingActorId: string;

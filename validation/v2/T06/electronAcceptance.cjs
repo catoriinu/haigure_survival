@@ -366,8 +366,26 @@ const waitForBrainwashSelection = async (window) => {
       });
       previousState = state;
     }
-    if (state === "brainwash-in-progress") {
+    if (
+      state === "brainwash-in-progress" &&
+      snapshot.pointerLockId === "renderCanvas" &&
+      snapshot.completionGuideVisible &&
+      !snapshot.crosshairVisible
+    ) {
       return snapshot;
+    }
+    if (
+      state === "brainwash-in-progress" &&
+      snapshot.pointerLockId !== "renderCanvas"
+    ) {
+      await sendCanvasClick(window);
+      await waitFor(
+        "洗脳選択のPointer Lock再取得",
+        window,
+        (relocked) => relocked.pointerLockId === "renderCanvas",
+        10_000
+      );
+      continue;
     }
     if (Date.now() >= nextProgressAt) {
       process.stdout.write(
@@ -1021,6 +1039,7 @@ const run = async () => {
   assertCondition(!selectionSnapshot.crosshairVisible, "brainwash-in-progressで照準が表示されています。");
   addCheck("brainwash-in-progress選択解放HUD", {
     state: parseState(selectionSnapshot.status),
+    pointerLockId: selectionSnapshot.pointerLockId,
     completionGuideVisible: selectionSnapshot.completionGuideVisible,
     crosshairVisible: selectionSnapshot.crosshairVisible
   });

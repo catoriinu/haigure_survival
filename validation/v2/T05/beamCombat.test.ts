@@ -33,7 +33,7 @@ import {
   V2_TRANSPARENT_ALPHA_INDEX_BEAM_COLOR,
   V2_TRANSPARENT_ALPHA_INDEX_BEAM_DEPTH
 } from "../../../src/v2/v2TransparentRenderingOrder";
-import type { StageSpatialContext } from "../../../src/world/stageSpatialContext";
+import type { StageSpatialSession } from "../../../src/world/stageSpatialContext";
 import type { StageSpatialQueryDiagnostics } from "../../../src/world/stageSpatialQueries";
 import { createStageWorldBoundary } from "../../../src/world/stageWorldBoundary";
 import { createDynamicStageSpatialQueryFixture } from "./stageSpatialQueryFixture";
@@ -52,7 +52,7 @@ type WallDefinition = Readonly<{
 
 type BeamFixture = Readonly<{
   scene: Scene;
-  stage: StageSpatialContext;
+  stage: StageSpatialSession;
   blockers: readonly Mesh[];
   dispose(): void;
 }>;
@@ -186,7 +186,7 @@ const createBeamFixture = (
     }),
     worldBoundary,
     queries
-  }) as unknown as StageSpatialContext;
+  }) as unknown as StageSpatialSession;
 
   let disposed = false;
   return Object.freeze({
@@ -1473,7 +1473,7 @@ export const runBeamCombatTests =
               return baseQueries.findContainingBlocker(kind, point);
             }
           })
-        } as unknown as StageSpatialContext;
+        } as unknown as StageSpatialSession;
         try {
           const origin = new Vector3(3, 0, 0);
           const hit = castV2SightSegment(
@@ -1523,7 +1523,7 @@ export const runBeamCombatTests =
               return baseQueries.findContainingBlocker(kind, point);
             }
           }
-        } as unknown as StageSpatialContext;
+        } as unknown as StageSpatialSession;
         const system = createV2BeamSystem({
           scene: fixture.scene,
           stage: countingStage,

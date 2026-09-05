@@ -1,6 +1,6 @@
 # HAIGURE SURVIVAL 技術・アーキテクチャ仕様書
 
-更新日: 2026-08-08
+更新日: 2026-08-29
 対象バージョン: v1.3.1実装記録（V2現行規定を追補）
 v1.3.1実装記録の基準develop: `0c8b438`
 
@@ -11,7 +11,7 @@ v1.3.1実装記録の基準develop: `0c8b438`
 
 V2のステージ実行契約は現行の[V2ステージランタイム仕様書](./spec_stage_runtime_v2.md)、Blender／GLBの制作契約は[ステージ資産仕様書](./spec_stage_assets_v2.md)を正本とする。本節は両仕様書の要点を示す現行規定である。
 
-- ステージ空間ランタイムの境界は`StageSpatialContext`とし、ナビゲーションは`NavigationWorld`として分離する。
+- ステージ空間ランタイムの境界は、非所有`StageStaticSpatialView`、唯一の静的owner `OwnedStageStaticSpatialResources`、session所有`StageSpatialSession`とする。人間用`NavigationWorld`はsession、BIT用`NavigationWorld`は静的ownerに分離する。
 - 空間情報の入力はGLBの3D meshes／markers／volumesと、事前ベイク済みRecast navmeshに統一する。JSON文字マップ、セル配列、実行時セル展開、セル由来ナビゲーションは使用しない。
 - 光線衝突と視認判定は3D beam／sight queryとして実行する。X/Z平面のセル走査、2D壁距離、BFSセル経路をV2の判定根拠にしない。
 - TypeScript側のステージカタログは、ID、表示情報、資産参照などの非空間情報だけを保持する。座標、文字マップ、セル物理、ゾーン形状、ナビゲーション形状は保持しない。

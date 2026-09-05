@@ -18,7 +18,7 @@ import {
   SCHOOL_ALL_NORMAL_ROOM_VARIANT_SELECTIONS
 } from "../../../src/world/schoolRuntimeSettings";
 import {
-  createSchoolStageDynamicSpatialInitializer
+  createSchoolStageDynamicSpatialInitializationDescriptor
 } from "../../../src/world/schoolStageDynamicRuntime";
 import { BLENDER_METERS_TO_WORLD_UNITS } from "../../../src/world/worldUnits";
 import {
@@ -41,8 +41,10 @@ import {
   resolveV2HorizontalSpeedScale
 } from "../../../src/v2/runtimeInteraction";
 import {
-  loadStageSpatialContext,
-  type StageSpatialContext
+  createStageSpatialSession,
+  loadStageStaticSpatialResources,
+  type OwnedStageStaticSpatialResources,
+  type StageSpatialSession
 } from "../../../src/world/stageSpatialContext";
 
 type CheckResult = Readonly<{
@@ -120,7 +122,8 @@ console.error = (...values: unknown[]) => {
 };
 
 let running = false;
-let activeContext: StageSpatialContext | null = null;
+let activeContext: StageSpatialSession | null = null;
+let activeStatic: OwnedStageStaticSpatialResources | null = null;
 // seed=2では図書室の前後2扉が閉じ、構造Colliderを決定的に検証できる。
 const T02_DOOR_FIXTURE_SEED = 2;
 
@@ -214,7 +217,7 @@ const calculateSha256 = async (data: Uint8Array) => {
 };
 
 const projectBitTransitionEndpoint = (
-  context: StageSpatialContext,
+  context: StageSpatialSession,
   transition: BitFlightTransition,
   endpoint: "from" | "to"
 ) => {
@@ -249,7 +252,7 @@ const projectBitTransitionEndpoint = (
 };
 
 const findBitTransitionRoute = (
-  context: StageSpatialContext,
+  context: StageSpatialSession,
   transition: BitFlightTransition,
   reversed = false
 ) => {
@@ -271,7 +274,7 @@ const findBitTransitionRoute = (
 };
 
 const validatePlayerRampTraversal = (
-  context: StageSpatialContext,
+  context: StageSpatialSession,
   label: string,
   startBlender: Vector3,
   endBlender: Vector3
@@ -361,7 +364,7 @@ const validatePlayerRampTraversal = (
 };
 
 const validatePlayerWaypointTraversal = (
-  context: StageSpatialContext,
+  context: StageSpatialSession,
   label: string,
   waypointsBlender: readonly Vector3[],
   expectedHeightRangeBlender: readonly [number, number]
@@ -473,7 +476,7 @@ const validatePlayerWaypointTraversal = (
   };
 };
 
-const validatePoolSpawnMovement = (context: StageSpatialContext) => {
+const validatePoolSpawnMovement = (context: StageSpatialSession) => {
   const playerSpawn = context.playerSpawns.getById(
     "player-spawn-roof-pool-west-stairs"
   );
@@ -578,7 +581,7 @@ const validatePoolSpawnMovement = (context: StageSpatialContext) => {
 };
 
 const validatePlayerBarrierAttempt = (
-  context: StageSpatialContext,
+  context: StageSpatialSession,
   label: string,
   startBlender: Vector3,
   endBlender: Vector3,
@@ -693,7 +696,7 @@ const sceneResourceCountsEqual = (
   left.textures === right.textures &&
   left.transformNodes === right.transformNodes;
 
-const captureOwnedResources = (context: StageSpatialContext) => ({
+const captureOwnedResources = (context: StageSpatialSession) => ({
   nodes: [
     ...context.resources.assetContainer.meshes,
     ...context.resources.assetContainer.transformNodes
@@ -771,7 +774,7 @@ const validateAssetHashes = async (checks: CheckResult[]) => {
 };
 
 const roomVariantActivationMatches = (
-  context: StageSpatialContext,
+  context: StageSpatialSession,
   expectedVariant: "normal" | "disordered"
 ) => {
   if (!context.roomVariants) {
@@ -800,7 +803,7 @@ const roomVariantActivationMatches = (
 };
 
 const validateLoadedContext = (
-  context: StageSpatialContext,
+  context: StageSpatialSession,
   checks: CheckResult[]
 ) => {
   const mainPlayerSpawn = context.playerSpawns.getById("player-spawn-main");
@@ -1680,7 +1683,7 @@ const validateLoadedContext = (
     "COL_Wall_Lintel_ClassroomDoor_06"
   ];
   const castWestSpecialRoomOpening = (
-    castSegment: StageSpatialContext["queries"]["castBeamSegment"],
+    castSegment: StageSpatialSession["queries"]["castBeamSegment"],
     y: number
   ) =>
     castSegment(
@@ -1806,7 +1809,7 @@ const validateLoadedContext = (
   const castRoofGuardSegment = (
     x: number,
     z: number,
-    castSegment: StageSpatialContext["queries"]["castBeamSegment"]
+    castSegment: StageSpatialSession["queries"]["castBeamSegment"]
   ) =>
     castSegment(
       blenderPointToBabylon(new Vector3(x, roofGuardNorthY - 0.4, z)),
@@ -2373,7 +2376,7 @@ const validateLoadedContext = (
   const castToiletFrontSegment = (
     x: number,
     baseZ: number,
-    castSegment: StageSpatialContext["queries"]["castBeamSegment"]
+    castSegment: StageSpatialSession["queries"]["castBeamSegment"]
   ) =>
     castSegment(
       blenderPointToBabylon(new Vector3(x, 38.0, baseZ + 1.0)),
@@ -2800,15 +2803,18 @@ const validateLoadedContext = (
 };
 
 const disposeAndInspect = async (
-  context: StageSpatialContext,
+  context: StageSpatialSession,
+  staticResources: OwnedStageStaticSpatialResources,
   baseline: SceneResourceCounts,
   checks: CheckResult[],
   label: string
 ) => {
   const captured = captureOwnedResources(context);
   context.dispose();
+  staticResources.dispose();
   if (activeContext === context) {
     activeContext = null;
+    activeStatic = null;
   }
   await settleScene();
 
@@ -2847,25 +2853,29 @@ const runValidation = async () => {
     if (activeContext) {
       activeContext.dispose();
       activeContext = null;
+      activeStatic?.dispose();
+      activeStatic = null;
       await settleScene();
     }
     const baseline = countSceneResources();
 
     await validateAssetHashes(checks);
 
-    activeContext = await loadStageSpatialContext(scene, SCHOOL_STAGE, {
-      initializeDynamicSpatial:
-        createSchoolStageDynamicSpatialInitializer(T02_DOOR_FIXTURE_SEED),
+    activeStatic = await loadStageStaticSpatialResources(scene, SCHOOL_STAGE);
+    activeContext = await createStageSpatialSession(activeStatic, {
+      dynamicSpatialInitialization:
+        createSchoolStageDynamicSpatialInitializationDescriptor(T02_DOOR_FIXTURE_SEED),
       roomVariantSelections:
         SCHOOL_ALL_NORMAL_ROOM_VARIANT_SELECTIONS
     });
     await settleScene();
     validateLoadedContext(activeContext, checks);
-    await disposeAndInspect(activeContext, baseline, checks, "初回読込");
+    await disposeAndInspect(activeContext, activeStatic, baseline, checks, "初回読込");
 
-    activeContext = await loadStageSpatialContext(scene, SCHOOL_STAGE, {
-      initializeDynamicSpatial:
-        createSchoolStageDynamicSpatialInitializer(T02_DOOR_FIXTURE_SEED),
+    activeStatic = await loadStageStaticSpatialResources(scene, SCHOOL_STAGE);
+    activeContext = await createStageSpatialSession(activeStatic, {
+      dynamicSpatialInitialization:
+        createSchoolStageDynamicSpatialInitializationDescriptor(T02_DOOR_FIXTURE_SEED),
       roomVariantSelections:
         SCHOOL_ALL_DISORDERED_ROOM_VARIANT_SELECTIONS
     });
@@ -2917,13 +2927,15 @@ const runValidation = async () => {
         `stage=${activeContext.metadata.stageId} / VIS=${activeContext.resources.visualMeshes.length} / COL=${activeContext.resources.normalColliders.length} / ActorOnly=${activeContext.resources.actorOnlyColliders.length} / HumanOnly=${activeContext.resources.humanOnlyColliders.length} / BeamSightOnly=${activeContext.resources.beamSightOnlyColliders.length}:${activeContext.resources.beamSightOnlyColliders[0]?.name ?? "なし"} / humanNAV=${activeContext.resources.humanNavigationSources.length} / bitNAV=${activeContext.resources.bitFlightNavSourceMeshes.length} / water=${activeContext.volumes.getByRole("water").length} / humanLNK=${activeContext.links.all.length} / bitTransitions=${activeContext.bitNavigation.transitions.length}`
       )
     );
-    await disposeAndInspect(activeContext, baseline, checks, "再読込");
+    await disposeAndInspect(activeContext, activeStatic, baseline, checks, "再読込");
   } catch (error) {
     checks.push(createCheck("検証処理", false, formatError(error)));
     if (activeContext) {
       activeContext.dispose();
       activeContext = null;
     }
+    activeStatic?.dispose();
+    activeStatic = null;
   } finally {
     await scene.whenReadyAsync(true);
     const loggerErrors = Logger.errorsCount - loggerErrorsAtStart;

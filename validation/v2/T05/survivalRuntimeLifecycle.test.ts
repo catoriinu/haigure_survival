@@ -16,7 +16,7 @@ import {
 } from "../../../src/world/navigationWorld";
 import type {
   StagePlayerSpawn,
-  StageSpatialContext
+  StageSpatialSession
 } from "../../../src/world/stageSpatialContext";
 import type {
   V2NpcNavigationRouteContext
@@ -35,6 +35,8 @@ import {
   summarizeV2NpcHudCounts,
   summarizeV2TargetTracking,
   V2_PERFORMANCE_ACCEPTANCE_POPULATION,
+  type V2SurvivalConstructionDependencies,
+  type V2SurvivalConstructionOwnerLabel,
   type V2SurvivalRuntime
 } from "../../../src/v2/survivalRuntime";
 import type { V2CharacterVisualRuntime } from "../../../src/v2/v2CharacterVisualRuntime";
@@ -76,7 +78,7 @@ const selectDistanceNavigationRoute = (
 ) => DISTANCE_NAVIGATION_ROUTE_POLICY.selectRoute(candidates);
 
 const createInitialMissionElevatorSnapshots = (
-  stage: StageSpatialContext
+  stage: StageSpatialSession
 ): readonly V2MissionElevatorSnapshot[] =>
   Object.freeze(
     stage.elevatorAssets.all.map((elevator) =>
@@ -239,10 +241,11 @@ const observableCountsEqual = (
 
 const createRuntime = async (
   scene: Scene,
-  stage: StageSpatialContext,
+  stage: StageSpatialSession,
   getOrbVisibilityPredicate: () => (position: Vector3) => boolean,
   performanceDiagnostics: V2PerformanceDiagnostics | null = null,
-  performanceWorkloadScenario: V2PerformanceScenario | null = null
+  performanceWorkloadScenario: V2PerformanceScenario | null = null,
+  constructionDependencies: V2SurvivalConstructionDependencies = Object.freeze({})
 ) => {
   const playerSpawn = requireFirstFixturePlayerSpawn(stage);
   const player = createFakePlayer(playerSpawn);
@@ -299,7 +302,7 @@ const createRuntime = async (
         performanceWorkloadScenario,
         releaseStageTraversalForScriptedPhase: () => {},
         selectNavigationRoute: selectDistanceNavigationRoute
-      }),
+      }, constructionDependencies),
       characterVisuals,
       player
     });
@@ -311,7 +314,7 @@ const createRuntime = async (
 
 export const runSurvivalRuntimeLifecycleTests = async (
   scene: Scene,
-  stage: StageSpatialContext
+  stage: StageSpatialSession
 ): Promise<readonly SurvivalRuntimeLifecycleCheck[]> => {
   const lifecycleStage = createFixturePlayerSpawnStage(
     createFixtureSpawnRoleStage(
@@ -327,6 +330,44 @@ export const runSurvivalRuntimeLifecycleTests = async (
   );
   const checks: SurvivalRuntimeLifecycleCheck[] = [];
   const baseline = captureSceneResources(scene);
+  const acquiredDuringFailure: V2SurvivalConstructionOwnerLabel[] = [];
+  const rolledBackDuringFailure: V2SurvivalConstructionOwnerLabel[] = [];
+  const injectedConstructionError = new Error(
+    "fixture survival construction failure"
+  );
+  let observedConstructionError: unknown = null;
+  try {
+    await createRuntime(
+      scene,
+      lifecycleStage,
+      () => () => true,
+      null,
+      null,
+      Object.freeze({
+        ownerAcquired: (label) => {
+          acquiredDuringFailure.push(label);
+          if (label === "alarm-system") {
+            throw injectedConstructionError;
+          }
+        },
+        ownerRolledBack: (label) => rolledBackDuringFailure.push(label)
+      })
+    );
+  } catch (error) {
+    observedConstructionError = error;
+  }
+  checks.push(Object.freeze({
+    name: "Survival通常部分構築失敗を取得逆順rollback",
+    ok:
+      observedConstructionError === injectedConstructionError &&
+      rolledBackDuringFailure.join("|") ===
+        [...acquiredDuringFailure].reverse().join("|") &&
+      sceneResourceCountsEqual(captureSceneResources(scene), baseline),
+    detail:
+      `acquired=${acquiredDuringFailure.join("|")} / ` +
+      `rollback=${rolledBackDuringFailure.join("|")} / ` +
+      `original=${observedConstructionError === injectedConstructionError}`
+  }));
   let firstRuntime: V2SurvivalRuntime | null = null;
   let firstCharacterVisuals: V2CharacterVisualRuntime | null = null;
   let secondRuntime: V2SurvivalRuntime | null = null;

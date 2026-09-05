@@ -133,3 +133,16 @@ export const doV2SessionStartSnapshotsMatch = (
   active: V2SessionStartSnapshot,
   current: V2SessionStartSnapshot
 ): boolean => JSON.stringify(active) === JSON.stringify(current);
+
+export const selectV2FailedSessionRetryRequest = (
+  failed: Readonly<{ seed: number; snapshot: V2SessionStartSnapshot }>,
+  createCurrentSnapshot: (seed: number) => V2SessionStartSnapshot,
+  nextSeed: () => number
+): Readonly<{ seed: number; snapshot: V2SessionStartSnapshot }> => {
+  const currentAtFailedSeed = createCurrentSnapshot(failed.seed);
+  if (doV2SessionStartSnapshotsMatch(failed.snapshot, currentAtFailedSeed)) {
+    return failed;
+  }
+  const seed = nextSeed();
+  return Object.freeze({ seed, snapshot: createCurrentSnapshot(seed) });
+};

@@ -13,6 +13,7 @@ type TitleOverlayControllerOptions = {
 };
 
 export type TitleOverlayController = {
+  setStartHintMessage: (message: string) => void;
   setInstantExecutionMode: (enabled: boolean) => void;
   setError: (message: string) => void;
   clearError: () => void;
@@ -127,6 +128,9 @@ export const createTitleOverlayController = ({
   syncMessage();
 
   return {
+    setStartHintMessage: (message) => {
+      titleStartHintElement.textContent = message;
+    },
     setInstantExecutionMode: (enabled) => {
       instantExecutionMode = enabled;
       syncModeMessage();

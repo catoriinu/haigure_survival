@@ -27,7 +27,7 @@ import {
   type StageLocationAssetRegistry,
   type StageLocationFloorId
 } from "../../../src/world/stageLocationAssets";
-import type { StageSpatialContext } from "../../../src/world/stageSpatialContext";
+import type { StageSpatialSession } from "../../../src/world/stageSpatialContext";
 import type { StageSpatialQueries } from "../../../src/world/stageSpatialQueries";
 import { BLENDER_METERS_TO_WORLD_UNITS } from "../../../src/world/worldUnits";
 import type { V2MinimapActorSnapshot } from "../../../src/v2/survivalRuntime";
@@ -38,7 +38,7 @@ type TestInput = Readonly<{
   camera: FreeCamera;
   canvas: HTMLCanvasElement;
   readout: HTMLElement;
-  stage: StageSpatialContext;
+  stage: StageSpatialSession;
 }>;
 
 const getNodePosition = (node: { computeWorldMatrix(force?: boolean): unknown; getAbsolutePosition(): Vector3 }) => {
@@ -47,7 +47,7 @@ const getNodePosition = (node: { computeWorldMatrix(force?: boolean): unknown; g
 };
 
 const requireLocationAssets = (
-  stage: StageSpatialContext
+  stage: StageSpatialSession
 ): StageLocationAssetRegistry => {
   if (stage.locationAssets === null) {
     throw new Error("T06-3 fixtureにはlocation assetsが必要です。");

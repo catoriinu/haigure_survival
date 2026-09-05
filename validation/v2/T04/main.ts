@@ -65,12 +65,14 @@ import {
 } from "../../../src/world/schoolRuntimeSettings";
 import {
   createSchoolStageDynamicRuntime,
-  createSchoolStageDynamicSpatialInitializer
+  createSchoolStageDynamicSpatialInitializationDescriptor
 } from "../../../src/world/schoolStageDynamicRuntime";
 import { BLENDER_METERS_TO_WORLD_UNITS } from "../../../src/world/worldUnits";
 import {
-  loadStageSpatialContext,
-  type StageSpatialContext
+  createStageSpatialSession,
+  loadStageStaticSpatialResources,
+  type OwnedStageStaticSpatialResources,
+  type StageSpatialSession
 } from "../../../src/world/stageSpatialContext";
 import type {
   StageLinkKind,
@@ -196,7 +198,7 @@ const createTargetNavigationAreaSnapshot = (
   });
 
 const resolveTargetNavigationAreaSnapshot = (
-  stage: StageSpatialContext,
+  stage: StageSpatialSession,
   target: V2HumanTargetSnapshot
 ) =>
   createTargetNavigationAreaSnapshot(
@@ -718,7 +720,7 @@ const executeNavigationAgentRouteAcceptance = (
 };
 
 const projectBitTransitionEndpoint = (
-  context: StageSpatialContext,
+  context: StageSpatialSession,
   transition: BitFlightTransition,
   endpoint: "from" | "to"
 ) => {
@@ -753,7 +755,7 @@ const projectBitTransitionEndpoint = (
 };
 
 const findBitTransitionRoute = (
-  context: StageSpatialContext,
+  context: StageSpatialSession,
   transition: BitFlightTransition,
   reversed = false
 ) => {
@@ -808,7 +810,7 @@ const describeBitTransitionAgentFailure = (
   `ticks=${result.updateCount})`;
 
 const executeBitTransitionAgentAcceptance = (
-  context: StageSpatialContext,
+  context: StageSpatialSession,
   safety: BitFlightSafety,
   transition: BitFlightTransition,
   reversed: boolean
@@ -1151,7 +1153,7 @@ const createBeamValidationStage = (
   targetScene: Scene,
   normalColliders: readonly Mesh[],
   actorOnlyColliders: readonly Mesh[] = []
-): StageSpatialContext => {
+): StageSpatialSession => {
   const movementColliders = Object.freeze({
     player: Object.freeze([...normalColliders, ...actorOnlyColliders]),
     npc: Object.freeze([...normalColliders, ...actorOnlyColliders]),
@@ -1174,7 +1176,7 @@ const createBeamValidationStage = (
       },
       []
     )
-  } as unknown as StageSpatialContext;
+  } as unknown as StageSpatialSession;
 };
 
 type MovementAttempt = Readonly<{
@@ -1202,12 +1204,12 @@ const countPathfindAttemptsFrom = (
   ).length;
 
 const createMovementBlockingStage = (
-  source: StageSpatialContext,
+  source: StageSpatialSession,
   blockedMover: StageMoverKind
 ) => {
   const attempts: MovementAttempt[] = [];
   const pathfindAttempts: PathfindAttempt[] = [];
-  const stage: StageSpatialContext = Object.freeze({
+  const stage: StageSpatialSession = Object.freeze({
     ...source,
     navigation: Object.freeze({
       getSurfaceTriangles: () => source.navigation.getSurfaceTriangles(),
@@ -3574,7 +3576,8 @@ const runValidation = async () => {
       beamWall.dispose();
 
       const baselineResources = countSceneResources(spatialScene);
-      let schoolContext: StageSpatialContext | null = null;
+      let schoolContext: StageSpatialSession | null = null;
+      let schoolStatic: OwnedStageStaticSpatialResources | null = null;
       const schoolQueryPrototype = NavMeshQuery.prototype;
       const originalSchoolFindPath = schoolQueryPrototype.findPath;
       let schoolRecastPathfindCount = 0;
@@ -3590,12 +3593,10 @@ const runValidation = async () => {
         let navigationAreaAdvanceCount = 0;
         let navigationAreaTransitionCount = 0;
         const schoolLoadStartedAt = performance.now();
-        schoolContext = await loadStageSpatialContext(
-          spatialScene,
-          SCHOOL_VALIDATION_STAGE,
-          {
-            initializeDynamicSpatial:
-              createSchoolStageDynamicSpatialInitializer(0),
+        schoolStatic = await loadStageStaticSpatialResources(spatialScene, SCHOOL_VALIDATION_STAGE);
+        schoolContext = await createStageSpatialSession(schoolStatic, {
+            dynamicSpatialInitialization:
+              createSchoolStageDynamicSpatialInitializationDescriptor(0),
             roomVariantSelections:
               SCHOOL_ALL_NORMAL_ROOM_VARIANT_SELECTIONS,
             queryDiagnostics: {
@@ -3609,8 +3610,7 @@ const runValidation = async () => {
                 navigationAreaTransitionCount += transitioned ? 1 : 0;
               }
             }
-          }
-        );
+          });
         schoolLoadMs = performance.now() - schoolLoadStartedAt;
         const schoolConstructionPathfindCount = schoolRecastPathfindCount;
         const loadedSchoolContext = schoolContext;
@@ -5817,6 +5817,7 @@ const runValidation = async () => {
         }) as unknown as V2SurvivalRuntime;
         const actualAlarmDynamicRuntime =
           createSchoolStageDynamicRuntime({
+            initialization: loadedSchoolContext.dynamicSpatialInitialization!,
             staticActiveSet: loadedSchoolContext.staticSpatialActiveSet,
             doorAssets: loadedSchoolContext.doorAssets,
             elevatorAssets: loadedSchoolContext.elevatorAssets,
@@ -6177,6 +6178,7 @@ const runValidation = async () => {
           {
             combatEnabled: false,
             modeMuzzleColorEnabled: false,
+            showGroundShadows: false,
             initialBitCount: 2,
             reinforcementIntervalSeconds: 10,
             maximumBitCount: 2,
@@ -6433,6 +6435,7 @@ const runValidation = async () => {
             {
               combatEnabled: false,
               modeMuzzleColorEnabled: false,
+              showGroundShadows: false,
               initialBitCount: 2,
               reinforcementIntervalSeconds: 10,
               maximumBitCount: 2,
@@ -6468,6 +6471,7 @@ const runValidation = async () => {
           {
             combatEnabled: false,
             modeMuzzleColorEnabled: false,
+            showGroundShadows: false,
             initialBitCount: 1,
             reinforcementIntervalSeconds: 10,
             maximumBitCount: 1,
@@ -6521,6 +6525,7 @@ const runValidation = async () => {
           {
             combatEnabled: false,
             modeMuzzleColorEnabled: false,
+            showGroundShadows: false,
             initialBitCount: 1,
             reinforcementIntervalSeconds: 10,
             maximumBitCount: 1,
@@ -6598,18 +6603,21 @@ const runValidation = async () => {
 
         schoolContext.dispose();
         schoolContext = null;
+        schoolStatic.dispose();
+        schoolStatic = null;
         const afterFirstDispose = countSceneResources(spatialScene);
-        const reloadedContext = await loadStageSpatialContext(
-          spatialScene,
-          SCHOOL_VALIDATION_STAGE,
-          {
-            initializeDynamicSpatial:
-              createSchoolStageDynamicSpatialInitializer(0),
+        let reloadedStatic: OwnedStageStaticSpatialResources | null = null;
+        let reloadedContext: StageSpatialSession | null = null;
+        let reloadedMetadataOk = false;
+        try {
+        reloadedStatic = await loadStageStaticSpatialResources(spatialScene, SCHOOL_VALIDATION_STAGE);
+        reloadedContext = await createStageSpatialSession(reloadedStatic, {
+            dynamicSpatialInitialization:
+              createSchoolStageDynamicSpatialInitializationDescriptor(0),
             roomVariantSelections:
               SCHOOL_ALL_NORMAL_ROOM_VARIANT_SELECTIONS
-          }
-        );
-        const reloadedMetadataOk =
+          });
+        reloadedMetadataOk =
           reloadedContext.metadata.stageId === "school" &&
           reloadedContext.resources.visualMeshes.length === 632 &&
           reloadedContext.resources.normalColliders.length === 276 &&
@@ -6648,7 +6656,10 @@ const runValidation = async () => {
           reloadedContext.bitNavigation.zones.length === 4 &&
           reloadedContext.bitNavigation.bands.length === 11 &&
           reloadedContext.bitNavigation.transitions.length === 72;
-        reloadedContext.dispose();
+        } finally {
+          reloadedContext?.dispose();
+          reloadedStatic?.dispose();
+        }
         const afterSecondDispose = countSceneResources(spatialScene);
         checks.push({
           name: "学校資源の破棄と再読込",
@@ -6661,6 +6672,7 @@ const runValidation = async () => {
       } finally {
         schoolQueryPrototype.findPath = originalSchoolFindPath;
         schoolContext?.dispose();
+        schoolStatic?.dispose();
       }
     } finally {
       spatialScene.dispose();

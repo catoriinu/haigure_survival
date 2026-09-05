@@ -34,7 +34,7 @@ import {
   SCHOOL_ALL_NORMAL_ROOM_VARIANT_SELECTIONS
 } from "../../../src/world/schoolRuntimeSettings";
 import {
-  createSchoolStageDynamicSpatialInitializer
+  createSchoolStageDynamicSpatialInitializationDescriptor
 } from "../../../src/world/schoolStageDynamicRuntime";
 import { createStageNpcSpawnSampler } from "../../../src/world/stageSpawnSampler";
 import {
@@ -43,8 +43,10 @@ import {
   type StageLinkRegistry
 } from "../../../src/world/stageLinks";
 import {
-  loadStageSpatialContext,
-  type StageSpatialContext
+  createStageSpatialSession,
+  loadStageStaticSpatialResources,
+  type OwnedStageStaticSpatialResources,
+  type StageSpatialSession
 } from "../../../src/world/stageSpatialContext";
 import type {
   SpatialSphereSweepHit,
@@ -117,7 +119,7 @@ type QueuedRandom = Readonly<{
 }>;
 
 type FixtureStage = Readonly<{
-  stage: StageSpatialContext;
+  stage: StageSpatialSession;
   dispose(): void;
 }>;
 
@@ -297,7 +299,7 @@ const createFixtureStage = (
       containsVolumeById: () => false,
       dispose: () => {}
     })
-  }) as unknown as StageSpatialContext;
+  }) as unknown as StageSpatialSession;
   return Object.freeze({
     stage,
     dispose: () => mesh.dispose(false, false)
@@ -475,7 +477,7 @@ const createDynamicBitRevisionFixtureStage = (
     links,
     worldBoundary: null,
     queries
-  }) as unknown as StageSpatialContext;
+  }) as unknown as StageSpatialSession;
 
   const advanceRevision = (nextMode: DynamicBitBlockerMode) => {
     blockerMode = nextMode;
@@ -513,7 +515,7 @@ const createDynamicBitRevisionFixtureStage = (
 
 const createSystem = (
   scene: Scene,
-  stage: StageSpatialContext,
+  stage: StageSpatialSession,
   random: () => number,
   initialBitCount = 1,
   minimumSpawnDistance = 0,
@@ -2912,11 +2914,13 @@ const runLoaderFixtureLifecycleCheck = async (
   const baseline = countSceneResources(scene);
   const assets = await createLoaderFixtureAssets(fixture);
   const restoreFetch = installLoaderFixtureFetch(assets);
-  let context: StageSpatialContext | null = null;
+  let context: StageSpatialSession | null = null;
+  let staticResources: OwnedStageStaticSpatialResources | null = null;
   try {
-    context = await loadStageSpatialContext(scene, assets.catalog, {
-      initializeDynamicSpatial:
-        createSchoolStageDynamicSpatialInitializer(0)
+    staticResources = await loadStageStaticSpatialResources(scene, assets.catalog);
+    context = await createStageSpatialSession(staticResources, {
+      dynamicSpatialInitialization:
+        createSchoolStageDynamicSpatialInitializationDescriptor(0)
     });
     const navigation = context.bitNavigation;
     const firstZoneId = navigation.zones[0]?.id;
@@ -2967,6 +2971,8 @@ const runLoaderFixtureLifecycleCheck = async (
       worldBoundaryQueries;
     context.dispose();
     context = null;
+    staticResources.dispose();
+    staticResources = null;
     const disposedReferenceMessage = captureThrownMessage(() =>
       navigation.getZone(firstZoneId)
     );
@@ -2993,6 +2999,7 @@ const runLoaderFixtureLifecycleCheck = async (
     });
   } finally {
     context?.dispose();
+    staticResources?.dispose();
     restoreFetch();
     scene.dispose();
     engine.dispose();
@@ -3052,19 +3059,17 @@ const runLoaderWorldBoundaryPolicyCheck = async (
       testCase.mode
     );
     const restoreFetch = installLoaderFixtureFetch(assets);
-    let context: StageSpatialContext | null = null;
+    let context: StageSpatialSession | null = null;
+    let staticResources: OwnedStageStaticSpatialResources | null = null;
     let message: string | null = null;
     let loadedAsExpected = false;
     try {
       try {
-        context = await loadStageSpatialContext(
-          scene,
-          assets.catalog,
-          {
-            initializeDynamicSpatial:
-              createSchoolStageDynamicSpatialInitializer(0)
-          }
-        );
+        staticResources = await loadStageStaticSpatialResources(scene, assets.catalog);
+        context = await createStageSpatialSession(staticResources, {
+            dynamicSpatialInitialization:
+              createSchoolStageDynamicSpatialInitializationDescriptor(0)
+          });
         loadedAsExpected =
           testCase.shouldLoad &&
           context.worldBoundary === null;
@@ -3076,6 +3081,8 @@ const runLoaderWorldBoundaryPolicyCheck = async (
       }
       context?.dispose();
       context = null;
+      staticResources?.dispose();
+      staticResources = null;
       const resourcesReturned = sceneResourceCountsEqual(
         baseline,
         countSceneResources(scene)
@@ -3251,19 +3258,17 @@ const runLoaderNpcSpawnBiasContractCheck = async (
       testCase.variant
     );
     const restoreFetch = installLoaderFixtureFetch(assets);
-    let context: StageSpatialContext | null = null;
+    let context: StageSpatialSession | null = null;
+    let staticResources: OwnedStageStaticSpatialResources | null = null;
     let message: string | null = null;
     let matchedContract = false;
     try {
       try {
-        context = await loadStageSpatialContext(
-          scene,
-          assets.catalog,
-          {
-            initializeDynamicSpatial:
-              createSchoolStageDynamicSpatialInitializer(0)
-          }
-        );
+        staticResources = await loadStageStaticSpatialResources(scene, assets.catalog);
+        context = await createStageSpatialSession(staticResources, {
+            dynamicSpatialInitialization:
+              createSchoolStageDynamicSpatialInitializationDescriptor(0)
+          });
         const biases = context.volumes.getByRole("npc_spawn_bias");
         matchedContract =
           testCase.shouldLoad &&
@@ -3285,6 +3290,8 @@ const runLoaderNpcSpawnBiasContractCheck = async (
       }
       context?.dispose();
       context = null;
+      staticResources?.dispose();
+      staticResources = null;
       const resourcesReturned = sceneResourceCountsEqual(
         baseline,
         countSceneResources(scene)
@@ -3320,20 +3327,19 @@ const runSchoolPerformanceAndLifecycleChecks = async (
   const loaderFixtureAssets = await createLoaderFixtureAssets(fixture);
   const restoreFixtureFetch =
     installLoaderFixtureFetch(loaderFixtureAssets);
-  let schoolContext: StageSpatialContext | null = null;
-  let fixtureContext: StageSpatialContext | null = null;
+  let schoolContext: StageSpatialSession | null = null;
+  let schoolStatic: OwnedStageStaticSpatialResources | null = null;
+  let fixtureContext: StageSpatialSession | null = null;
+  let fixtureStatic: OwnedStageStaticSpatialResources | null = null;
   let fixtureSystem: V2BitSystem | null = null;
   try {
-    schoolContext = await loadStageSpatialContext(
-      scene,
-      SCHOOL_VALIDATION_STAGE,
-      {
-        initializeDynamicSpatial:
-          createSchoolStageDynamicSpatialInitializer(0),
+    schoolStatic = await loadStageStaticSpatialResources(scene, SCHOOL_VALIDATION_STAGE);
+    schoolContext = await createStageSpatialSession(schoolStatic, {
+        dynamicSpatialInitialization:
+          createSchoolStageDynamicSpatialInitializationDescriptor(0),
         roomVariantSelections:
           SCHOOL_ALL_NORMAL_ROOM_VARIANT_SELECTIONS
-      }
-    );
+      });
     document.title =
       `T05学校受入: 99体探索 warmup 0/${PERFORMANCE_WARMUP_TICKS}`;
     await yieldToBrowser();
@@ -4119,6 +4125,8 @@ const runSchoolPerformanceAndLifecycleChecks = async (
 
     const schoolQueries = schoolContext.queries;
     schoolContext.dispose();
+    schoolStatic.dispose();
+    schoolStatic = null;
     document.title = "T05学校受入: 連続loader lifecycle";
     await yieldToBrowser();
     schoolContext = null;
@@ -4130,14 +4138,11 @@ const runSchoolPerformanceAndLifecycleChecks = async (
     );
     const afterSchoolDispose = countSceneResources(scene);
 
-    fixtureContext = await loadStageSpatialContext(
-      scene,
-      loaderFixtureAssets.catalog,
-      {
-        initializeDynamicSpatial:
-          createSchoolStageDynamicSpatialInitializer(0)
-      }
-    );
+    fixtureStatic = await loadStageStaticSpatialResources(scene, loaderFixtureAssets.catalog);
+    fixtureContext = await createStageSpatialSession(fixtureStatic, {
+        dynamicSpatialInitialization:
+          createSchoolStageDynamicSpatialInitializationDescriptor(0)
+      });
     const fixtureNavigation = fixtureContext.bitNavigation;
     const fixtureZoneId = fixtureNavigation.zones[0]?.id;
     if (!fixtureZoneId) {
@@ -4166,16 +4171,21 @@ const runSchoolPerformanceAndLifecycleChecks = async (
     fixtureSystem = null;
     fixtureContext.dispose();
     fixtureContext = null;
+    const fixtureNavigationSurvivedSessionDispose =
+      fixtureNavigation.getZone(fixtureZoneId)?.id === fixtureZoneId;
+    fixtureStatic.dispose();
+    fixtureStatic = null;
     const disposedFixtureReferenceMessage = captureThrownMessage(() =>
       fixtureNavigation.getZone(fixtureZoneId)
     );
     const afterFixtureDispose = countSceneResources(scene);
 
     checks.push({
-      name: "同一Sceneで学校後に非学校fixtureを実loaderで連続読込・破棄",
+      name: "同一Sceneで学校後に非学校fixtureをsession→static順で破棄",
       ok:
         disposedReferenceMessage?.includes("破棄済み") === true &&
         disposedQueriesMessage?.includes("破棄済み") === true &&
+        fixtureNavigationSurvivedSessionDispose &&
         disposedFixtureReferenceMessage?.includes("破棄済み") === true &&
         schoolWorldBoundaryRequired &&
         fixtureContextActive &&
@@ -4185,7 +4195,8 @@ const runSchoolPerformanceAndLifecycleChecks = async (
         `schoolOldRef=${disposedReferenceMessage ?? "例外なし"} / ` +
         `schoolQueries=${disposedQueriesMessage ?? "例外なし"} / ` +
         `schoolBoundaryRequired=${schoolWorldBoundaryRequired} / ` +
-        `fixtureOldRef=${disposedFixtureReferenceMessage ?? "例外なし"} / ` +
+        `fixtureBitAfterSession=${fixtureNavigationSurvivedSessionDispose} / ` +
+        `fixtureBitAfterStatic=${disposedFixtureReferenceMessage ?? "例外なし"} / ` +
         `fixtureActive=${fixtureContextActive} / ` +
         `baseline=${JSON.stringify(baseline)} / ` +
         `schoolDisposed=${JSON.stringify(afterSchoolDispose)} / ` +
@@ -4198,7 +4209,9 @@ const runSchoolPerformanceAndLifecycleChecks = async (
   } finally {
     fixtureSystem?.dispose();
     fixtureContext?.dispose();
+    fixtureStatic?.dispose();
     schoolContext?.dispose();
+    schoolStatic?.dispose();
     restoreFixtureFetch();
     scene.dispose();
     engine.dispose();

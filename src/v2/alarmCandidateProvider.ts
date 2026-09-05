@@ -1,6 +1,6 @@
 import { Vector3, VertexBuffer } from "@babylonjs/core";
 
-import type { StageSpatialContext } from "../world/stageSpatialContext";
+import type { StageSpatialSession } from "../world/stageSpatialContext";
 import type {
   V2AlarmCandidate,
   V2AlarmCandidateProvider
@@ -51,7 +51,7 @@ const createSurfaceTangent = (normal: Vector3) => {
 };
 
 export const createV2NavigationAlarmCandidateProvider = (
-  stage: StageSpatialContext
+  stage: StageSpatialSession
 ): V2AlarmCandidateProvider => {
   const occupiedCells = new Set<string>();
   const candidates: V2AlarmCandidate[] = [];

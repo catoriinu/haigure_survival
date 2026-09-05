@@ -17,7 +17,7 @@ import type {
   StageElevatorStopAsset
 } from "../../../src/world/stageDynamicAssets";
 import {
-  createStageLocationAssetRegistry,
+  createAuthoredStageLocationAssetRegistry,
   STAGE_LOCATION_FLOOR_IDS,
   type AuthoredStageLocationAreaPiece,
   type StageLocationAssetRegistrySource,
@@ -30,8 +30,11 @@ import type {
 } from "../../../src/world/navigationWorld";
 import { SCHOOL_STAGE } from "../../../src/world/stageCatalog";
 import {
-  loadStageSpatialContext,
-  STAGE_MARKER_ROLES
+  createStageSpatialSession,
+  loadStageStaticSpatialResources,
+  STAGE_MARKER_ROLES,
+  type OwnedStageStaticSpatialResources,
+  type StageSpatialSession
 } from "../../../src/world/stageSpatialContext";
 import {
   createStageSpatialQueries,
@@ -419,11 +422,9 @@ const captureRegistryRejection = (
 ): string | null => {
   const fixture = createFixture(engine, mutate);
   try {
-    createStageLocationAssetRegistry(
+    createAuthoredStageLocationAssetRegistry(
       fixture.source,
-      fixture.navigation,
-      fixture.elevators,
-      fixture.queries
+      fixture.elevators
     );
     return null;
   } catch (error) {
@@ -438,12 +439,17 @@ const captureCatalogRejection = async (
   stage: typeof SCHOOL_STAGE
 ): Promise<string | null> => {
   const scene = new Scene(engine);
+  let staticResources: OwnedStageStaticSpatialResources | null = null;
+  let session: StageSpatialSession | null = null;
   try {
-    await loadStageSpatialContext(scene, stage);
+    staticResources = await loadStageStaticSpatialResources(scene, stage);
+    session = await createStageSpatialSession(staticResources);
     return null;
   } catch (error) {
     return errorMessage(error);
   } finally {
+    session?.dispose();
+    staticResources?.dispose();
     scene.dispose();
   }
 };
@@ -467,10 +473,11 @@ export const runLocationAssetRegistryAcceptance = async (): Promise<
   try {
     const validFixture = createFixture(engine);
     try {
-      const registry = createStageLocationAssetRegistry(
+      const registry = createAuthoredStageLocationAssetRegistry(
         validFixture.source,
+        validFixture.elevators
+      ).bindSession(
         validFixture.navigation,
-        validFixture.elevators,
         validFixture.queries
       );
       const fixedHit = registry.findArea(Vector3.Zero());

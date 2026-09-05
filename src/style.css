@@ -244,6 +244,8 @@ body {
 
 #titleStartHint {
   display: none;
+  white-space: pre-line;
+  text-align: center;
 }
 
 .title-message__status {

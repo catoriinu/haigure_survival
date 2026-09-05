@@ -238,12 +238,51 @@ export type StageLocationAssetRegistrySource = Readonly<{
   broadcastConsoleTargets: readonly AuthoredStageBroadcastConsoleTarget[];
 }>;
 
+export interface AuthoredStageLocationAssetRegistry {
+  readonly floorMaps: readonly StageFloorMap[];
+  readonly minimapBarriers: readonly StageMinimapBarrier[];
+  readonly minimapPassages: readonly StageMinimapPassage[];
+  readonly stairLandings: readonly StageStairLanding[];
+  readonly elevatorLandings: readonly StageElevatorLanding[];
+  readonly broadcastConsole: StageBroadcastConsole;
+  bindSession(
+    navigation: NavigationWorld,
+    queries: StageSpatialQueries
+  ): StageLocationAssetRegistry;
+}
+
 const OVERLAP_EPSILON = 1.0e-5;
 const ANCHOR_NAVMESH_PROJECTION_METERS = 0.25;
 
 type AxisAlignedBoxBounds = Readonly<{
   minimum: Vector3;
   maximum: Vector3;
+}>;
+
+type AuthoredAreaPieceDefinition = Readonly<{
+  id: string;
+  areaId: string;
+  floorBinding: StageLocationAreaPieceFloorBinding;
+  mesh: Mesh;
+  bounds: AxisAlignedBoxBounds;
+}>;
+
+type AuthoredAreaDefinition = Readonly<{
+  id: string;
+  displayName: string;
+  priority: number;
+  pieces: readonly AuthoredAreaPieceDefinition[];
+}>;
+
+type AuthoredMissionDefinition = Readonly<{
+  id: string;
+  floorId: StageLocationFloorId;
+  displayName: string;
+  areaId: string;
+  volumeId: string;
+  volumeMesh: Mesh;
+  anchorNode: TransformNode;
+  anchorPosition: Vector3;
 }>;
 
 const assertAxisAlignedBoxMesh = (
@@ -355,7 +394,10 @@ const assertPositiveAabbOverlapAbsent = (
 
 const assertNavigationSurfaceCovered = (
   navigation: NavigationWorld,
-  areaPieces: readonly StageLocationAreaPiece[],
+  areaPieces: readonly Readonly<{
+    id: string;
+    floorBinding: StageLocationAreaPieceFloorBinding;
+  }>[],
   boundsByPieceId: ReadonlyMap<string, AxisAlignedBoxBounds>
 ) => {
   const fixedPieces = areaPieces.filter(
@@ -493,12 +535,10 @@ const polygonArea = (polygon: readonly Vector3[]): number => {
   return area;
 };
 
-export const createStageLocationAssetRegistry = (
+export const createAuthoredStageLocationAssetRegistry = (
   source: StageLocationAssetRegistrySource,
-  navigation: NavigationWorld,
-  elevators: StageElevatorAssetRegistry,
-  queries: StageSpatialQueries
-): StageLocationAssetRegistry => {
+  elevators: StageElevatorAssetRegistry
+): AuthoredStageLocationAssetRegistry => {
   assertUnique("floor_map", source.floorMaps);
   assertUnique("map_barrier", source.minimapBarriers);
   assertUnique("map_passage", source.minimapPassages);
@@ -623,9 +663,9 @@ export const createStageLocationAssetRegistry = (
     grouped.push(piece);
     groupedAreaPieces.set(piece.areaId, grouped);
   }
-  const areas = Object.freeze(
+  const authoredAreas = Object.freeze(
     [...groupedAreaPieces.entries()]
-      .map(([areaId, authoredPieces]): StageLocationArea => {
+      .map(([areaId, authoredPieces]): AuthoredAreaDefinition => {
         const reference = authoredPieces[0];
         if (
           authoredPieces.some(
@@ -652,8 +692,7 @@ export const createStageLocationAssetRegistry = (
                 areaId: piece.areaId,
                 floorBinding: piece.floorBinding,
                 mesh: piece.mesh,
-                contains: (point: Vector3) =>
-                  queries.containsVolumeById(piece.id, point)
+                bounds: boundsByPieceId.get(piece.id)!
               })
             )
           )
@@ -661,8 +700,12 @@ export const createStageLocationAssetRegistry = (
       })
       .sort((left, right) => left.id.localeCompare(right.id))
   );
-  const areaById = new Map(areas.map((area) => [area.id, area]));
-  const allAreaPieces = Object.freeze(areas.flatMap((area) => area.pieces));
+  const authoredAreaById = new Map(
+    authoredAreas.map((area) => [area.id, area])
+  );
+  const allAuthoredAreaPieces = Object.freeze(
+    authoredAreas.flatMap((area) => area.pieces)
+  );
   assertPositiveAabbOverlapAbsent(source.areaPieces);
 
   const anchorByLocationId = new Map(
@@ -672,9 +715,9 @@ export const createStageLocationAssetRegistry = (
     throw new Error("mission_anchorのlocation IDが重複しています");
   }
   const missionLocationIds = new Set<string>();
-  const missionLocations = Object.freeze(
+  const authoredMissions = Object.freeze(
     source.missionVolumes
-      .map((volume): StageMissionLocation => {
+      .map((volume): AuthoredMissionDefinition => {
         const missionBounds = assertAxisAlignedBoxMesh(
           "mission_location Volume",
           volume.mesh
@@ -691,7 +734,7 @@ export const createStageLocationAssetRegistry = (
             `mission_locationのanchor参照が不正です: ${volume.locationId}/${volume.anchorId}`
           );
         }
-        const area = areaById.get(volume.areaId);
+        const area = authoredAreaById.get(volume.areaId);
         if (!area) {
           throw new Error(
             `mission_locationが未登録areaを参照しています: ${volume.locationId}/${volume.areaId}`
@@ -714,37 +757,25 @@ export const createStageLocationAssetRegistry = (
         }
         anchor.node.computeWorldMatrix(true);
         const anchorPosition = anchor.node.getAbsolutePosition();
-        if (!queries.containsVolumeById(volume.id, anchorPosition)) {
+        if (!boundsContainPoint(missionBounds, anchorPosition)) {
           throw new Error(
             `mission_anchorが対応Volume内にありません: ${volume.locationId}`
           );
         }
         const containingAreaPiece = matchingFloorPieces.find((piece) => {
-          const bounds = piece.mesh.getBoundingInfo().boundingBox;
-          return (
-            missionBounds.minimum.x >=
-              bounds.minimumWorld.x - OVERLAP_EPSILON &&
-            missionBounds.minimum.y >=
-              bounds.minimumWorld.y - OVERLAP_EPSILON &&
-            missionBounds.minimum.z >=
-              bounds.minimumWorld.z - OVERLAP_EPSILON &&
-            missionBounds.maximum.x <=
-              bounds.maximumWorld.x + OVERLAP_EPSILON &&
-            missionBounds.maximum.y <=
-              bounds.maximumWorld.y + OVERLAP_EPSILON &&
-            missionBounds.maximum.z <=
-              bounds.maximumWorld.z + OVERLAP_EPSILON &&
-            piece.contains(anchorPosition)
-          );
+          return boundsContainBounds(piece.bounds, missionBounds) &&
+            boundsContainPoint(piece.bounds, anchorPosition);
         });
         if (!containingAreaPiece) {
           throw new Error(
             `mission_locationが参照Area pieceへ完全内包されません: ${volume.locationId}`
           );
         }
-        const resolvedArea = areas
+        const resolvedArea = authoredAreas
           .filter((candidate) =>
-            candidate.pieces.some((piece) => piece.contains(anchorPosition))
+            candidate.pieces.some((piece) =>
+              boundsContainPoint(piece.bounds, anchorPosition)
+            )
           )
           .sort(
             (left, right) =>
@@ -756,33 +787,20 @@ export const createStageLocationAssetRegistry = (
               `${volume.locationId}/${resolvedArea?.id ?? "none"}`
           );
         }
-        const navigationLocation = navigation.projectPoint(
-          anchorPosition,
-          ANCHOR_NAVMESH_PROJECTION_METERS * BLENDER_METERS_TO_WORLD_UNITS
-        );
-        if (!navigationLocation) {
-          throw new Error(
-            `mission_anchorをNavMeshへ投影できません: ${volume.locationId}`
-          );
-        }
         return Object.freeze({
           id: volume.locationId,
           floorId: volume.floorId,
           displayName: volume.displayName,
-          area,
+          areaId: area.id,
+          volumeId: volume.id,
           volumeMesh: volume.mesh,
           anchorNode: anchor.node,
-          navigationLocation: Object.freeze({
-            position: navigationLocation.position.clone(),
-            polygonRef: navigationLocation.polygonRef
-          }),
-          contains: (point: Vector3) =>
-            queries.containsVolumeById(volume.id, point)
+          anchorPosition: anchorPosition.clone()
         });
       })
       .sort((left, right) => left.id.localeCompare(right.id))
   );
-  if (missionLocations.length !== source.missionAnchors.length) {
+  if (authoredMissions.length !== source.missionAnchors.length) {
     throw new Error("参照されていないmission_anchorがあります");
   }
 
@@ -875,72 +893,152 @@ export const createStageLocationAssetRegistry = (
     targetMesh: consoleTarget.mesh
   });
 
-  assertNavigationSurfaceCovered(
-    navigation,
-    allAreaPieces,
-    boundsByPieceId
-  );
-
-  const missionLocationById = new Map(
-    missionLocations.map((location) => [location.id, location])
-  );
   return Object.freeze({
     floorMaps,
     minimapBarriers,
     minimapPassages,
-    areas,
-    missionLocations,
     stairLandings,
     elevatorLandings,
     broadcastConsole,
-    getFloorMap: (floorId: StageLocationFloorId) =>
-      floorMapByFloorId.get(floorId) ?? null,
-    getMinimapBarriers: (floorId: StageLocationFloorId) =>
-      Object.freeze([...(minimapBarriersByFloorId.get(floorId) ?? [])]),
-    getMinimapPassages: (floorId: StageLocationFloorId) =>
-      Object.freeze([...(minimapPassagesByFloorId.get(floorId) ?? [])]),
-    getAreaById: (id: string) => areaById.get(id) ?? null,
-    getMissionLocationById: (id: string) =>
-      missionLocationById.get(id) ?? null,
-    findArea: (point: Vector3) => {
-      const matches = areas
-        .flatMap((area) =>
-          area.pieces
-            .filter((piece) => piece.contains(point))
-            .map((piece) => ({ area, piece }))
+    bindSession: (
+      navigation: NavigationWorld,
+      queries: StageSpatialQueries
+    ): StageLocationAssetRegistry => {
+      const areas = Object.freeze(
+        authoredAreas.map((area): StageLocationArea =>
+          Object.freeze({
+            id: area.id,
+            displayName: area.displayName,
+            priority: area.priority,
+            pieces: Object.freeze(
+              area.pieces.map((piece): StageLocationAreaPiece =>
+                Object.freeze({
+                  id: piece.id,
+                  areaId: piece.areaId,
+                  floorBinding: piece.floorBinding,
+                  mesh: piece.mesh,
+                  contains: (point) => queries.containsVolumeById(piece.id, point)
+                })
+              )
+            )
+          })
         )
-        .sort(
-          (left, right) =>
-            right.area.priority - left.area.priority ||
-            left.area.id.localeCompare(right.area.id) ||
-            left.piece.id.localeCompare(right.piece.id)
         );
-      const selected = matches[0];
-      if (!selected) {
-        return null;
-      }
-      const samePriorityAreaIds = new Set(
-        matches
-          .filter((match) => match.area.priority === selected.area.priority)
-          .map((match) => match.area.id)
+      const areaById = new Map(areas.map((area) => [area.id, area]));
+      assertNavigationSurfaceCovered(
+        navigation,
+        allAuthoredAreaPieces,
+        boundsByPieceId
       );
-      if (samePriorityAreaIds.size !== 1) {
-        throw new StageLocationAreaAmbiguityError([
-          ...samePriorityAreaIds
-        ]);
-      }
+      const missionLocations = Object.freeze(
+        authoredMissions.map((mission): StageMissionLocation => {
+          const navigationLocation = navigation.projectPoint(
+            mission.anchorPosition,
+            ANCHOR_NAVMESH_PROJECTION_METERS * BLENDER_METERS_TO_WORLD_UNITS
+          );
+          if (!navigationLocation) {
+            throw new Error(
+              `mission_anchorをNavMeshへ投影できません: ${mission.id}`
+            );
+          }
+          return Object.freeze({
+            id: mission.id,
+            floorId: mission.floorId,
+            displayName: mission.displayName,
+            area: areaById.get(mission.areaId)!,
+            volumeMesh: mission.volumeMesh,
+            anchorNode: mission.anchorNode,
+            navigationLocation: Object.freeze({
+              position: navigationLocation.position.clone(),
+              polygonRef: navigationLocation.polygonRef
+            }),
+            contains: (point) =>
+              queries.containsVolumeById(mission.volumeId, point)
+          });
+        })
+      );
+      const missionLocationById = new Map(
+        missionLocations.map((location) => [location.id, location])
+      );
       return Object.freeze({
-        area: selected.area,
-        piece: selected.piece,
-        floorId:
-          selected.piece.floorBinding.kind === "fixed"
-            ? selected.piece.floorBinding.floorId
-            : null,
-        elevatorId:
-          selected.piece.floorBinding.kind === "elevator"
-            ? selected.piece.floorBinding.elevatorId
-            : null
+        floorMaps,
+        minimapBarriers,
+        minimapPassages,
+        areas,
+        missionLocations,
+        stairLandings,
+        elevatorLandings,
+        broadcastConsole,
+        getFloorMap: (floorId: StageLocationFloorId) =>
+          floorMapByFloorId.get(floorId) ?? null,
+        getMinimapBarriers: (floorId: StageLocationFloorId) =>
+          Object.freeze([...(minimapBarriersByFloorId.get(floorId) ?? [])]),
+        getMinimapPassages: (floorId: StageLocationFloorId) =>
+          Object.freeze([...(minimapPassagesByFloorId.get(floorId) ?? [])]),
+        getAreaById: (id: string) => areaById.get(id) ?? null,
+        getMissionLocationById: (id: string) =>
+          missionLocationById.get(id) ?? null,
+        findArea: (point: Vector3) => {
+          const matches = areas
+            .flatMap((area) =>
+              area.pieces
+                .filter((piece) => piece.contains(point))
+                .map((piece) => ({ area, piece }))
+            )
+            .sort(
+              (left, right) =>
+                right.area.priority - left.area.priority ||
+                left.area.id.localeCompare(right.area.id) ||
+                left.piece.id.localeCompare(right.piece.id)
+            );
+          const selected = matches[0];
+          if (!selected) {
+            return null;
+          }
+          const samePriorityAreaIds = new Set(
+            matches
+              .filter((match) => match.area.priority === selected.area.priority)
+              .map((match) => match.area.id)
+          );
+          if (samePriorityAreaIds.size !== 1) {
+            throw new StageLocationAreaAmbiguityError([...samePriorityAreaIds]);
+          }
+          return Object.freeze({
+            area: selected.area,
+            piece: selected.piece,
+            floorId:
+              selected.piece.floorBinding.kind === "fixed"
+                ? selected.piece.floorBinding.floorId
+                : null,
+            elevatorId:
+              selected.piece.floorBinding.kind === "elevator"
+                ? selected.piece.floorBinding.elevatorId
+                : null
+          });
+        }
       });
     }
   });
 };
+
+const boundsContainPoint = (
+  bounds: AxisAlignedBoxBounds,
+  point: Vector3
+) =>
+  point.x >= bounds.minimum.x - OVERLAP_EPSILON &&
+  point.y >= bounds.minimum.y - OVERLAP_EPSILON &&
+  point.z >= bounds.minimum.z - OVERLAP_EPSILON &&
+  point.x <= bounds.maximum.x + OVERLAP_EPSILON &&
+  point.y <= bounds.maximum.y + OVERLAP_EPSILON &&
+  point.z <= bounds.maximum.z + OVERLAP_EPSILON;
+
+const boundsContainBounds = (
+  outer: AxisAlignedBoxBounds,
+  inner: AxisAlignedBoxBounds
+) =>
+  inner.minimum.x >= outer.minimum.x - OVERLAP_EPSILON &&
+  inner.minimum.y >= outer.minimum.y - OVERLAP_EPSILON &&
+  inner.minimum.z >= outer.minimum.z - OVERLAP_EPSILON &&
+  inner.maximum.x <= outer.maximum.x + OVERLAP_EPSILON &&
+  inner.maximum.y <= outer.maximum.y + OVERLAP_EPSILON &&
+  inner.maximum.z <= outer.maximum.z + OVERLAP_EPSILON;
