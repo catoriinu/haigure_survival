@@ -59,6 +59,7 @@
     "typecheck:t06-6d": "tsc -p validation/v2/T06-6D/tsconfig.json --noEmit",
     "build:t06-6d": "npm run typecheck:t06-6d && vite build --config vite.t06-6d.config.mts",
     "acceptance:t06-6d:electron": "electron validation/v2/T06-6D/electronAcceptance.cjs --url=http://127.0.0.1:5193/",
+    "acceptance:t06-6d:retry:electron": "electron validation/v2/T06-6D/retryElectronAcceptance.cjs --url=http://127.0.0.1:5175/",
     "acceptance:t06-6d:game-flow:electron": "electron validation/v2/T06-6D/gameFlowElectronAcceptance.cjs --url=http://127.0.0.1:5175/?seed=20260829",
     "acceptance:t06-6b:electron": "electron validation/v2/T06-6B/electronAcceptance.cjs --url http://127.0.0.1:5190/?seed=20260823",
     "acceptance:t06:electron": "electron validation/v2/T06/electronAcceptance.cjs --url http://localhost:5175/",

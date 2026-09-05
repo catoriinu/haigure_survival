@@ -3062,6 +3062,7 @@ installV2RuntimeApplicationTermination({
     return session;
   },
   disposeApplicationUi: () => {
+    canvas.removeEventListener("click", handleFailedSessionRetry);
     try {
       appTitleLayoutController.dispose();
     } finally {
@@ -3077,6 +3078,8 @@ installV2RuntimeApplicationTermination({
   disposeScene: () => scene.dispose(),
   disposeEngine: () => engine.dispose()
 });
+
+canvas.addEventListener("click", handleFailedSessionRetry);
 
 const initialSessionSeed = nextRuntimeSessionSeed();
 const initialSnapshot = createSessionStartSnapshot(initialSessionSeed);
@@ -3106,7 +3109,7 @@ try {
   }
 }
 
-titleOverlay.addEventListener("click", () => {
+function handleFailedSessionRetry() {
   if (
     activeSession !== null ||
     sessionTransition !== null ||
@@ -3129,7 +3132,7 @@ titleOverlay.addEventListener("click", () => {
       retrySeed: retry.seed
     })
   );
-});
+}
 
 type V2SchoolVisualAcceptancePose = Readonly<{
   footPosition: readonly [number, number, number];
