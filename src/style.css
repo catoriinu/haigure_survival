@@ -35,63 +35,86 @@ body {
   position: absolute;
   top: 12px;
   left: 204px;
-  padding: 6px 8px;
-  border: 1px solid #111111;
-  background: rgba(0, 0, 0, 0.55);
+  box-sizing: border-box;
+  max-width: calc(100vw - 216px);
+  padding: 10px 12px 12px;
+  border: 1px solid rgba(245, 245, 245, 0.48);
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.72);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.48);
   color: #f5f5f5;
   font-family: "IBM Plex Mono", "Fira Code", ui-monospace, monospace;
-  font-size: 14px;
-  letter-spacing: 0.02em;
+  font-size: 13px;
+  letter-spacing: 0.04em;
+  line-height: 1.5;
   z-index: 10;
   pointer-events: none;
-  white-space: pre;
+  white-space: pre-wrap;
 }
 
-#statusInfo {
-  position: absolute;
-  top: 204px;
-  left: 12px;
-  padding: 6px 8px;
-  border: 1px solid #111111;
-  background: rgba(0, 0, 0, 0.55);
-  color: #f5f5f5;
-  font-family: "IBM Plex Mono", "Fira Code", ui-monospace, monospace;
-  font-size: 14px;
-  letter-spacing: 0.02em;
-  z-index: 10;
-  pointer-events: none;
-  white-space: pre;
-}
-
+#statusInfo,
 #helpPanel {
   position: absolute;
-  top: auto;
-  bottom: 12px;
   left: 12px;
-  padding: 6px 8px;
-  border: 1px solid #111111;
-  background: rgba(0, 0, 0, 0.65);
+  box-sizing: border-box;
+  max-width: calc(100vw - 24px);
+  padding: 10px 12px 12px;
+  border: 1px solid rgba(245, 245, 245, 0.48);
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.72);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.48);
   color: #f5f5f5;
   font-family: "IBM Plex Mono", "Fira Code", ui-monospace, monospace;
-  font-size: 14px;
-  letter-spacing: 0.02em;
+  font-size: 13px;
+  letter-spacing: 0.04em;
+  line-height: 1.5;
   z-index: 10;
   pointer-events: none;
   display: none;
-  white-space: pre;
+  white-space: pre-wrap;
+}
+
+#statusInfo::first-line,
+#helpPanel::first-line {
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+}
+
+#statusInfo,
+#helpPanel[data-debug-mode="false"] {
+  top: 204px;
+  bottom: auto;
+}
+
+#helpPanel[data-debug-mode="true"] {
+  top: auto;
+  bottom: 12px;
+}
+
+@media (max-height: 400px) {
+  #helpPanel[data-debug-mode="false"] {
+    padding: 6px 8px;
+    font-size: 11px;
+    line-height: 1.3;
+  }
+
+  #helpPanel[data-debug-mode="false"]::first-line {
+    font-size: 12px;
+  }
 }
 
 @keyframes v2-runtime-target-feedback-odd {
   0%,
   100% {
-    transform: scale(1);
+    scale: 1;
     filter: brightness(1);
     box-shadow: 0 0 8px currentColor;
     outline: 0 solid transparent;
     outline-offset: 0;
   }
   50% {
-    transform: scale(1.35);
+    scale: 1.35;
     filter: brightness(2.8);
     box-shadow:
       0 0 14px 5px currentColor,
@@ -104,14 +127,14 @@ body {
 @keyframes v2-runtime-target-feedback-even {
   0%,
   100% {
-    transform: scale(1);
+    scale: 1;
     filter: brightness(1);
     box-shadow: 0 0 8px currentColor;
     outline: 0 solid transparent;
     outline-offset: 0;
   }
   50% {
-    transform: scale(1.35);
+    scale: 1.35;
     filter: brightness(2.8);
     box-shadow:
       0 0 14px 5px currentColor,
@@ -144,6 +167,30 @@ body {
   bottom: 0;
   height: 0;
   background: #f5f5f5;
+}
+
+@media (max-height: 800px) {
+  #staminaGauge {
+    left: 204px;
+    top: 72px;
+    height: 108px;
+    transform: none;
+  }
+}
+
+.v2-player-restraint-band {
+  position: fixed;
+  inset: auto 0 0;
+  height: 40px;
+  pointer-events: none;
+  z-index: 9;
+  background: linear-gradient(to top, rgba(255, 24, 36, 0.96), rgba(255, 24, 36, 0));
+  animation: v2-restraint-pulse 2s ease-in-out infinite;
+}
+
+@keyframes v2-restraint-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
 }
 
 #titleOverlay {
@@ -198,7 +245,8 @@ body {
 }
 
 #titleStartHint,
-#titleMessage {
+#titleMessage,
+#startupDiagnosticsMessage {
   grid-area: 1 / 1;
   margin: 0;
 }
@@ -246,6 +294,38 @@ body {
   display: none;
   white-space: pre-line;
   text-align: center;
+}
+
+#startupDiagnosticsMessage {
+  display: none;
+  max-width: min(80vw, 960px);
+  color: #ffd37a;
+  font-family: "IBM Plex Mono", "Fira Code", ui-monospace, monospace;
+  font-size: 16px;
+  letter-spacing: 0.04em;
+  line-height: var(--title-status-line-height);
+  overflow-wrap: anywhere;
+  text-align: center;
+  white-space: pre-wrap;
+}
+
+#titleStatusSlot[data-startup-diagnostics-state] > #titleStartHint,
+#titleStatusSlot[data-startup-diagnostics-state] > #titleMessage {
+  visibility: hidden;
+  width: 0;
+  min-width: 0;
+  height: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+#titleStatusSlot[data-startup-diagnostics-state] > #startupDiagnosticsMessage {
+  display: block;
+}
+
+#titleStatusSlot[data-startup-diagnostics-state="failed"]
+  > #startupDiagnosticsMessage {
+  color: #ff8b8b;
 }
 
 .title-message__status {
@@ -1138,7 +1218,8 @@ body {
 
 #titleOverlay[data-title-layout="compact"] #titleMode,
 #titleOverlay[data-title-layout="compact"] #titleStartHint,
-#titleOverlay[data-title-layout="compact"] #titleMessage {
+#titleOverlay[data-title-layout="compact"] #titleMessage,
+#titleOverlay[data-title-layout="compact"] #startupDiagnosticsMessage {
   font-size: 16px;
 }
 
@@ -1168,7 +1249,8 @@ body {
 
 #titleOverlay[data-title-layout="stacked"] #titleMode,
 #titleOverlay[data-title-layout="stacked"] #titleStartHint,
-#titleOverlay[data-title-layout="stacked"] #titleMessage {
+#titleOverlay[data-title-layout="stacked"] #titleMessage,
+#titleOverlay[data-title-layout="stacked"] #startupDiagnosticsMessage {
   font-size: 12px;
 }
 

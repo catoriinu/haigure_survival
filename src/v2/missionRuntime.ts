@@ -7,6 +7,7 @@ import type {
 } from "../world/stageLocationAssets";
 import { BLENDER_METERS_TO_WORLD_UNITS } from "../world/worldUnits";
 import { isV2AliveState, type V2CharacterState } from "./combatTypes";
+import { formatV2LocationDisplayName } from "./locationDisplay";
 import type {
   V2NpcCommandMode,
   V2NpcLocationMissionAssignment,
@@ -854,16 +855,16 @@ const formatMissionLocationDisplayName = (
   locations: StageLocationAssetRegistry,
   location: StageMissionLocation
 ) => {
-  if (location.floorId === "roof") {
-    return location.displayName;
-  }
   const floorMap = locations.getFloorMap(location.floorId);
   if (!floorMap) {
     throw new Error(
       `Mission Locationのfloor_mapがありません: ${location.id}/${location.floorId}`
     );
   }
-  return `${floorMap.displayName} ${location.displayName}`;
+  return formatV2LocationDisplayName(
+    floorMap.displayName,
+    location.displayName
+  );
 };
 
 const createNpcAssignment = (
@@ -1104,7 +1105,10 @@ export const createV2MissionRuntime = ({
         `Mission候補の現在地floor_mapがありません: ${hit.area.id}/${hit.floorId}`
       );
     }
-    return `${prefix}${floorMap.displayName} ${hit.area.displayName}`;
+    return `${prefix}${formatV2LocationDisplayName(
+      floorMap.displayName,
+      hit.area.displayName
+    )}`;
   };
 
   const formatFollowerLocation = (follower: V2MissionNpcSnapshot) => {

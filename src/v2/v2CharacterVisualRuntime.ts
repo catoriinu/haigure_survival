@@ -1,12 +1,14 @@
 import {
   Color3,
   Color4,
+  DynamicTexture,
   Material,
   Mesh,
   MeshBuilder,
   Sprite,
   SpriteManager,
   StandardMaterial,
+  Vector3,
   VertexBuffer,
   type Scene,
 } from "@babylonjs/core";
@@ -35,6 +37,7 @@ import {
 } from "./v2PortraitAssetCatalog";
 import {
   V2_TRANSPARENT_ALPHA_INDEX_NPC_CHARACTER,
+  V2_TRANSPARENT_ALPHA_INDEX_NPC_RESTRAINT,
   V2_TRANSPARENT_ALPHA_INDEX_PLAYER_CHARACTER,
 } from "./v2TransparentRenderingOrder";
 
@@ -88,6 +91,10 @@ export type V2CharacterVisualSpriteHandle = Readonly<{
 export type V2CharacterVisualRuntime = Readonly<{
   orientationMode: V2CharacterVisualOrientationMode;
   setFacingYaw(yaw: number): void;
+  updateNoGunRestraint(
+    targetIds: readonly string[],
+    elapsedSeconds: number
+  ): void;
   getActorVisualSize(actorId: string): V2CharacterVisualSize;
   createSprite(
     actorId: string,
@@ -143,7 +150,9 @@ type V2CharacterVisualPresentation = {
 };
 
 type V2CharacterVisualSpriteRecord = {
+  actorId: string;
   sprite: Sprite;
+  restraintBand: Mesh | null;
   presentation: V2CharacterVisualPresentation | null;
   managerResource: V2CharacterVisualManagerResource;
   shadow: GroundShadowHandle | null;
@@ -151,6 +160,38 @@ type V2CharacterVisualSpriteRecord = {
 };
 
 const V2_CHARACTER_VISUAL_PLAYER_ACTOR_ID = "player";
+const V2_NPC_RESTRAINT_HEIGHT = 0.3 * BLENDER_METERS_TO_WORLD_UNITS;
+
+const createRestraintMaterial = (scene: Scene): StandardMaterial => {
+  const texture = new DynamicTexture(
+    "V2NoGunRestraintGradient",
+    { width: 2, height: 128 },
+    scene,
+    false
+  );
+  const context = texture.getContext();
+  const gradient = context.createLinearGradient(0, 0, 0, 128);
+  gradient.addColorStop(0, "rgba(255, 24, 36, 0)");
+  gradient.addColorStop(1, "rgba(255, 24, 36, 0.96)");
+  context.fillStyle = gradient;
+  context.fillRect(0, 0, 2, 128);
+  texture.hasAlpha = true;
+  texture.update();
+  const material = new StandardMaterial("V2NoGunRestraintMaterial", scene);
+  material.disableLighting = true;
+  material.backFaceCulling = false;
+  material.specularColor = Color3.Black();
+  material.emissiveColor = Color3.White();
+  material.linkEmissiveWithDiffuse = true;
+  material.diffuseTexture = texture;
+  material.useAlphaFromDiffuseTexture = true;
+  material.transparencyMode = Material.MATERIAL_ALPHATESTANDBLEND;
+  material.alphaCutOff = 0.01;
+  material.forceDepthWrite = true;
+  // キャラクターと同じ面に重ね、壁の深度判定は維持する。
+  material.zOffset = -1;
+  return material;
+};
 
 export const resolveV2PortraitFiles = (
   directory: string,
@@ -708,6 +749,9 @@ dependencies: V2CharacterVisualRuntimeDependencies = Object.freeze({
   };
 
   let facingYaw = 0;
+  let restraintMaterial: StandardMaterial | null = null;
+  const cameraUpAxis = Vector3.Up();
+  const restraintUp = new Vector3();
 
   const disposeSpriteRecord = (
     record: V2CharacterVisualSpriteRecord,
@@ -722,6 +766,7 @@ dependencies: V2CharacterVisualRuntimeDependencies = Object.freeze({
       return;
     }
     record.disposed = true;
+    record.restraintBand?.dispose();
     groundShadowManager?.disposeGroundShadow(record.shadow);
     record.presentation?.mesh.dispose();
     record.sprite.dispose();
@@ -745,6 +790,56 @@ dependencies: V2CharacterVisualRuntimeDependencies = Object.freeze({
 
   return Object.freeze({
     orientationMode,
+    updateNoGunRestraint: (targetIds, elapsedSeconds) => {
+      assertActive();
+      for (const record of spriteRecords) {
+        const visible =
+          record.actorId !== V2_CHARACTER_VISUAL_PLAYER_ACTOR_ID &&
+          record.sprite.isVisible && targetIds.includes(record.actorId);
+        if (visible && record.restraintBand === null) {
+          restraintMaterial ??= createRestraintMaterial(scene);
+          const band = MeshBuilder.CreatePlane(
+            `${record.sprite.name}_noGunRestraint`,
+            { size: 1 },
+            scene
+          );
+          band.material = restraintMaterial;
+          band.alphaIndex = V2_TRANSPARENT_ALPHA_INDEX_NPC_RESTRAINT;
+          band.isPickable = false;
+          if (orientationMode === "camera-facing") {
+            band.billboardMode = Mesh.BILLBOARDMODE_ALL;
+          }
+          record.restraintBand = band;
+        }
+        const band = record.restraintBand;
+        if (band === null) {
+          continue;
+        }
+        band.isVisible = visible;
+        if (!visible) {
+          continue;
+        }
+        band.position.copyFrom(record.sprite.position);
+        const centerOffset =
+          (V2_NPC_RESTRAINT_HEIGHT - record.sprite.height) / 2;
+        if (orientationMode === "camera-facing") {
+          // Spriteと同じview平面に帯を置き、俯角でも表示上の足元を揃える。
+          scene.activeCamera!.getDirectionToRef(cameraUpAxis, restraintUp);
+          band.position.addInPlace(restraintUp.scaleInPlace(centerOffset));
+        } else {
+          band.position.y += centerOffset;
+        }
+        band.scaling.set(record.sprite.width, V2_NPC_RESTRAINT_HEIGHT, 1);
+        band.rotation.set(0, orientationMode === "upright" ? facingYaw : 0, 0);
+        band.layerMask =
+          record.presentation?.mesh.layerMask ??
+          record.managerResource.manager.layerMask;
+      }
+      if (restraintMaterial !== null) {
+        restraintMaterial.alpha =
+          0.675 + 0.325 * Math.cos(elapsedSeconds * Math.PI);
+      }
+    },
     setFacingYaw: (yaw) => {
       assertActive();
       if (!Number.isFinite(yaw)) {
@@ -805,7 +900,9 @@ dependencies: V2CharacterVisualRuntimeDependencies = Object.freeze({
             )
           : null;
       const record: V2CharacterVisualSpriteRecord = {
+        actorId,
         sprite,
+        restraintBand: null,
         presentation,
         managerResource,
         shadow: groundShadowManager?.createGroundShadow(
@@ -895,6 +992,7 @@ dependencies: V2CharacterVisualRuntimeDependencies = Object.freeze({
         resource.manager.dispose();
       }
       managerResources.clear();
+      restraintMaterial?.dispose(false, true);
       groundShadowManager?.dispose();
       for (const blobUrl of blobUrls) {
         dependencies.revokeObjectUrl(blobUrl);

@@ -13,7 +13,8 @@ import { V2_PLAYER_BASE_EYE_HEIGHT } from "../../../src/v2/playerController";
 import type { V2BroadcastInteractionCandidate } from "../../../src/v2/runtimeInteraction";
 import {
   canV2RuntimePlayerFire,
-  createV2RuntimeHudController as createV2RuntimeHudControllerBase
+  createV2RuntimeHudController as createV2RuntimeHudControllerBase,
+  type V2RuntimeHudFrame
 } from "../../../src/ui/v2RuntimeHud";
 
 import { assert, assertThrows, executeTest } from "./testUtils";
@@ -139,7 +140,7 @@ export const runRuntimeHudTests = async () =>
             !getRole(host, "crosshair").hidden &&
             getRole(host, "fire-guide").hidden &&
             getRole(host, "completion-guide").textContent ===
-              "G：銃あり　左クリック：発射　N：銃なし　H：ハイグレ",
+              "G：銃あり 左クリック：発射  N：銃なし  H：ハイグレポーズ",
           "解放済みgun状態の下部統合案内・照準・単独発射案内非表示が同期しません。"
         );
 
@@ -306,6 +307,149 @@ export const runRuntimeHudTests = async () =>
           "Pointer Lock解除中の公開処刑射手に照準が表示されました。"
         );
         return "候補・状態案内・公開処刑射手照準・inactive・中央R案内なし・clearをDOMへ同期";
+      } finally {
+        hud.dispose();
+        host.remove();
+        scene.dispose();
+        engine.dispose();
+      }
+    }),
+    executeTest("Playerモードの色・切替発光と残光解除", () => {
+      const engine = new NullEngine();
+      const scene = new Scene(engine);
+      const camera = new FreeCamera(
+        "T06HudPlayerModeCamera",
+        new Vector3(0, 0, -5),
+        scene
+      );
+      camera.setTarget(Vector3.Zero());
+      scene.activeCamera = camera;
+      const host = document.createElement("div");
+      const canvas = document.createElement("canvas");
+      Object.defineProperty(canvas, "getBoundingClientRect", {
+        configurable: true,
+        value: () => new DOMRect(0, 0, 800, 450)
+      });
+      host.appendChild(canvas);
+      document.body.appendChild(host);
+      const hud = createV2RuntimeHudController({ host, canvas, camera });
+      try {
+        scene.render();
+        const guide = getRole(host, "completion-guide");
+        const colors = {
+          gun: "rgb(156, 255, 87)",
+          "no-gun": "rgb(97, 232, 255)",
+          haigure: "rgb(255, 209, 102)"
+        } as const;
+        const options = (["gun", "no-gun", "haigure"] as const).map((mode) => {
+          const label = guide.querySelector<HTMLElement>(
+            `span[data-v2-runtime-hud-mode="${mode}"]`
+          );
+          assert(label !== null, `${mode}の操作案内がありません。`);
+          return { mode, label };
+        });
+        const update = (
+          playerState: V2RuntimeHudFrame["playerState"],
+          active = true
+        ) => hud.update({
+          active,
+          frame: Object.freeze({
+            phase: "playing" as const,
+            playerState,
+            playerCompletionUnlocked: true,
+            executionPlayerRole: null
+          }),
+          npcCandidates: Object.freeze([]),
+          doorCandidates: Object.freeze([]),
+          feedback: Object.freeze([])
+        });
+        const assertMode = (mode: keyof typeof colors) => {
+          assert(
+            !guide.hidden && guide.dataset.v2RuntimeHudMode === mode &&
+              guide.style.color === colors[mode] &&
+              guide.style.borderColor === colors[mode],
+            `${mode}の表示・選択モード・枠色が一致しません。`
+          );
+          for (const option of options) {
+            assert(
+              option.label.style.color === (
+                option.mode === mode ? colors[mode] : "rgb(245, 245, 245)"
+              ),
+              `${mode}選択中の${option.mode}案内色が不正です。`
+            );
+          }
+        };
+        const assertNoFeedback = (context: string) => assert(
+          guide.dataset.v2RuntimeHudFeedback === undefined &&
+            guide.style.animation === "",
+          `${context}で発光が残っています。`
+        );
+
+        update("brainwash-complete-gun");
+        assertMode("gun");
+        assertNoFeedback("初回表示");
+        update("brainwash-complete-gun");
+        assertNoFeedback("初回と同じモードの継続");
+
+        update("brainwash-complete-no-gun");
+        assertMode("no-gun");
+        const noGunFeedback = guide.dataset.v2RuntimeHudFeedback;
+        const noGunAnimation = guide.style.animation;
+        assert(
+          noGunFeedback !== undefined && noGunAnimation.includes("180ms"),
+          "gunからno-gunへの切替で180ms発光がありません。"
+        );
+        for (let frame = 0; frame < 3; frame += 1) {
+          update("brainwash-complete-no-gun");
+        }
+        assert(
+          guide.dataset.v2RuntimeHudFeedback === noGunFeedback &&
+            guide.style.animation === noGunAnimation,
+          "同一モードの連続更新で発光を再開始しました。"
+        );
+
+        update("brainwash-in-progress");
+        assertMode("haigure");
+        const haigureFeedback = guide.dataset.v2RuntimeHudFeedback;
+        const haigureAnimation = guide.style.animation;
+        assert(
+          haigureFeedback !== undefined && haigureFeedback !== noGunFeedback &&
+            haigureAnimation.includes("180ms") && haigureAnimation !== noGunAnimation,
+          "no-gunから洗脳進行への切替で新しい発光がありません。"
+        );
+        for (const state of [
+          "brainwash-complete-haigure",
+          "brainwash-complete-haigure-formation"
+        ] as const) {
+          update(state);
+          assertMode("haigure");
+          assert(
+            guide.dataset.v2RuntimeHudFeedback === haigureFeedback &&
+              guide.style.animation === haigureAnimation,
+            `${state}を洗脳進行とは別モードとして再発光しました。`
+          );
+        }
+
+        hud.clear();
+        assert(guide.hidden, "clear後に操作案内が表示されています。");
+        assertNoFeedback("clear後");
+        update("brainwash-complete-no-gun");
+        assertMode("no-gun");
+        assertNoFeedback("clear後の初回表示");
+        update("brainwash-complete-gun");
+        assertMode("gun");
+        assert(
+          guide.dataset.v2RuntimeHudFeedback !== undefined &&
+            guide.style.animation.includes("180ms"),
+          "clear後のモード切替が発光しません。"
+        );
+        update("brainwash-complete-gun", false);
+        assert(guide.hidden, "inactive後に操作案内が表示されています。");
+        assertNoFeedback("inactive後");
+        update("brainwash-in-progress");
+        assertMode("haigure");
+        assertNoFeedback("inactive後の初回表示");
+        return "3色と非選択色・枠色、180ms切替発光、同一モード維持、clear/inactive解除";
       } finally {
         hud.dispose();
         host.remove();

@@ -315,14 +315,18 @@ const validatePlayerRampTraversal = (
       camera: testCamera,
       stage: context,
       playerSpawn,
-      input
+      input,
+      dashMode: "unlimited"
     });
     testCamera.setTarget(
       new Vector3(end.x, testCamera.position.y, end.z)
     );
     maximumFootY = controller.getFootPosition().y;
     for (let frame = 0; frame < 240; frame += 1) {
-      const playerFrame = controller.update(1 / 60, true, 1);
+      const playerFrame = controller.update(1 / 60, true, 1, {
+        gameplayActive: true,
+        playerState: "normal"
+      });
       const horizontalOffset = playerFrame.footPosition.subtract(start);
       horizontalOffset.y = 0;
       const progress = Vector3.Dot(horizontalOffset, routeDirection);
@@ -405,14 +409,18 @@ const validatePlayerWaypointTraversal = (
       camera: testCamera,
       stage: context,
       playerSpawn,
-      input
+      input,
+      dashMode: "unlimited"
     });
     for (let frame = 0; frame < 9000 && waypointIndex < waypoints.length; frame += 1) {
       const target = waypoints[waypointIndex];
       testCamera.setTarget(
         new Vector3(target.x, testCamera.position.y, target.z)
       );
-      const playerFrame = controller.update(1 / 60, true, 1);
+      const playerFrame = controller.update(1 / 60, true, 1, {
+        gameplayActive: true,
+        playerState: "normal"
+      });
       finalFoot = playerFrame.footPosition.clone();
       highestFootY = Math.max(highestFootY, finalFoot.y);
       lowestFootY = Math.min(lowestFootY, finalFoot.y);
@@ -429,7 +437,10 @@ const validatePlayerWaypointTraversal = (
     }
     moving = false;
     for (let frame = 0; frame < 30; frame += 1) {
-      const playerFrame = controller.update(1 / 60, true, 1);
+      const playerFrame = controller.update(1 / 60, true, 1, {
+        gameplayActive: true,
+        playerState: "normal"
+      });
       finalFoot = playerFrame.footPosition.clone();
       stayedInsideBoundary =
         stayedInsideBoundary && context.boundary.contains(finalFoot);
@@ -520,7 +531,8 @@ const validatePoolSpawnMovement = (context: StageSpatialSession) => {
         camera: testCamera,
         stage: context,
         playerSpawn,
-        input
+        input,
+        dashMode: "unlimited"
       });
       const initialFoot = controller.getFootPosition();
       startedInWater = context.queries.containsVolume("water", initialFoot);
@@ -534,7 +546,10 @@ const validatePoolSpawnMovement = (context: StageSpatialSession) => {
         if (frame === 0) {
           initialSpeedScale = speedScale;
         }
-        const playerFrame = controller.update(1 / 60, true, speedScale);
+        const playerFrame = controller.update(1 / 60, true, speedScale, {
+          gameplayActive: true,
+          playerState: "normal"
+        });
         const horizontalOffset = playerFrame.footPosition.subtract(initialFoot);
         horizontalOffset.y = 0;
         horizontalDistance = horizontalOffset.length();
@@ -628,14 +643,18 @@ const validatePlayerBarrierAttempt = (
       camera: testCamera,
       stage: context,
       playerSpawn: mainPlayerSpawn,
-      input
+      input,
+      dashMode: "unlimited"
     });
     testCamera.setTarget(
       new Vector3(end.x, testCamera.position.y, end.z)
     );
     minimumFootY = controller.getFootPosition().y;
     for (let frame = 0; frame < 300; frame += 1) {
-      const playerFrame = controller.update(1 / 60, true, 1);
+      const playerFrame = controller.update(1 / 60, true, 1, {
+        gameplayActive: true,
+        playerState: "normal"
+      });
       finalFoot = playerFrame.footPosition.clone();
       const horizontalOffset = finalFoot.subtract(start);
       horizontalOffset.y = 0;

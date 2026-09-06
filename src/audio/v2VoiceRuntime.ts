@@ -65,6 +65,7 @@ export type V2VoiceRuntime = Readonly<{
     snapshots: readonly V2HumanTargetSnapshot[],
   ): void;
   stopAll(): void;
+  resetForReplay(): void;
   dispose(): void;
 }>;
 
@@ -78,6 +79,7 @@ type V2VoiceActor = {
   idleTimer: number;
   playbackToken: number;
   updateRevision: number;
+  replayStateEntryPending: boolean;
 };
 
 const isV2VoiceIdleState = (state: V2CharacterState): boolean =>
@@ -175,6 +177,7 @@ const createV2VoiceRuntimeInternal = (
         idleTimer: rollIdleTimer(),
         playbackToken: 0,
         updateRevision: 0,
+        replayStateEntryPending: false,
       });
     }
     return initialized;
@@ -247,10 +250,13 @@ const createV2VoiceRuntimeInternal = (
     }
     const currentState = actor.currentState;
     const previousState = actor.lastState;
+    const enteringState =
+      actor.replayStateEntryPending || previousState !== currentState;
+    actor.replayStateEntryPending = false;
     const states = actor.profile.states;
     const haigureState = states["brainwash-complete-haigure"];
 
-    if (previousState !== currentState) {
+    if (enteringState) {
       if (
         previousState === "brainwash-in-progress" ||
         previousState === "brainwash-complete-haigure" ||
@@ -355,6 +361,16 @@ const createV2VoiceRuntimeInternal = (
     stopAll: () => {
       assertActive();
       stopAllActors();
+    },
+    resetForReplay: () => {
+      assertActive();
+      if (actors === null) {
+        return;
+      }
+      for (const actor of actors.values()) {
+        stopActor(actor);
+        actor.replayStateEntryPending = true;
+      }
     },
     dispose: () => {
       assertActive();

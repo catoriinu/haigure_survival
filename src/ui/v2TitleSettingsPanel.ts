@@ -254,7 +254,7 @@ export const createV2TitleSettingsPanel = ({
   const missionRow = createRow("ミッション");
   const missionEnabled = createCheckbox("v2-settings-mission-enabled");
   missionRow.valueHost.append(missionEnabled);
-  const alarmRow = createRow("アラーム");
+  const alarmRow = createRow("アラーム床");
   const alarmEnabled = createCheckbox("v2-settings-alarm-enabled");
   alarmRow.valueHost.append(alarmEnabled);
   featuresSection.append(missionRow.row, alarmRow.row);

@@ -1579,5 +1579,99 @@ export const runBitFlightSafetyTests =
       })
     );
 
+    results.push(
+      executeTest(
+        "query集合の反復利用はmover・ray用途とrevision切替後の衝突を混同しない",
+        () => {
+          const world = createTestWorld();
+          try {
+            const front = createBox(world, "MembershipFront", 0.2, 2, 2, new Vector3(0, 1, 0));
+            const back = createBox(world, "MembershipBack", 0.2, 2, 2, new Vector3(3, 1, 0));
+            const upperGround = createBox(world, "MembershipUpperGround", 2, 0.2, 2, new Vector3(-2, 0, 0));
+            const lowerGround = createBox(world, "MembershipLowerGround", 2, 0.2, 2, new Vector3(-2, -2, 0));
+            const initialSet: DynamicStageSpatialActiveSet = {
+              movementColliders: { player: [back], npc: [front], bit: [front, back] },
+              groundColliders: [upperGround],
+              beamBlockers: [front],
+              sightBlockers: [back],
+              bitObstacles: [front, back]
+            };
+            const fixture = createDynamicStageSpatialQueryFixture(world.scene, initialSet, { volumes: [] });
+            (world.spatialFixtures as DynamicStageSpatialQueryFixture[]).push(fixture);
+            const queries = fixture.queries;
+            const from = new Vector3(-2, 1, 0);
+            const to = new Vector3(5, 1, 0);
+            const sample = () => {
+              const firstSweep = queries.castMovementSphere("bit", from, to, 0.1);
+              const centerHit = queries.castMovementSphere("bit", from, from, 0.1);
+              const knownSafeSweep = queries.castMovementSphere("bit", from, to, 0.1);
+              if (
+                centerHit !== null ||
+                firstSweep?.mesh !== knownSafeSweep?.mesh ||
+                (firstSweep !== null && knownSafeSweep !== null && (
+                  !approximately(firstSweep.fraction, knownSafeSweep.fraction, 1e-12) ||
+                  !firstSweep.center.equalsWithEpsilon(knownSafeSweep.center, 1e-12) ||
+                  !firstSweep.point.equalsWithEpsilon(knownSafeSweep.point, 1e-12) ||
+                  !firstSweep.normal.equalsWithEpsilon(knownSafeSweep.normal, 1e-12)
+                ))
+              ) {
+                throw new Error("unknown-safeとknown-safeで衝突結果が変わりました。");
+              }
+              return [
+                queries.castMovementSegment("player", from, to)?.mesh ?? null,
+                queries.castMovementSegment("npc", from, to)?.mesh ?? null,
+                knownSafeSweep?.mesh ?? null,
+                queries.castBeamSegment(from, to)?.mesh ?? null,
+                queries.castSightSegment(from, to)?.mesh ?? null,
+                queries.sampleGround(new Vector3(-2, 2, 0), 6)?.mesh ?? null
+              ];
+            };
+            const observations: string[] = [];
+            const matches = (expected: readonly (Mesh | null)[]) => {
+              for (let repeat = 0; repeat < 3; repeat += 1) {
+                const actual = sample();
+                observations.push(actual.map((mesh) => mesh?.name ?? "none").join("/"));
+                if (actual.some((mesh, index) => mesh !== expected[index])) {
+                  return false;
+                }
+              }
+              return true;
+            };
+            const initialMatches = matches([back, front, front, front, back, upperGround]);
+            const swappedSet: DynamicStageSpatialActiveSet = {
+              movementColliders: { player: [front], npc: [back], bit: [back] },
+              groundColliders: [lowerGround],
+              beamBlockers: [back],
+              sightBlockers: [front],
+              bitObstacles: [back]
+            };
+            fixture.dynamicVariants.replaceActiveSet(swappedSet);
+            const membershipMatches = matches([front, back, back, back, front, lowerGround]);
+            front.position.x = 4;
+            front.computeWorldMatrix(true);
+            fixture.dynamicVariants.replaceActiveSet({
+              ...swappedSet,
+              movementColliders: { player: [front, back], npc: [front], bit: [front, back] },
+              beamBlockers: [front, back],
+              sightBlockers: [front],
+              bitObstacles: [front, back]
+            });
+            const transformMatches = matches([back, front, back, back, front, lowerGround]);
+            fixture.dynamicVariants.replaceActiveSet({
+              movementColliders: { player: [], npc: [], bit: [] },
+              groundColliders: [], beamBlockers: [], sightBlockers: [], bitObstacles: []
+            });
+            const emptyMatches = matches([null, null, null, null, null, null]);
+            return {
+              ok: initialMatches && membershipMatches && transformMatches && emptyMatches && queries.revision === 3,
+              detail: observations.join(" | ")
+            };
+          } finally {
+            world.dispose();
+          }
+        }
+      )
+    );
+
     return Object.freeze(results);
   };

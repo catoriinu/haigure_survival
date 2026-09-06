@@ -17,6 +17,7 @@ export type V2StartupPhase =
   | "page-unloading";
 
 type V2StartupStatus = "loading" | "running" | "failed" | "unloading";
+type V2StartupDiagnosticsMessageState = "stalled" | "failed";
 
 export type V2StartupEvent = Readonly<{
   phase: V2StartupPhase;
@@ -87,6 +88,31 @@ const stopStartupWatchdog = () => {
   }
 };
 
+const showStartupDiagnosticsMessage = (
+  state: V2StartupDiagnosticsMessageState,
+  message: string
+) => {
+  const titleStatusSlot = document.getElementById(
+    "titleStatusSlot"
+  ) as HTMLDivElement;
+  const startupDiagnosticsMessage = document.getElementById(
+    "startupDiagnosticsMessage"
+  ) as HTMLDivElement;
+  titleStatusSlot.dataset.startupDiagnosticsState = state;
+  startupDiagnosticsMessage.textContent = message;
+};
+
+const clearStartupDiagnosticsMessage = () => {
+  const titleStatusSlot = document.getElementById(
+    "titleStatusSlot"
+  ) as HTMLDivElement;
+  const startupDiagnosticsMessage = document.getElementById(
+    "startupDiagnosticsMessage"
+  ) as HTMLDivElement;
+  delete titleStatusSlot.dataset.startupDiagnosticsState;
+  startupDiagnosticsMessage.textContent = "";
+};
+
 const updateStalledStartupMessage = () => {
   if (
     startupDiagnostics === null ||
@@ -100,18 +126,13 @@ const updateStalledStartupMessage = () => {
   if (elapsedMilliseconds < V2_STARTUP_STALL_THRESHOLD_MILLISECONDS) {
     return;
   }
-  const titleStartHint = document.getElementById(
-    "titleStartHint"
-  ) as HTMLDivElement;
-  const titleMessage = document.getElementById(
-    "titleMessage"
-  ) as HTMLDivElement;
-  titleStartHint.style.display = "block";
-  titleStartHint.textContent = "読込継続中";
-  titleMessage.textContent =
+  showStartupDiagnosticsMessage(
+    "stalled",
+    `読込継続中\n` +
     `起動処理が長時間継続しています\n` +
     `停止位置: ${startupDiagnostics.phase}\n` +
-    `経過: ${Math.floor(elapsedMilliseconds / 1_000)}秒`;
+    `経過: ${Math.floor(elapsedMilliseconds / 1_000)}秒`
+  );
 };
 
 const appendStartupEvent = (phase: V2StartupPhase) => {
@@ -141,6 +162,7 @@ export const initializeV2StartupDiagnostics = () => {
   };
   appendStartupEvent("bootstrap-ready");
   publishStartupDiagnostics();
+  clearStartupDiagnosticsMessage();
   startupWatchdogId = window.setInterval(
     updateStalledStartupMessage,
     V2_STARTUP_WATCHDOG_INTERVAL_MILLISECONDS
@@ -166,6 +188,7 @@ export const markV2StartupRunning = () => {
   appendStartupEvent("running");
   publishStartupDiagnostics();
   stopStartupWatchdog();
+  clearStartupDiagnosticsMessage();
 };
 
 export const reportV2StartupFailure = (error: unknown) => {
@@ -187,17 +210,11 @@ export const reportV2StartupFailure = (error: unknown) => {
   const titleOverlay = document.getElementById(
     "titleOverlay"
   ) as HTMLDivElement;
-  const titleStartHint = document.getElementById(
-    "titleStartHint"
-  ) as HTMLDivElement;
-  const titleMessage = document.getElementById(
-    "titleMessage"
-  ) as HTMLDivElement;
   titleOverlay.style.display = "grid";
-  titleStartHint.style.display = "block";
-  titleStartHint.textContent = "読込エラー";
-  titleMessage.style.display = "block";
-  titleMessage.textContent = failureError.message;
+  showStartupDiagnosticsMessage(
+    "failed",
+    `読込エラー\n${failureError.message}`
+  );
 };
 
 export const markV2PageUnloading = () => {
@@ -208,6 +225,7 @@ export const markV2PageUnloading = () => {
   appendStartupEvent("page-unloading");
   publishStartupDiagnostics();
   stopStartupWatchdog();
+  clearStartupDiagnosticsMessage();
 };
 
 declare global {

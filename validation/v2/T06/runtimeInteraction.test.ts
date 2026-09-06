@@ -484,25 +484,25 @@ export const runRuntimeInteractionTests = async () =>
       );
       return "同一dispatch内でも4操作を入力順に配送";
     }),
-    executeTest("公開処刑Rリプレイのphase guard", () => {
+    executeTest("通常開始の公開処刑Rリプレイのphase guard", () => {
       const replayActions = Object.freeze(["retry"] as const);
       const ignoredResults = [
         dispatchV2RuntimeEndFlow(replayActions, {
           phase: "assembly"
-        }),
+        }, "normal"),
         dispatchV2RuntimeEndFlow(Object.freeze([]), {
           phase: "execution-complete"
-        })
+        }, "normal")
       ];
       const executionResult = dispatchV2RuntimeEndFlow(replayActions, {
         phase: "execution"
-      });
+      }, "normal");
       const completeResult = dispatchV2RuntimeEndFlow(replayActions, {
         phase: "execution-complete"
-      });
+      }, "normal");
       const playingResult = dispatchV2RuntimeEndFlow(replayActions, {
         phase: "playing"
-      });
+      }, "normal");
       assert(
         ignoredResults.every((result) => result === "ignored") &&
           executionResult === "ignored" &&

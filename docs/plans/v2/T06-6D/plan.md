@@ -71,6 +71,8 @@ T06-6D「静的学校資源再利用」を実装する。
 
 ## 結果
 
+2026-09-06 P2開始時の統合再確認: PR #83はMERGED、merge commitは`c8769e32b1f7b8f739a9f8698db55237e5121075`。正本HEAD／最新origin/developと一致し、再試行指摘のreview threadは`isResolved=true`である。T06-6Dは実装・統合済みと判定し、中央計画の古い未チェックを同期する。P2で既存実ゲームElectron runnerを1回実行し、指定遷移、static load／GLB parse各1回、最終owner0、exit 0を再確認した。終了後GPUメッセージとP2のAI入力確認の限界は[P2結果](../P2/results.md)へ分離し、T06-6Dの過去の未完了実装と混同しない。P2の入力を含む残受入は、同日の最終ユーザー指定により人間確認OKとして閉じた。
+
 2026-09-06 PR #83指摘対応：`titleOverlay`は`pointer-events: none`でCanvasと兄弟要素のため、中央クリックが再試行listenerへ届かず、設定パネル操作だけが届く指摘を妥当と判断した。再試行listenerを初回session生成前からCanvasへ登録し、アプリ終了時に解除する。session成功時・遷移中・終了後の既存条件とsnapshot規則は維持する。型検査・依存監査PASS。専用`acceptance:t06-6d:retry:electron`は学校GLB通信を初回だけ失敗させ、設定パネル操作では再ロードしないこと、Canvasのnative clickで1回だけ再ロードし、変更済み設定でゲームへ復旧することをPASSした。意図した初回取得失敗の後、再試行のconsole／unhandled異常は0件。既存全fixtureは再実行せず、指摘対象の再試行経路を検証した。
 
 2026-09-06中央揃え修正：開始案内の表示領域へ`text-align: center`を指定し、開始案内と設定反映の注記を各行中央揃えにした。通常画面で2行の中心が一致することを確認し、検証用の設定変更は元へ戻した。CSSのみの変更のためゲーム全体のbuildは再実行せず、差分・文字コード検査を行った。

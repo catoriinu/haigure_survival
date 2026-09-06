@@ -486,6 +486,8 @@ const createNpcFixture = async (
   const countingCharacterVisuals: V2CharacterVisualRuntime = Object.freeze({
     orientationMode: characterVisuals.orientationMode,
     setFacingYaw: (yaw) => characterVisuals.setFacingYaw(yaw),
+    updateNoGunRestraint: (targetIds, elapsedSeconds) =>
+      characterVisuals.updateNoGunRestraint(targetIds, elapsedSeconds),
     getActorVisualSize: (actorId) =>
       characterVisuals.getActorVisualSize(actorId),
     createSprite: (actorId, instanceName) => {

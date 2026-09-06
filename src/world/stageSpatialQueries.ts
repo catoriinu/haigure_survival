@@ -2250,38 +2250,57 @@ const createLayeredTriangleSpatialIndex = (
     npc: new Set(movementMeshes.npc),
     bit: new Set(movementMeshes.bit)
   };
+  // 呼出元の集合はrevision resource内で固定される。次revisionでは別indexを作る。
+  const queryMembershipByAllowedMeshes = new Map<
+    ReadonlySet<Mesh>,
+    Readonly<{
+      staticMeshes: ReadonlySet<Mesh>;
+      dynamicEntries: readonly Readonly<{
+        mesh: Mesh;
+        index: StaticTriangleSpatialIndex;
+        meshSet: ReadonlySet<Mesh>;
+      }>[];
+    }>
+  >();
+  const getQueryMembership = (allowedMeshes: ReadonlySet<Mesh>) => {
+    let membership = queryMembershipByAllowedMeshes.get(allowedMeshes);
+    if (!membership) {
+      membership = {
+        staticMeshes: new Set(
+          [...allowedMeshes].filter((mesh) => !dynamicIndices.has(mesh))
+        ),
+        dynamicEntries: [...dynamicIndices]
+          .filter(([mesh]) => allowedMeshes.has(mesh))
+          .map(([mesh, index]) => ({
+            mesh,
+            index,
+            meshSet: new Set([mesh])
+          }))
+      };
+      queryMembershipByAllowedMeshes.set(allowedMeshes, membership);
+    }
+    return membership;
+  };
   const query: StaticTriangleSpatialIndex["query"] = (
     from,
     to,
     padding,
     allowedMeshes
   ) => {
-    const staticAllowedMeshes = new Set(
-      [...allowedMeshes].filter(
-        (mesh) => !dynamicIndices.has(mesh)
-      )
-    );
+    const membership = getQueryMembership(allowedMeshes);
     const baseResult = baseIndex.query(
       from,
       to,
       padding,
-      staticAllowedMeshes
+      membership.staticMeshes
     );
     const candidatesByMesh = new Map(
       baseResult.candidatesByMesh
     );
     let visitedNodeCount = baseResult.visitedNodeCount;
     let indexedTriangleCount = baseResult.indexedTriangleCount;
-    for (const [mesh, dynamicIndex] of dynamicIndices) {
-      if (!allowedMeshes.has(mesh)) {
-        continue;
-      }
-      const result = dynamicIndex.query(
-        from,
-        to,
-        padding,
-        new Set([mesh])
-      );
+    for (const { mesh, index, meshSet } of membership.dynamicEntries) {
+      const result = index.query(from, to, padding, meshSet);
       visitedNodeCount += result.visitedNodeCount;
       indexedTriangleCount += result.indexedTriangleCount;
       const candidates = result.candidatesByMesh.get(mesh);
@@ -2312,7 +2331,7 @@ const createLayeredTriangleSpatialIndex = (
       context,
       visitor
     ) => {
-      const allowedMeshes = movementMeshSets[moverKind];
+      const membership = getQueryMembership(movementMeshSets[moverKind]);
       const baseState: TriangleCandidateVisitState = {
         visitedNodeCount: 0,
         indexedTriangleCount: 0
@@ -2326,25 +2345,19 @@ const createLayeredTriangleSpatialIndex = (
         baseState,
         undefined,
         (_unused, candidate) => {
-          if (
-            allowedMeshes.has(candidate.mesh) &&
-            !dynamicIndices.has(candidate.mesh)
-          ) {
+          if (membership.staticMeshes.has(candidate.mesh)) {
             indexedTriangleCount += 1;
             visitor(context, candidate);
           }
         }
       );
       let visitedNodeCount = baseState.visitedNodeCount;
-      for (const [mesh, dynamicIndex] of dynamicIndices) {
-        if (!allowedMeshes.has(mesh)) {
-          continue;
-        }
+      for (const { index } of membership.dynamicEntries) {
         const dynamicState: TriangleCandidateVisitState = {
           visitedNodeCount: 0,
           indexedTriangleCount: 0
         };
-        dynamicIndex.visitMovementSphereCandidates(
+        index.visitMovementSphereCandidates(
           moverKind,
           from,
           to,
@@ -2364,6 +2377,7 @@ const createLayeredTriangleSpatialIndex = (
     query,
     visitMovementSphereCandidates,
     dispose: () => {
+      queryMembershipByAllowedMeshes.clear();
       dynamicIndices.clear();
       for (const moverKind of STAGE_MOVER_KINDS) {
         movementMeshSets[moverKind].clear();

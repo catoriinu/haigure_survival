@@ -34,6 +34,8 @@ import {
   BIT_FLIGHT_SHORTEST_ROUTE_POLICY,
   getBitFlightWorldPosition,
   type BitFlightBandRef,
+  type BitFlightLocation,
+  type BitFlightRoute,
   type BitFlightRoutePolicy,
   type BitFlightTransition
 } from "../../../src/world/bitFlightNavigation";
@@ -87,6 +89,7 @@ import {
 import {
   createStageBoundaryContainsQuery,
   createStageSpatialQueries,
+  type SpatialSphereSweepHit,
   type StageVolume
 } from "../../../src/world/stageSpatialQueries";
 import {
@@ -776,6 +779,124 @@ const findBitTransitionRoute = (
   );
 };
 
+const captureSpatialPoint = (point: Vector3) =>
+  [point.x, point.y, point.z] as const;
+
+type NpcGroundErrorSample = Readonly<{
+  updateCount: number;
+  npcId: string;
+  footPosition: ReturnType<typeof captureSpatialPoint>;
+  groundPoint: ReturnType<typeof captureSpatialPoint>;
+  groundNormal: ReturnType<typeof captureSpatialPoint>;
+  groundMesh: string;
+  groundDistance: number;
+  signedError: number;
+  error: number;
+  staircase: "NW" | "NE" | "SW" | null;
+  navigationLocation: Readonly<{
+    position: ReturnType<typeof captureSpatialPoint>;
+    polygonRef: number;
+  }>;
+}>;
+
+const captureSphereSweepHit = (hit: SpatialSphereSweepHit | null) =>
+  hit === null
+    ? null
+    : {
+        mesh: hit.mesh.name,
+        fraction: hit.fraction,
+        distance: hit.distance,
+        center: captureSpatialPoint(hit.center),
+        point: captureSpatialPoint(hit.point),
+        normal: captureSpatialPoint(hit.normal)
+      };
+
+const inspectBitRouteSafety = (
+  safety: BitFlightSafety,
+  start: BitFlightLocation,
+  route: BitFlightRoute
+) => {
+  const inspectCenter = (point: Vector3) => {
+    const hit = safety.findMovementCollision(point, point);
+    return {
+      point: captureSpatialPoint(point),
+      safe: hit === null,
+      hit: captureSphereSweepHit(hit)
+    };
+  };
+  const startPoint = getBitFlightWorldPosition(start);
+  const destinationPoint = getBitFlightWorldPosition(route.destination);
+  const startCenter = inspectCenter(startPoint);
+  const destinationCenter = inspectCenter(destinationPoint);
+  let cursor = startPoint;
+  const steps = route.steps.map((step, stepIndex) => {
+    const points = step.kind === "surface"
+      ? step.points.map(getBitFlightWorldPosition)
+      : [...step.points];
+    const pathPoints = [cursor, ...points];
+    const centers = pathPoints.map(inspectCenter);
+    let firstCollision: Readonly<{
+      segmentIndex: number;
+      from: ReturnType<typeof captureSpatialPoint>;
+      to: ReturnType<typeof captureSpatialPoint>;
+      hit: ReturnType<typeof captureSphereSweepHit>;
+    }> | null = null;
+    let checkedSegmentCount = 0;
+    for (let pointIndex = 1; pointIndex < pathPoints.length; pointIndex += 1) {
+      const from = pathPoints[pointIndex - 1];
+      const to = pathPoints[pointIndex];
+      // Agentと同じく、同一点の区間は移動sweepから除く。
+      if (from.equals(to)) {
+        continue;
+      }
+      checkedSegmentCount += 1;
+      const hit = safety.findMovementCollision(from, to);
+      if (hit !== null) {
+        firstCollision = {
+          segmentIndex: pointIndex - 1,
+          from: captureSpatialPoint(from),
+          to: captureSpatialPoint(to),
+          hit: captureSphereSweepHit(hit)
+        };
+        break;
+      }
+    }
+    cursor = points[points.length - 1];
+    return {
+      stepIndex,
+      kind: step.kind,
+      band: step.kind === "surface" ? step.band : null,
+      transition: step.kind === "transition"
+        ? {
+            id: step.traversal.transition.id,
+            kind: step.traversal.transition.kind,
+            reversed: step.traversal.reversed
+          }
+        : null,
+      // 先頭は直前stepの終点。以後がpreparedRoute内の点列。
+      centers,
+      checkedSegmentCount,
+      firstCollision
+    };
+  });
+  const finalConnection = {
+    from: captureSpatialPoint(cursor),
+    to: captureSpatialPoint(destinationPoint),
+    hit: captureSphereSweepHit(
+      cursor.equals(destinationPoint)
+        ? null
+        : safety.findMovementCollision(cursor, destinationPoint)
+    )
+  };
+  return {
+    envelopeRadiusWorldUnits: safety.envelopeRadius,
+    startCenter,
+    destinationCenter,
+    steps,
+    finalConnection
+  };
+};
+
 type BitTransitionAgentAcceptance = Readonly<{
   transitionId: string;
   reversed: boolean;
@@ -787,6 +908,7 @@ type BitTransitionAgentAcceptance = Readonly<{
   allTicksSafe: boolean;
   updateCount: number;
   finalState: BitFlightAgentState;
+  rejectedRouteEvidence: ReturnType<typeof inspectBitRouteSafety> | null;
 }>;
 
 const didBitTransitionAgentPass = (
@@ -807,7 +929,10 @@ const describeBitTransitionAgentFailure = (
   `route=${result.routeAccepted},` +
   `transition=${result.passedTargetTransition},` +
   `band=${result.finalBandMatches},safe=${result.allTicksSafe},` +
-  `ticks=${result.updateCount})`;
+  `ticks=${result.updateCount})` +
+  (result.rejectedRouteEvidence === null
+    ? ""
+    : ` / rejectedRoute=${JSON.stringify(result.rejectedRouteEvidence)}`);
 
 const executeBitTransitionAgentAcceptance = (
   context: StageSpatialSession,
@@ -918,7 +1043,11 @@ const executeBitTransitionAgentAcceptance = (
         finalSnapshot.location.bandId === expectedDestination.bandId,
       allTicksSafe,
       updateCount,
-      finalState: finalSnapshot.state
+      finalState: finalSnapshot.state,
+      // 合否判定とAgent更新の後に、拒否された経路だけを追加観測する。
+      rejectedRouteEvidence: preparedRoute !== null && !routeAccepted
+        ? inspectBitRouteSafety(safety, start, preparedRoute)
+        : null
     });
   } finally {
     agent.dispose();
@@ -3815,8 +3944,8 @@ const runValidation = async () => {
             (selection) => selection.variant === "normal"
           );
         const resourceCountsOk =
-          schoolContext.resources.visualMeshes.length === 632 &&
-          schoolContext.resources.normalColliders.length === 276 &&
+          schoolContext.resources.visualMeshes.length === 636 &&
+          schoolContext.resources.normalColliders.length === 275 &&
           schoolContext.resources.actorOnlyColliders.length === 81 &&
           schoolContext.resources.humanOnlyColliders.length === 59 &&
           schoolContext.resources.beamSightOnlyColliders.length === 1 &&
@@ -3824,9 +3953,9 @@ const runValidation = async () => {
             "COL_BeamSightOnly_B03_Interior_F01_Infirmary_Curtains" &&
           schoolContext.resources.humanNavigationSources.length === 39 &&
           schoolContext.resources.bitFlightNavSourceMeshes.length === 22 &&
-          schoolContext.markers.all.length === 289 &&
+          schoolContext.markers.all.length === 290 &&
           assemblyAnchors.length === 2 &&
-          schoolContext.volumes.all.length === 228 &&
+          schoolContext.volumes.all.length === 229 &&
           schoolContext.navigationAreas.all.length === 5 &&
           schoolContext.navigationAreas.portals.length === 4 &&
           assemblyVolumes.length === 2 &&
@@ -5408,6 +5537,9 @@ const runValidation = async () => {
             let groundSampleCount = 0;
             let staircaseGroundSampleCount = 0;
             let maximumGroundError = 0;
+            let maximumGroundErrorSample: NpcGroundErrorSample | null = null;
+            let groundErrorExceedanceCount = 0;
+            const firstGroundErrorExceedances: NpcGroundErrorSample[] = [];
             let updateCount = 0;
             while (!reached && updateCount < 2400) {
               routeSystem.update(
@@ -5416,8 +5548,8 @@ const runValidation = async () => {
                 Object.freeze([])
               );
               updateCount += 1;
-              const position =
-                routeSystem.getFrameView().targets[1].footPosition;
+              const npcTarget = routeSystem.getFrameView().targets[1];
+              const position = npcTarget.footPosition;
               const containingStaircase = findContainingStaircase(position);
               if (containingStaircase !== null) {
                 visitedStaircases.add(containingStaircase);
@@ -5430,10 +5562,45 @@ const runValidation = async () => {
                 groundProbeFailureCount += 1;
               } else {
                 groundSampleCount += 1;
-                maximumGroundError = Math.max(
-                  maximumGroundError,
-                  Math.abs(position.y - ground.point.y)
-                );
+                const signedError = position.y - ground.point.y;
+                const groundError = Math.abs(signedError);
+                const replacesMaximumSample =
+                  maximumGroundErrorSample === null ||
+                  groundError > maximumGroundError;
+                const exceedsGroundErrorLimit = groundError > 0.035;
+                if (exceedsGroundErrorLimit) {
+                  groundErrorExceedanceCount += 1;
+                }
+                const recordsFirstExceedance =
+                  exceedsGroundErrorLimit &&
+                  firstGroundErrorExceedances.length < 3;
+                if (replacesMaximumSample || recordsFirstExceedance) {
+                  const navigationLocation = routeSystem
+                    .getNavigationRouteContext(npcTarget.id).location;
+                  const sample: NpcGroundErrorSample = {
+                    updateCount,
+                    npcId: npcTarget.id,
+                    footPosition: captureSpatialPoint(position),
+                    groundPoint: captureSpatialPoint(ground.point),
+                    groundNormal: captureSpatialPoint(ground.normal),
+                    groundMesh: ground.mesh.name,
+                    groundDistance: ground.distance,
+                    signedError,
+                    error: groundError,
+                    staircase: containingStaircase,
+                    navigationLocation: {
+                      position: captureSpatialPoint(navigationLocation.position),
+                      polygonRef: navigationLocation.polygonRef
+                    }
+                  };
+                  if (replacesMaximumSample) {
+                    maximumGroundErrorSample = sample;
+                  }
+                  if (recordsFirstExceedance) {
+                    firstGroundErrorExceedances.push(sample);
+                  }
+                }
+                maximumGroundError = Math.max(maximumGroundError, groundError);
                 if (containingStaircase !== null) {
                   staircaseGroundSampleCount += 1;
                 }
@@ -5456,6 +5623,9 @@ const runValidation = async () => {
               groundSampleCount,
               staircaseGroundSampleCount,
               maximumGroundError,
+              maximumGroundErrorSample,
+              groundErrorExceedanceCount,
+              firstGroundErrorExceedances,
               endpointError: Vector3.Distance(
                 finalPosition,
                 destination.position
@@ -5495,7 +5665,13 @@ const runValidation = async () => {
           detail: multifloorNpcResults
             .map(
               (result) =>
-                `${result.label}:samples=${result.groundSampleCount}/${result.updateCount},stairs=${result.staircaseGroundSampleCount},fail=${result.groundProbeFailureCount},maxError=${result.maximumGroundError.toExponential(2)}`
+                `${result.label}:samples=${result.groundSampleCount}/${result.updateCount},stairs=${result.staircaseGroundSampleCount},fail=${result.groundProbeFailureCount},maxError=${result.maximumGroundError.toExponential(2)}` +
+                `,groundEvidence=${JSON.stringify({
+                  threshold: 0.035,
+                  exceedanceCount: result.groundErrorExceedanceCount,
+                  maximum: result.maximumGroundErrorSample,
+                  firstExceedances: result.firstGroundErrorExceedances
+                })}`
             )
             .join(" / ")
         });
@@ -6619,8 +6795,8 @@ const runValidation = async () => {
           });
         reloadedMetadataOk =
           reloadedContext.metadata.stageId === "school" &&
-          reloadedContext.resources.visualMeshes.length === 632 &&
-          reloadedContext.resources.normalColliders.length === 276 &&
+          reloadedContext.resources.visualMeshes.length === 636 &&
+          reloadedContext.resources.normalColliders.length === 275 &&
           reloadedContext.resources.actorOnlyColliders.length === 81 &&
           reloadedContext.resources.humanOnlyColliders.length === 59 &&
           reloadedContext.resources.beamSightOnlyColliders.length === 1 &&
@@ -6628,9 +6804,9 @@ const runValidation = async () => {
             "COL_BeamSightOnly_B03_Interior_F01_Infirmary_Curtains" &&
           reloadedContext.resources.humanNavigationSources.length === 39 &&
           reloadedContext.resources.bitFlightNavSourceMeshes.length === 22 &&
-          reloadedContext.markers.all.length === 289 &&
+          reloadedContext.markers.all.length === 290 &&
           reloadedContext.markers.getByRole("assembly_anchor").length === 2 &&
-          reloadedContext.volumes.all.length === 228 &&
+          reloadedContext.volumes.all.length === 229 &&
           reloadedContext.navigationAreas.all.length === 5 &&
           reloadedContext.navigationAreas.portals.length === 4 &&
           reloadedContext.volumes.getByRole("assembly").length === 2 &&

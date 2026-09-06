@@ -219,7 +219,10 @@ const runCrossing = (
     frameIndex < MAX_FRAMES_PER_CROSSING;
     frameIndex += 1
   ) {
-    const frame = controller.update(FRAME_SECONDS, true, 1);
+    const frame = controller.update(FRAME_SECONDS, true, 1, {
+      gameplayActive: true,
+      playerState: "normal"
+    });
     const displacement = frame.footPosition.subtract(from);
     displacement.y = 0;
     const progress = Vector3.Dot(displacement, travelDirection);
@@ -250,7 +253,10 @@ const runCrossing = (
         pauseFrameIndex < pause.frameCount;
         pauseFrameIndex += 1
       ) {
-        const pauseFrame = controller.update(FRAME_SECONDS, true, 1);
+        const pauseFrame = controller.update(FRAME_SECONDS, true, 1, {
+          gameplayActive: true,
+          playerState: "normal"
+        });
         pauseFrames += 1;
         if (!pauseFrame.verticalState.grounded) {
           airborneFrames += 1;
@@ -310,6 +316,7 @@ export const runElevatorThresholdPlayerAcceptance = ({
     scene,
     camera,
     stage,
+    dashMode: "unlimited",
     playerSpawn: (() => {
       const playerSpawn = stage.playerSpawns.getById("player-spawn-main");
       if (!playerSpawn) {

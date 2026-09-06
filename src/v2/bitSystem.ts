@@ -344,6 +344,7 @@ export type V2BitSystemDiagnostics = Readonly<{
   sphereSweeps: number;
   sphereSweepMilliseconds: number;
   beamRequests: number;
+  reinforcementSpawns: number;
   areaPursuitCount: number;
   detailPursuitCount: number;
   routeSafetyCache: V2BitRouteSafetyCacheDiagnostics;
@@ -1088,6 +1089,7 @@ export const createV2BitSystem = (
   let diagnosticAutonomousVisualTargetChanges = 0;
   let diagnosticForcedTargetChanges = 0;
   let diagnosticSphereSweeps = 0;
+  let diagnosticReinforcementSpawns = 0;
   let diagnosticSphereSweepMilliseconds = 0;
   let diagnosticRouteStepDescriptorsCreated = 0;
   let diagnosticRouteStepDescriptorsReused = 0;
@@ -1107,6 +1109,7 @@ export const createV2BitSystem = (
     sphereSweeps: 0,
     sphereSweepMilliseconds: 0,
     beamRequests: 0,
+    reinforcementSpawns: 0,
     areaPursuitCount: 0,
     detailPursuitCount: 0,
     routeSafetyCache: EMPTY_ROUTE_SAFETY_CACHE_DIAGNOSTICS
@@ -1407,6 +1410,7 @@ export const createV2BitSystem = (
     diagnosticAutonomousVisualTargetChanges = 0;
     diagnosticForcedTargetChanges = 0;
     diagnosticSphereSweeps = 0;
+    diagnosticReinforcementSpawns = 0;
     diagnosticSphereSweepMilliseconds = 0;
   };
   const measureRoutePlan = <T>(
@@ -5573,6 +5577,7 @@ export const createV2BitSystem = (
       bits.map((bit) => bit.root.position)
     )[0];
     createRuntimeBit(location, "normal");
+    if (diagnosticsEnabled) diagnosticReinforcementSpawns += 1;
   };
 
   return {
@@ -6359,6 +6364,7 @@ export const createV2BitSystem = (
           sphereSweepMilliseconds:
             diagnosticSphereSweepMilliseconds,
           beamRequests: beamRequests.length,
+          reinforcementSpawns: diagnosticReinforcementSpawns,
           areaPursuitCount,
           detailPursuitCount,
           routeSafetyCache: createRouteSafetyCacheDiagnostics()
@@ -6395,6 +6401,7 @@ export const createV2BitSystem = (
         sphereSweeps: 0,
         sphereSweepMilliseconds: 0,
         beamRequests: 0,
+        reinforcementSpawns: 0,
         areaPursuitCount: 0,
         detailPursuitCount: 0,
         routeSafetyCache: createRouteSafetyCacheDiagnostics()
@@ -6717,6 +6724,7 @@ export const createV2BitSystem = (
         sphereSweeps: 0,
         sphereSweepMilliseconds: 0,
         beamRequests: 0,
+        reinforcementSpawns: 0,
         areaPursuitCount: 0,
         detailPursuitCount: 0,
         routeSafetyCache: createRouteSafetyCacheDiagnostics()

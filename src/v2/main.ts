@@ -34,6 +34,7 @@ import { createV2TitleLayoutController } from "../ui/v2TitleLayoutController";
 import { createTitleOverlayController } from "../ui/titleOverlayController";
 import {
   createBrowserV2TitleSettingsStore,
+  V2_DEFAULT_TITLE_SETTINGS,
   type V2TitleSettingsRuntimePopulation
 } from "../v2TitleSettingsStore";
 import {
@@ -41,6 +42,7 @@ import {
   createV2RuntimeHudController
 } from "../ui/v2RuntimeHud";
 import { createV2MissionHudController } from "../ui/v2MissionHud";
+import { createV2PlayerStatusHud } from "../ui/v2PlayerStatusHud";
 import { createV2MinimapController } from "../ui/v2Minimap";
 import {
   createSchoolStageDynamicRuntime,
@@ -57,9 +59,15 @@ import {
 } from "../world/stageSpatialContext";
 import {
   createV2PerformanceDiagnostics,
+  createV2SeededRandom,
   readV2PerformanceScenario,
   V2_PERFORMANCE_TARGET_FRAME_INTERVAL_MS
 } from "./performanceDiagnostics";
+import { V2_DEBUG_MODE } from "./debugMode";
+import {
+  createV2PerformanceStressWorkload,
+  type V2StressInput
+} from "./performanceStressWorkload";
 import {
   createV2AlarmFloorVisualSystem,
   V2_ALARM_FLOOR_VISUALIZATION_ENABLED,
@@ -142,8 +150,7 @@ import {
 
 const V2_GAMEPLAY_BASE_HELP_TEXT =
   "操作説明\n" +
-  "WASD: 移動  Shift: ダッシュ\n" +
-  "F: 主操作  E: 副操作  C: 扉";
+  "WASD: 移動  Shift: ダッシュ";
 const EMPTY_NPC_COMMAND_CANDIDATES: ReturnType<
   V2SurvivalRuntime["getNpcCommandCandidates"]
 > = Object.freeze([]);
@@ -280,6 +287,7 @@ const minimapCanvas = document.getElementById(
 const minimapReadout = document.getElementById("minimapReadout") as HTMLDivElement;
 const statusInfo = document.getElementById("statusInfo") as HTMLDivElement;
 const helpPanel = document.getElementById("helpPanel") as HTMLDivElement;
+helpPanel.dataset.debugMode = String(V2_DEBUG_MODE);
 const staminaGauge = document.getElementById("staminaGauge") as HTMLDivElement;
 const titleOverlay = document.getElementById("titleOverlay") as HTMLDivElement;
 const titleCenterBlock = document.getElementById("titleCenterBlock") as HTMLDivElement;
@@ -306,7 +314,18 @@ const titleOverlayController = createTitleOverlayController({
 const createSessionStartSnapshot = (
   sessionSeed: number
 ): V2SessionStartSnapshot => {
-  const storedSettings = titleSettingsStore.get();
+  const storedSettings = performanceScenario === null
+    ? titleSettingsStore.get()
+    : performanceScenario.profile === "normal"
+      ? V2_DEFAULT_TITLE_SETTINGS
+      : {
+          ...V2_DEFAULT_TITLE_SETTINGS,
+          school: { ...V2_DEFAULT_TITLE_SETTINGS.school, roomDisorderLevel: 10 },
+          features: {
+            ...V2_DEFAULT_TITLE_SETTINGS.features,
+            alarmEnabled: performanceScenario.profile === "stress"
+          }
+        };
   const roomVariantReviewRequested = new URLSearchParams(location.search).has(
     "roomVariantReview"
   );
@@ -319,7 +338,8 @@ const createSessionStartSnapshot = (
         }
       }
     : storedSettings;
-  const fixturePopulation: V2TitleSettingsRuntimePopulation | null = performanceScenario
+  const fixturePopulation: V2TitleSettingsRuntimePopulation | null = performanceScenario !== null &&
+    performanceScenario.profile !== "normal"
     ? V2_PERFORMANCE_ACCEPTANCE_POPULATION
     : rampValidationTarget
       ? Object.freeze({
@@ -536,7 +556,7 @@ const performanceDiagnostics = performanceScenario
       engine,
       scene,
       performanceScenario,
-      V2_PERFORMANCE_ACCEPTANCE_POPULATION
+      sessionStartSnapshot.runtimePopulation
     )
   : null;
 if (performanceDiagnostics) {
@@ -724,6 +744,7 @@ const initializeRuntime = async () => {
       stage: ownedStage,
       playerSpawn,
       input: ownedInput,
+      dashMode: V2_DEBUG_MODE ? "unlimited" : "stamina",
       eyeHeightScale: settingsSnapshot.display.eyeHeightScale
     });
     const playerController = ownedPlayer;
@@ -836,7 +857,9 @@ const initializeRuntime = async () => {
         noGunPercent: settingsSnapshot.brainwash.noGunPercent
       }),
       performanceDiagnostics,
-      performanceWorkloadScenario: performanceScenario,
+      performanceWorkloadScenario: performanceScenario?.profile === "fixed-4200"
+        ? performanceScenario
+        : null,
       releaseStageTraversalForScriptedPhase: () => {
         if (ownedTraversalCoordinator === null) {
           throw new Error(
@@ -1068,6 +1091,10 @@ let ownedRuntimeHud: ReturnType<
 let ownedMissionHud: ReturnType<
   typeof createV2MissionHudController
 > | null = null;
+let ownedPlayerStatusHud: ReturnType<
+  typeof createV2PlayerStatusHud
+> | null = null;
+let ownedPerformanceStressWorkload: ReturnType<typeof createV2PerformanceStressWorkload> | null = null;
 let ownedMinimap: ReturnType<
   typeof createV2MinimapController
 > | null = null;
@@ -1099,6 +1126,7 @@ const deactivateRuntimeSynchronously = () => {
   releaseDynamicOwner("observer");
   ownedRuntimeHud?.clear();
   ownedMissionHud?.clear();
+  ownedPlayerStatusHud?.clear();
   ownedMinimap?.clear();
   ownedVoiceRuntime?.stopAll();
   ownedAudio?.stopBgm();
@@ -1120,6 +1148,7 @@ const disposeRuntimeSynchronously = () => {
   deactivateRuntimeSynchronously();
   ownedRuntimeHud?.dispose();
   ownedMissionHud?.dispose();
+  ownedPlayerStatusHud?.dispose();
   ownedMinimap?.dispose();
   releaseDynamicOwnerIfAcquired("hud");
   ownedPlayerCharacterVisual?.dispose();
@@ -1131,9 +1160,22 @@ const disposeRuntimeSynchronously = () => {
     audioDisposeStarted = true;
   }
   releaseDynamicOwnerIfAcquired("audio");
-  performanceDiagnostics?.dispose();
+  const disposedWorkloadReport = ownedPerformanceStressWorkload?.getReport() ?? null;
+  if (performanceDiagnostics !== null) {
+    const status = performanceDiagnostics.getProgress().status;
+    if (status === "collecting" || status === "draining") {
+      performanceDiagnostics.abort("session-disposed");
+    }
+    window.dispatchEvent(new CustomEvent("v2-performance-report", {
+      detail: { report: performanceDiagnostics.getReport(), workload: disposedWorkloadReport }
+    }));
+    performanceDiagnostics.dispose();
+  }
+  ownedPerformanceStressWorkload?.dispose();
   delete window.__v2PerformanceDiagnostics;
   delete document.body.dataset.v2PerformanceReport;
+  delete document.body.dataset.v2PerformanceStressWorkload;
+  delete document.body.dataset.v2PerformanceContext;
   delete document.body.dataset.v2RuntimeStressReport;
   delete document.body.dataset.v2NpcSpawnReport;
   delete document.body.dataset.v2MissionAcceptanceScenario;
@@ -1319,7 +1361,13 @@ const runtimeHud = createV2RuntimeHudController({
   camera
 });
 ownedRuntimeHud = runtimeHud;
-const missionHud = settingsSnapshot.features.missionEnabled
+const playerStatusHud = createV2PlayerStatusHud({
+  host: document.body,
+  staminaGauge
+});
+ownedPlayerStatusHud = playerStatusHud;
+const missionHud = sessionStartSnapshot.startMode === "normal" &&
+  settingsSnapshot.features.missionEnabled
   ? createV2MissionHudController({ host: document.body })
   : null;
 ownedMissionHud = missionHud;
@@ -1345,11 +1393,19 @@ const playerCharacterVisual = createV2PlayerCharacterVisual(
   characterVisuals
 );
 ownedPlayerCharacterVisual = playerCharacterVisual;
+const performanceStressWorkload = performanceScenario?.profile === "stress"
+  ? createV2PerformanceStressWorkload({ stage, dynamicRuntime, survival, player, camera,
+    replayInputs: window.__v2PerformanceStressReplayInputs ?? null })
+  : null;
+ownedPerformanceStressWorkload = performanceStressWorkload;
 const audio = new AudioManager(camera);
 ownedAudio = audio;
 acquireDynamicOwner("audio");
 const audioVolumeLevels = settingsSnapshot.audio;
 applyV2AudioVolumeLevels(audio, audioVolumeLevels);
+const audioRandom = performanceScenario === null
+  ? Math.random
+  : createV2SeededRandom(sessionSeed);
 const gameplayAudioBridge = createV2GameplayAudioBridge({
   audio,
   assets: audioAssets,
@@ -1358,7 +1414,7 @@ const gameplayAudioBridge = createV2GameplayAudioBridge({
 ownedGameplayAudioBridge = gameplayAudioBridge;
 const voiceRuntime = createV2VoiceRuntime({
   audio,
-  random: Math.random,
+  random: audioRandom,
   assignments: characterAssignments,
   baseOptions: Object.freeze({
     volume: 0.72,
@@ -1375,7 +1431,7 @@ ownedVoiceRuntime = voiceRuntime;
 loadingSession.advance();
 const bgmUrl = audioAssets.selectBgmUrl(
   SCHOOL_STAGE.label,
-  Math.random
+  audioRandom
 );
 let audioActivated = false;
 canvas.tabIndex = 0;
@@ -1393,6 +1449,17 @@ const characterViewForward = Vector3.Zero();
 const characterViewUp = Vector3.Zero();
 const playerGunDirection = Vector3.Zero();
 let performanceReportPublished = false;
+const publishPerformanceReport = () => {
+  // dispose中のabortもfinalizeのPromiseを解決する。旧sessionの遅延公開を止める。
+  if (disposed || performanceDiagnostics === null) return;
+  const report = performanceDiagnostics.getReport();
+  const workload = performanceStressWorkload?.getReport() ?? null;
+  if (workload !== null) {
+    document.body.dataset.v2PerformanceStressWorkload = JSON.stringify(workload);
+  }
+  document.body.dataset.v2PerformanceReport = JSON.stringify(report);
+  window.dispatchEvent(new CustomEvent("v2-performance-report", { detail: { report, workload } }));
+};
 const runtimeStressStartedAt = runtimeStressScenario
   ? performance.now()
   : null;
@@ -1787,7 +1854,7 @@ if (rampValidationTarget) {
   player.placeAt(placement.start, placement.end);
   started = true;
   titleOverlay.style.display = "none";
-  statusInfo.style.display = "block";
+  statusInfo.style.display = V2_DEBUG_MODE ? "block" : "none";
   helpPanel.style.display = "block";
   helpPanel.textContent =
     `箱山登坂検証 ${rampValidationTarget}\n` +
@@ -2314,7 +2381,7 @@ const startPlay = (requestPointerLock: boolean) => {
   if (!started) {
     started = true;
     titleOverlay.style.display = "none";
-    statusInfo.style.display = "block";
+    statusInfo.style.display = V2_DEBUG_MODE ? "block" : "none";
     helpPanel.style.display = "block";
     helpPanel.textContent = V2_GAMEPLAY_BASE_HELP_TEXT;
   }
@@ -2325,16 +2392,20 @@ const startPlay = (requestPointerLock: boolean) => {
 
 const updateGameplayHelp = (frame: ReturnType<typeof survival.getFrame>) => {
   if (
-    performanceScenario !== null ||
-    runtimeStressScenario !== null ||
-    rampValidationTarget !== null ||
-    elevatorNpcAcceptanceScenario !== null ||
-    schoolVisualAcceptanceScenario !== null
+    V2_DEBUG_MODE && (
+      performanceScenario?.profile === "fixed-4200" ||
+      runtimeStressScenario !== null ||
+      rampValidationTarget !== null ||
+      elevatorNpcAcceptanceScenario !== null ||
+      schoolVisualAcceptanceScenario !== null
+    )
   ) {
     return;
   }
   let nextText = V2_GAMEPLAY_BASE_HELP_TEXT;
-  if (frame.phase === "playing") {
+  if (sessionStartSnapshot.startMode === "instant-public-execution") {
+    nextText += "\nR: リプレイ  Enter: タイトルへ戻る";
+  } else if (frame.phase === "playing") {
     if (frame.playerCompletionUnlocked) {
       nextText += "\nG：銃あり  N：銃なし  H：ハイグレ";
     }
@@ -2343,6 +2414,12 @@ const updateGameplayHelp = (frame: ReturnType<typeof survival.getFrame>) => {
     nextText += "\nEnter: タイトルへ戻る";
   } else if (frame.phase === "execution-complete") {
     nextText += "\nR: リプレイ  Enter: タイトルへ戻る";
+  }
+  if (!V2_DEBUG_MODE) {
+    const unbrainwashedNpcCount = frame.npcHudCounts.unbrainwashed;
+    nextText += `\nNPC内訳 未洗脳者 ${unbrainwashedNpcCount}人  ` +
+      `洗脳済み ${frame.npcCount - unbrainwashedNpcCount}人\n` +
+      `ビット ${frame.bitCount}体`;
   }
   if (helpPanel.textContent !== nextText) {
     helpPanel.textContent = nextText;
@@ -2422,10 +2499,30 @@ eventScope.listen(window, "blur", () => {
 
 if (performanceScenario) {
   configurePerformanceView();
-  started = true;
-  titleOverlay.style.display = "none";
-  statusInfo.style.display = "block";
-  helpPanel.style.display = "block";
+  if (performanceScenario.profile === "fixed-4200") {
+    started = true;
+    titleOverlay.style.display = "none";
+    statusInfo.style.display = V2_DEBUG_MODE ? "block" : "none";
+    helpPanel.style.display = "block";
+  }
+  document.body.dataset.v2PerformanceContext = JSON.stringify({
+    catalogFingerprint: createStageCatalogFingerprint(SCHOOL_STAGE),
+    sessionSeed,
+    snapshot: sessionStartSnapshot,
+    roomVariantSelections,
+    camera: { position: camera.position.asArray(), rotation: camera.rotation.asArray(), fov: camera.fov },
+    features: survival.getFeatureResources(),
+    initialFrame: survival.getFrame(),
+    materialMode: import.meta.env.DEV ? "local-catalog" : "distribution-default",
+    characterAssignments,
+    defaultPortraitActorCount: characterAssignments.filter((assignment) => assignment.portraitDirectory === "00_default").length,
+    bgmUrl,
+    bgmCount: audioAssets.bgmUrls.length,
+    voiceDirectoryCount: audioAssets.voiceDirectories.length,
+    portraitDirectoryCount: V2_PORTRAIT_ASSET_INVENTORY.directories.length,
+    portraitFileCount: [...V2_PORTRAIT_ASSET_INVENTORY.filesByDirectory.values()]
+      .reduce((sum, files) => sum + files.size, 0)
+  });
   helpPanel.textContent =
     `性能受入計測\nseed ${performanceScenario.seed}\n` +
     `view ${performanceScenario.view}`;
@@ -2433,7 +2530,7 @@ if (performanceScenario) {
 if (runtimeStressScenario) {
   started = true;
   titleOverlay.style.display = "none";
-  statusInfo.style.display = "block";
+  statusInfo.style.display = V2_DEBUG_MODE ? "block" : "none";
   helpPanel.style.display = "block";
   helpPanel.textContent =
     `実学校stress ${runtimeStressScenario.profile}\n` +
@@ -2446,7 +2543,7 @@ if (runtimeStressScenario) {
 if (schoolVisualAcceptanceScenario) {
   started = true;
   titleOverlay.style.display = "none";
-  statusInfo.style.display = "block";
+  statusInfo.style.display = V2_DEBUG_MODE ? "block" : "none";
   helpPanel.style.display = "block";
   helpPanel.textContent =
     `学校Visual受入 ${schoolVisualAcceptanceScenario.id}\n` +
@@ -2468,7 +2565,7 @@ if (elevatorNpcAcceptanceScenario) {
   }
   started = true;
   titleOverlay.style.display = "none";
-  statusInfo.style.display = "block";
+  statusInfo.style.display = V2_DEBUG_MODE ? "block" : "none";
   helpPanel.style.display = "block";
   helpPanel.textContent =
     `エレベーターNPC受入 ${elevatorNpcAcceptanceScenario.id}\n` +
@@ -2490,34 +2587,37 @@ const renderScene = () => {
 
 engine.runRenderLoop(() => {
   try {
+    const frameDiagnostics = started ? performanceDiagnostics : null;
+    frameDiagnostics?.beginFrame();
     const actions = input.drainPressedActions();
-    performanceDiagnostics?.beginFrame();
-    if (performanceDiagnostics) {
+    if (frameDiagnostics) {
       for (const kind of stageRayQueryKinds) {
-        performanceDiagnostics.count(`ray.${kind}.queries`, 0);
-        performanceDiagnostics.count(
+        frameDiagnostics.count(`ray.${kind}.queries`, 0);
+        frameDiagnostics.count(
           `ray.${kind}.candidates`,
           0
         );
-        performanceDiagnostics.count(
+        frameDiagnostics.count(
           `ray.${kind}.intersections`,
           0
         );
-        performanceDiagnostics.count(
+        frameDiagnostics.count(
           `ray.${kind}.indexed-triangles`,
           0
         );
-        performanceDiagnostics.count(
+        frameDiagnostics.count(
           `ray.${kind}.exact-triangle-tests`,
           0
         );
       }
     }
-    const delta = performanceScenario
+    const delta = performanceScenario?.profile === "fixed-4200"
       ? V2_PERFORMANCE_TARGET_FRAME_INTERVAL_MS / 1000
       : Math.min(engine.getDeltaTime() / 1000, 0.05);
     updateElevatorNpcAcceptanceBeforeTraversal();
-    const traversalFrame = traversalCoordinator.update(delta);
+    const traversalFrame = frameDiagnostics
+      ? frameDiagnostics.measure("traversal", () => traversalCoordinator.update(delta))
+      : traversalCoordinator.update(delta);
     const playerElevatorTraversal =
       traversalCoordinator.getPlayerElevatorTraversalSnapshot();
     const nextPlayerElevatorMoving =
@@ -2544,24 +2644,30 @@ engine.runRenderLoop(() => {
     ) {
       survival.releaseAssemblyPlayerControl();
     }
-    const playerFrame = performanceDiagnostics
-      ? performanceDiagnostics.measure("player", () =>
+    let survivalFrame = survival.getFrame();
+    const dashContext = {
+      gameplayActive: started && survivalFrame.phase === "playing",
+      playerState: survivalFrame.playerState
+    };
+    const playerFrame = frameDiagnostics
+      ? frameDiagnostics.measure("player", () =>
           player.update(
             delta,
             started && survival.canPlayerMove(),
-            horizontalSpeedScale
+            horizontalSpeedScale,
+            dashContext
           )
         )
       : player.update(
           delta,
           started && survival.canPlayerMove(),
-          horizontalSpeedScale
+          horizontalSpeedScale,
+          dashContext
         );
-    let survivalFrame = survival.getFrame();
     if (started) {
       elapsedSeconds += delta;
-      survivalFrame = performanceDiagnostics
-        ? performanceDiagnostics.measure(
+      survivalFrame = frameDiagnostics
+        ? frameDiagnostics.measure(
             "survival",
             () =>
               survival.update(
@@ -2578,26 +2684,29 @@ engine.runRenderLoop(() => {
             traversalFrame.runtimeSnapshot.elevators
           );
     }
+    if (performanceStressWorkload !== null && frameDiagnostics !== null &&
+        frameDiagnostics.getProgress().status !== "complete") {
+      frameDiagnostics.measure("diagnostics", () =>
+        performanceStressWorkload.update(frameDiagnostics.getProgress().elapsedSeconds)
+      );
+    }
     updateElevatorNpcAcceptanceAfterTraversal();
     const endFlowDecision = started
-      ? dispatchV2RuntimeEndFlow(actions, survivalFrame)
+      ? dispatchV2RuntimeEndFlow(
+          actions,
+          survivalFrame,
+          sessionStartSnapshot.startMode
+        )
       : "ignored";
     if (endFlowDecision === "replay-execution") {
       if (sessionStartSnapshot.startMode === "instant-public-execution") {
-        started = false;
-        input.reset();
-        requestSessionRebuild(
-          Object.freeze({
-            startAfterCreate: true,
-            preservePointerLock: false,
-            retrySnapshot: sessionStartSnapshot,
-            retrySeed: sessionSeed
-          })
-        );
+        audio.stopAllSe();
+        survival.replayExecution();
+        voiceRuntime.resetForReplay();
       } else {
         survival.replayExecution();
-        survivalFrame = survival.getFrame();
       }
+      survivalFrame = survival.getFrame();
     } else if (endFlowDecision === "retry-normal-session") {
       started = false;
       input.reset();
@@ -2636,6 +2745,7 @@ engine.runRenderLoop(() => {
       facingYaw: characterFacingYaw
     });
     updateGameplayHelp(survivalFrame);
+    let presentationSectionStartedAt = frameDiagnostics?.beginSection("interaction") ?? 0;
     const interactionActive =
       started &&
       document.pointerLockElement ===
@@ -2673,7 +2783,9 @@ engine.runRenderLoop(() => {
       });
       survivalFrame = survival.getFrame();
     }
+    frameDiagnostics?.finishSection("interaction", presentationSectionStartedAt);
     const minimapActive = started && survivalFrame.phase === "playing";
+    presentationSectionStartedAt = frameDiagnostics?.beginSection("minimap") ?? 0;
     minimap.update({
       active: minimapActive,
       elapsedSeconds,
@@ -2691,6 +2803,8 @@ engine.runRenderLoop(() => {
       missionTargetLocationIds:
         survivalFrame.mission?.missionTargetLocationIds ?? Object.freeze([])
     });
+    frameDiagnostics?.finishSection("minimap", presentationSectionStartedAt);
+    presentationSectionStartedAt = frameDiagnostics?.beginSection("runtime-hud") ?? 0;
     runtimeHud.update({
       active: interactionActive,
       frame: survivalFrame,
@@ -2699,11 +2813,30 @@ engine.runRenderLoop(() => {
       doorCandidates,
       feedback: interactionFeedback
     });
+    playerStatusHud.update({
+      active: started,
+      frame: survivalFrame,
+      stamina: playerFrame.stamina
+    });
+    characterVisuals.updateNoGunRestraint(
+      started && survivalFrame.phase === "playing"
+        ? survivalFrame.noGunRestrainedTargetIds
+        : [],
+      elapsedSeconds
+    );
+    frameDiagnostics?.finishSection("runtime-hud", presentationSectionStartedAt);
     if (missionHud !== null && survivalFrame.mission !== null) {
+      presentationSectionStartedAt = frameDiagnostics?.beginSection("mission-hud") ?? 0;
       missionHud.update({
-        mode: resolveV2MissionHudMode(started, survivalFrame.phase),
+        mode: resolveV2MissionHudMode(
+          started,
+          survivalFrame.phase,
+          sessionStartSnapshot.startMode,
+          settingsSnapshot.features.missionEnabled
+        ),
         frame: survivalFrame.mission
       });
+      frameDiagnostics?.finishSection("mission-hud", presentationSectionStartedAt);
     }
     if (missionAcceptanceScenario !== null) {
       if (survivalFrame.mission === null) {
@@ -2823,6 +2956,7 @@ engine.runRenderLoop(() => {
           minimapReadout: minimapReadout.textContent ?? ""
         });
     }
+    presentationSectionStartedAt = frameDiagnostics?.beginSection("audio") ?? 0;
     const audioEvents = survival.drainAudioEvents();
     if (audioActivated) {
       gameplayAudioBridge.dispatch(audioEvents);
@@ -2833,11 +2967,15 @@ engine.runRenderLoop(() => {
       );
       audio.updateSpatial();
     }
+    frameDiagnostics?.finishSection("audio", presentationSectionStartedAt);
+    frameDiagnostics?.count("scenario.audio-active", audioActivated ? 1 : 0);
+    presentationSectionStartedAt = frameDiagnostics?.beginSection("alarm-visual") ?? 0;
     alarmFloorVisual?.update({
       frame: survivalFrame.alarm,
       playerFootPosition: currentPlayerTarget.footPosition,
       elapsedSeconds
     });
+    frameDiagnostics?.finishSection("alarm-visual", presentationSectionStartedAt);
     if (runtimeStressScenario) {
       runtimeStressFrameCount += 1;
       if (
@@ -2858,12 +2996,11 @@ engine.runRenderLoop(() => {
         performanceDiagnostics?.getProgress();
       if (
         performanceDiagnostics &&
-        performanceProgress?.status === "complete" &&
+        performanceProgress?.status === "draining" &&
         !performanceReportPublished
       ) {
-        document.body.dataset.v2PerformanceReport =
-          JSON.stringify(performanceDiagnostics.getReport());
         performanceReportPublished = true;
+        void performanceDiagnostics.finalize().then(publishPerformanceReport);
       }
       const performanceText = performanceProgress
         ? `\nPERF ${performanceProgress.status} ` +
@@ -2899,14 +3036,19 @@ engine.runRenderLoop(() => {
         publishRuntimeStressReport(runtimeStressStatus, null);
       }
     }
-    if (performanceDiagnostics) {
-      performanceDiagnostics.measure("render", renderScene);
-      performanceDiagnostics.finishFrame();
+    if (frameDiagnostics) {
+      frameDiagnostics.measure("render", renderScene);
+      frameDiagnostics.finishFrame(elapsedSeconds);
     } else {
       renderScene();
     }
   } catch (error) {
     engine.stopRenderLoop();
+    const performanceStatus = performanceDiagnostics?.getProgress().status;
+    if (performanceStatus === "collecting" || performanceStatus === "draining") {
+      performanceDiagnostics!.abort(formatLoadError(error));
+    }
+    publishPerformanceReport();
     minimap.clear();
     runtimeStressStatus = "failed";
     publishRuntimeStressReport(
@@ -3028,6 +3170,8 @@ const rebuildSession = (
           snapshot: requestedSnapshot
         });
       }
+      document.exitPointerLock();
+      titleOverlay.style.display = "grid";
       titleOverlayController.setError(
         `${formatLoadError(error)}\nタイトル画面をクリックすると再試行します。`
       );
@@ -3157,6 +3301,7 @@ type V2SchoolVisualAcceptanceSnapshot = Readonly<{
 
 declare global {
   interface Window {
+    __v2PerformanceStressReplayInputs?: readonly V2StressInput[] | null;
     __v2SchoolVisualAcceptance?: Readonly<{
       setPose(
         pose: V2SchoolVisualAcceptancePose

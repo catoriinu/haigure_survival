@@ -94,6 +94,7 @@ import type {
   V2PerformanceDiagnostics,
   V2PerformanceScenario
 } from "./performanceDiagnostics";
+import type { V2StressWorkloadSnapshot } from "./performanceStressWorkload";
 import {
   createV2TargetNavigationAreaTracker,
   type V2TargetNavigationAreaTracker
@@ -123,6 +124,7 @@ import {
   V2_PLAYER_BLOCK_RADIUS,
   areAllV2HumansBrainwashed,
   canV2SurvivalPlayerMove,
+  collectV2NoGunRestrainedTargetIds,
   createV2ExecutionBitPositions,
   selectV2ExecutionAudienceIds,
   selectV2PlayerBlockedNpcIds
@@ -241,6 +243,7 @@ export type V2SurvivalFrame = Readonly<{
   alarmTriggerCount: number;
   alarm: V2AlarmFrame;
   captureCount: number;
+  noGunRestrainedTargetIds: readonly string[];
   executionVariant: V2ExecutionVariant | null;
   executionPlayerRole: V2ExecutionPlayerRole | null;
   executionPendingTargetIds: readonly string[];
@@ -316,6 +319,7 @@ export const summarizeV2TargetTracking = (
 export interface V2SurvivalRuntime {
   activateStartupScenario(): boolean;
   getFeatureResources(): V2SurvivalFeatureResources;
+  getStressWorkloadSnapshot(): V2StressWorkloadSnapshot;
   prepareVisualResources(): Promise<void>;
   update(
     deltaSeconds: number,
@@ -1773,6 +1777,17 @@ constructionDependencies: V2SurvivalConstructionDependencies = Object.freeze({})
     const executionFrame = executionSystem.getFrame();
     const currentAssemblyVenue =
       frozenAssemblyVenue ?? getInstructionAssemblyVenue();
+    // 表示用の近接拘束は現在状態から求め、操作切替前の対象を表示へ持ち越さない。
+    const noGunRestrainedTargetIds = phase === "playing"
+      ? collectV2NoGunRestrainedTargetIds(
+          selectV2PlayerBlockedNpcIds(
+            playerStateSnapshot.state,
+            player.getFootPosition(),
+            npcFrameView.targets
+          ),
+          npcFrameView.captures
+        )
+      : Object.freeze([]);
     return Object.freeze({
       phase,
       assemblyVenueId: currentAssemblyVenue.id,
@@ -1794,6 +1809,7 @@ constructionDependencies: V2SurvivalConstructionDependencies = Object.freeze({})
       alarmTriggerCount,
       alarm: alarmFrame,
       captureCount: npcFrameView.captures.length,
+      noGunRestrainedTargetIds,
       executionVariant:
         executionFrame.candidate?.variant ?? null,
       executionPlayerRole:
@@ -1878,6 +1894,34 @@ constructionDependencies: V2SurvivalConstructionDependencies = Object.freeze({})
       minimapActorSnapshots = buildMinimapActorSnapshots();
       frame = buildFrame();
       return true;
+    },
+    getStressWorkloadSnapshot: () => {
+      assertActive();
+      const npcTracking = npcSystem.getFrameView().tracking;
+      const bitTracking = bitSystem.getFrameView().targetStates;
+      const countPersonalities = (actors: readonly Readonly<{
+        targetSelectionPersonality: "persistent" | "nearest-visible" | null;
+        targetId: string | null;
+      }>[], targetedOnly: boolean) => {
+        let persistent = 0;
+        let nearestVisible = 0;
+        for (const actor of actors) {
+          if (targetedOnly && actor.targetId === null) continue;
+          if (actor.targetSelectionPersonality === "persistent") persistent += 1;
+          if (actor.targetSelectionPersonality === "nearest-visible") nearestVisible += 1;
+        }
+        return Object.freeze({ persistent, nearestVisible });
+      };
+      return Object.freeze({
+        populationBitCount: bitSystem.getFrameView().populationBitCount,
+        npcPersonalities: countPersonalities(npcTracking, false),
+        bitPersonalities: countPersonalities(bitTracking, false),
+        targetedNpcPersonalities: countPersonalities(npcTracking, true),
+        targetedBitPersonalities: countPersonalities(bitTracking, true),
+        followerIds: Object.freeze(npcTracking.filter((npc) => npc.commandMode === "follow").map((npc) => npc.npcId)),
+        scheduledFollowerShotIds: Object.freeze(npcTracking.filter((npc) => npc.followerFirePhase === "scheduled").map((npc) => npc.npcId)),
+        activeFollowerShotIds: Object.freeze(npcTracking.filter((npc) => npc.followerFirePhase === "active").map((npc) => npc.npcId))
+      });
     },
     getFeatureResources: () => {
       assertActive();
@@ -2268,6 +2312,7 @@ constructionDependencies: V2SurvivalConstructionDependencies = Object.freeze({})
             "bit.beam-requests",
             bitDiagnostics.beamRequests
           );
+          performanceDiagnostics.count("bit.reinforcement-spawns", bitDiagnostics.reinforcementSpawns);
         }
         previousBitThreats = buildBitThreats(
           bitFrameView,
@@ -2326,7 +2371,9 @@ constructionDependencies: V2SurvivalConstructionDependencies = Object.freeze({})
           performanceSectionStartedAt
         );
 
+        performanceSectionStartedAt = performanceDiagnostics?.beginSection("mission") ?? 0;
         updateMissionFrame(deltaSeconds, elevators);
+        performanceDiagnostics?.finishSection("mission", performanceSectionStartedAt);
         if (phase === "playing") {
           alertCoordinator.publish([
             ...npcSystem.drainAlertRequests(),
@@ -2448,7 +2495,9 @@ constructionDependencies: V2SurvivalConstructionDependencies = Object.freeze({})
         }
         npcSystem.drainBeamRequests();
         npcSystem.drainAlertRequests();
+        performanceSectionStartedAt = performanceDiagnostics?.beginSection("mission") ?? 0;
         updateMissionFrame(deltaSeconds, elevators);
+        performanceDiagnostics?.finishSection("mission", performanceSectionStartedAt);
       }
 
       if (phase === "execution") {
@@ -2517,6 +2566,7 @@ constructionDependencies: V2SurvivalConstructionDependencies = Object.freeze({})
         }
         const npcFrameView = npcSystem.getFrameView();
         const bitFrameView = bitSystem.getFrameView();
+        performanceDiagnostics.count("bit.population-count", bitFrameView.populationBitCount);
         performanceDiagnostics.count(
           "scenario.alive-targets",
           aliveTargetCount
@@ -2913,9 +2963,13 @@ constructionDependencies: V2SurvivalConstructionDependencies = Object.freeze({})
     },
     replayExecution: () => {
       assertActive();
-      if (phase !== "execution-complete") {
+      const instantExecution = startupScenario !== null;
+      if (
+        phase !== "execution-complete" &&
+        !(instantExecution && phase === "execution")
+      ) {
         throw new Error(
-          "公開処刑リプレイは処刑完了後に開始してください。"
+          "公開処刑リプレイは完了後、または即時公開処刑の処刑中に開始してください。"
         );
       }
       const candidate = executionSystem.getFrame().candidate;
@@ -2924,11 +2978,13 @@ constructionDependencies: V2SurvivalConstructionDependencies = Object.freeze({})
       }
       clearCombatForPhaseTransition();
       prepareExecutionTargetStates(candidate);
-      const replayFrame = executionSystem.replay();
+      const replayFrame = executionSystem.replay(
+        instantExecution ? "preserve" : "reshuffle"
+      );
       prepareExecutionParticipantStates(
         candidate,
         replayFrame,
-        false
+        instantExecution
       );
       applyExecutionPlacements(replayFrame);
       phase = "execution";

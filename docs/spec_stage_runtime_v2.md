@@ -1,6 +1,6 @@
 # HAIGURE SURVIVAL v2 3Dステージランタイム仕様書
 
-更新日: 2026-08-29
+更新日: 2026-09-06
 対象バージョン: v2
 
 ## 1. 文書の位置付け
@@ -444,7 +444,7 @@ B04対応ステージの`BND_WorldLimit`は、表示と光線が存在してよ�
 
 BITの通常探索、待機、CHASE、逃走、総当たり探索、Alert集合、初期出現、時間増援は既存の塀内飛行帯だけを利用する。選択された`player_spawn_exclusion`だけを初期洗脳済みNPC、初期BIT、時間増援、Alert新規生成へ適用し、未選択の10件はこの理由で除外しない。B04は外周飛行帯と塀越え`boundary`遷移を追加しない。
 
-通常ゲームは`initialBitCount=1`、`bitReinforcementIntervalSeconds=10`、`maximumBitCount=25`を必須入力とする。通常BITとAlert生成BITを上限へ含め、カーペット僚機は除外する。増援タイマーは`playing`のupdate中だけ進め、タイトル、停止、集合・公開処刑、ゲーム終了、破棄中は進めない。Alert生成を時間増援より先に処理し、interval超過時も`while`ではなく1機だけ生成してtimerを0に戻す。上限中はtimerを0に保ち、欠員後のcatch-up burstを行わない。stressは初期20／最大20、performanceは初期50／最大50とする。
+通常ゲームは`initialBitCount=1`、`bitReinforcementIntervalSeconds=10`、`maximumBitCount=25`を必須入力とする。通常BITとAlert生成BITを上限へ含め、カーペット僚機は除外する。増援タイマーは`playing`のupdate中だけ進め、タイトル、停止、集合・公開処刑、ゲーム終了、破棄中は進めない。Alert生成を時間増援より先に処理し、interval超過時も`while`ではなく1機だけ生成してtimerを0に戻す。上限中はtimerを0に保ち、欠員後のcatch-up burstを行わない。`schoolStress=baseline`はBIT初期20／最大20、`schoolStress=high`、`performance=stress`、`performance=acceptance`はBIT初期50／最大50とする。`performance=normal`は通常ゲームと同じ初期1／最大25を使用する。各入口の人口、時間軸、判定目的は14.1節のとおり分ける。
 
 ### 9.1 集合・公開処刑会場
 
@@ -643,3 +643,15 @@ T05-1Aが提供する帯別NavMeshと接続グラフへ、T05-1Bが以下の実�
 - 学校の破棄・再読込後にScene資源、NavMesh、イベント購読が増加しない。
 - Web開発版、Web本番ビルド、Electronビルドで同じ人間用NavMeshとビット用bundleを読める。
 - UTF-8 BOMなし、括弧対応、`git diff --check`、GLB・両NavMeshハッシュ監査が成功する。
+
+### 14.1 T07性能・保持検証
+
+T07では`performance=normal`、`performance=stress`、`performance=acceptance`を`src/v2/performanceDiagnostics.ts`の同一collectorで計測する。`normal`は1920×1080、DPR 1、固定seed・校庭視点、`V2_DEFAULT_TITLE_SETTINGS`のNPC 50、初期洗脳20%＝10、BIT初期1・10秒増援・最大25、荒れ度2、Mission ON、Alarm OFFを維持し、最初の`playing` frameから実時間`[0,10)`のcoldと`[10,70)`のsteadyを分ける。
+
+`stress`はPlayer 1、NPC 99、初期洗脳済み66、BIT 50、荒れ度10、Alarm ON、20室の荒れvariantで、最初の`playing` frameから実時間`[0,120)`を計測する。通常Runtimeの判定を通る意味requestを保存・再生し、複数NPCへの接近配置とFollowを短時間に連続させる募集burst、Player射撃、扉、エレベーターを実行して、Follower、同期射撃、動的空間、各標的選択個性の負荷成立を証拠化する。60fpsは合格条件とせず、120秒完走、負荷成立、診断・warning・error、最終owner解放、保持観測を分けて判定する。変更前後各3回の中央値でCPU frame work、frame interval、旧totalのp95／p99と主heap指標`usedSize`を比較し、各指標の悪化5%以内を要求する。
+
+`performance=acceptance`は内部`fixed-4200`として、固定delta 1/60のcold 600 frame＋steady 3,600 frameを維持する。これはI3／T06-1との歴史的比較であり、実時間normal 70秒またはstress 120秒の合否と5%比較元には使用しない。`schoolStress=baseline`の50／10／20・600秒と`schoolStress=high`の99／66／50・120秒も、壁時間、人口、phase、終了を主に確認する既存Runtime stress入口として別に維持する。
+
+同一collectorはCPU frame work、次callbackまでのframe interval、旧total frame、CPU section、GPU、heap、Long Taskを分離する。取得不能な指標は`null`とavailabilityで表し、0に置き換えない。最終callback後のLong Task通知をdrainしてからreportを確定する。stressの同一入力は意味request列のhashで確認し、record runを変更前または変更後の比較値へ混ぜない。
+
+強制GCは性能計測窓内では行わない。session再開始の保持観測ではnormal 70秒の完了後にGCし、同じrendererでRとEnter→Canvasを交互に使って3回以上のsessionを生成する。各GC直前に媒体観測ログをNode側へ退避してrenderer側配列を空にし、性能report履歴は最新1件だけ保持する。最終session後は`beforeunload`による全owner解放後にもGCする。主heap指標はCDP `Runtime.getHeapUsage()`の`usedSize`とし、複数runの分布、DOM／listener傾向、動的・静的ownerの解放状態を併せて判定する。14節の`static-only baseline`は動的owner残留0を測る所有基準であり、T07の変更前性能baselineとは別である。

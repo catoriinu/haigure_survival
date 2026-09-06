@@ -1,6 +1,6 @@
 # HAIGURE SURVIVAL 技術・アーキテクチャ仕様書
 
-更新日: 2026-08-29
+更新日: 2026-09-06
 対象バージョン: v1.3.1実装記録（V2現行規定を追補）
 v1.3.1実装記録の基準develop: `0c8b438`
 
@@ -21,6 +21,66 @@ V2のステージ実行契約は現行の[V2ステージランタイム仕様書
 - session seedから`core`、`player-spawn`、`npc-spawn`、`bit-spawn`の独立乱数列を派生する。NPCは5個の`npc_spawn` Volumeによる全校チャンネルを重み`1.0`で常に残し、選択Player開始地点へ明示対応する`npc_spawn_bias`チャンネルを`hs_weight`で加える。初期値`0.5`では全校`2/3`・近傍`1/3`でチャンネルを選び、各チャンネル内は現在の人間用NavMeshとの実交差面積比例で抽選する。BITは全11許可飛行帯の`bit_spawn` VolumeとBIT用NavMeshとの実交差面積を重みにして連続面上から抽選する。
 - 初期洗脳済みNPCを選択開始地点の除外Volume外へ先に配置し、通常NPCは全NPC間距離を引き継いで後から配置する。初期BIT、時間増援、Alertだけに選択開始地点の除外Volumeを適用する。
 - V2通常設定はBIT初期1機、10秒間隔、最大25機とする。通常BITとAlertを上限へ含め、カーペット僚機は除外する。増援時間はplaying中だけ進み、上限中は0へ戻し、欠員後も1間隔につき1機だけ生成してcatch-up burstを行わない。
+
+### 0.1 V2起動診断表示
+
+`src/v2/bootstrap.ts`はloading UIを初回描画してから`src/v2/main.ts`を動的読込し、`src/v2/startupDiagnostics.ts`が`loading`、`stalled`、`failed`、`running`、`unloading`を管理する。起動から15秒未満の`loading`では既存の`NOW LOADING`と進捗を表示する。15秒以上継続した場合は`#titleStatusSlot`の`data-startup-diagnostics-state="stalled"`と起動診断専用の`#startupDiagnosticsMessage`を使い、読込継続中、停止phase、経過秒を表示する。`failed`では同じ属性を`failed`として同要素だけに起動エラーを表示し、`running`と`unloading`では属性と文面を消す。
+
+`#titleStartHint`と`#titleMessage`は`titleOverlayController`が所有し、起動診断は両要素の子Node、本文、inline displayを変更しない。長時間loadingと失敗表示は、通常loading、Canvas再試行、設定反映待ち、2行の開始注記と重複させない。
+
+### 0.2 T07性能計測と検証入口
+
+V2性能計測は`src/v2/performanceDiagnostics.ts`の同一collectorを使用し、次の3 profileを区別する。
+
+| profile | 入口と時間軸 | 用途 |
+|---|---|---|
+| `normal` | `performance=normal`。最初の`playing` frame入口を実時間0秒とし、`[0,10)`をcold、`[10,70)`をsteadyとする | `V2_DEFAULT_TITLE_SETTINGS`による通常構成の絶対性能受入 |
+| `stress` | `performance=stress`。最初の`playing` frame入口から実時間`[0,120)`とする | 99 NPC、初期洗脳済み66、BIT 50、荒れ度10、Alarm有効の最大構成における完走、負荷成立、診断、保持、同条件前後比較。60fpsの合格条件には使用しない |
+| `fixed-4200` | URLの`performance=acceptance`を内部で正規化し、固定delta 1/60でcold 600 frameとsteady 3,600 frameを採取する | I3／T06-1由来の歴史的比較。実時間70秒または120秒へ読み替えない |
+
+3 profileはCPU frame work、次callbackまでのframe interval、旧`max(work, previous interval)`によるtotal、CPU section、Babylon render／mesh／draw call、GPU、計測区間内heap、Long Taskを別fieldで記録する。利用できないGPUやheapは`null`、機能の利用可否は`availability`へ保存し、0で補完しない。未完了と中断は`complete`から分け、`aborted`と理由を保持する。Long Taskは`entry.startTime`で窓へ帰属させ、最終frame interval後の遅延通知をdrainしてreportを確定し、report退避後にobserverを破棄する。
+
+`normal`はcold／steadyの各runでframe intervalのp95を16.7ms以下、p99を25ms以下、最大を50ms以下、50ms超Long Taskを0件とする。`stress`はWeb／Electronを変更前後各3回採取し、`validation/v2/T07/comparePerformance.mjs`で中央値を比較する。CPU frame work、frame interval、旧totalのp95／p99と、計測後GCの主heap指標`usedSize`はそれぞれ悪化5%以内を条件とする。`backingStorageSize`は補助heap指標とし、取得不能または条件不一致を`unavailable`／`incomparable`から合格へ変換しない。
+
+`stress`の操作負荷はraw key eventではなく、Player配置、完了状態選択、Follow、Player射撃、扉toggle、エレベーター呼出の意味requestとして記録・再生する。複数NPCへの接近配置とFollowを短時間に連続させる募集burstを含める。要求時刻、順序、ID、引数からhashを作り、同一runtimeの変更前後で同じrequest列を使う。実行時刻、許否、解決後配置はresultとして分離し、通常Runtimeの状態、距離、視線、NavMesh、安全判定を迂回しない。
+
+強制GCは各性能計測窓内では実行しない。`validation/v2/T07/runRetainedHeap.mjs`は同一rendererでnormal完了とsession再開始を反復し、各GC直前に媒体観測ログをNode側へ退避してrenderer側配列を空にし、性能report履歴も最新1件だけ保持する。主heap指標はCDP `Runtime.getHeapUsage()`の`usedSize`とし、`backingStorageSize`、`performance.memory`、DOM／listener、Runtime owner状態は補助証拠として分ける。heap差だけで保持リーク0件と断定しない。
+
+検証入口は`validation/v2/T07/runPerformance.mjs`、`comparePerformance.mjs`、`runRetainedHeap.mjs`、`runRegression.mjs`、`runStartupUi.mjs`、独立fixtureの`measurementRunner.mjs`とし、引数と証拠構成は`validation/v2/T07/README.md`を正本とする。変更前後ではruntime、端末・GPU・電源、1920×1080、DPR、seed、視点、人口、描画条件、素材fingerprint、入力request hash、計測器を一致させる。source identityは変更前・変更後の各3回内で固定し、両群の差分が対象の製品変更であることを照合する。
+
+2026-09-06のユーザー訂正以降、新しいbuildと試験はWeb版だけを対象とする。上記のElectron計測はT07実施済み履歴の条件を表し、今後の受入条件には使用しない。Web buildは`npm run build:renderer`を使用する。
+
+### 0.3 V2プレイ中HUDとデバッグ表示
+
+`src/v2/debugMode.ts`の`V2_DEBUG_MODE`で詳細診断表示を切り替える。通常のテストプレイとcommitは`false`とし、画面上の設定や永続化項目は設けない。
+
+- 通常モードでは詳細診断を非表示にし、ミニマップ下（左12px・上204px）へ操作説明を表示する。末尾に「NPC内訳 未洗脳者 n人  洗脳済み n人」「ビット n体」を加える。
+- 未洗脳者は`frame.npcHudCounts.unbrainwashed`、洗脳済みは`frame.npcCount`との差で求め、hit-a／hit-b／progressを含む洗脳済み系状態を数える。戦闘用`brainwashedNpcCount`の定義は変更しない。
+- ビットは`frame.bitCount`を使用し、出現演出開始から通常人口として数える。未出現の増援と、カーペット射撃の一時僚機は含めない。
+- デバッグモードではミニマップ下に詳細診断、左下に操作説明を表示する。非表示時も詳細テキストの更新を維持し、既存QAが状態を読み取れるようにする。
+- F／E／Cは成立した対象のHUDに表示し、操作説明へ常設しない。G／N／Hは解禁時だけ、R／Enterは現在フェーズに応じて表示する。
+- 操作説明と詳細診断はMission HUDと同じ明るい境界線、角丸、半透明背景、影、文字の調子を使用する。高さ400px以下では通常操作説明の文字と余白を縮め、解禁後の6行表示を下部のPlayer操作表示より上へ収める。
+- ミニマップ右の現在位置パネルも同じデザインを使用する。ミニマップ、Mission Location名、NPC／Follower現在地は`formatV2LocationDisplayName`を共用し、「3F-4F 北東階段」「4F-屋上 北東階段」などの階範囲名や、先頭・末尾に階名を含む「屋上プールサイド」「校舎屋上」へ現在階を重ねて付けない。通常室は「3F 美術室」のように現在階を付ける。
+- 解禁後の下部操作案内は「G：銃あり 左クリック：発射  N：銃なし  H：ハイグレポーズ」とし、群内は半角1空白、群間は半角2空白を維持する。現在の群と枠はgunが黄緑`#9cff57`、no-gunが水色`#61e8ff`、progress／haigureが黄色`#ffd166`、他の群は白`#f5f5f5`にする。
+- 下部操作案内のモード変更時は同行・扉と共通の180ms発光を使う。同一モードの連続更新と初回表示では再発光せず、非表示時に残光を解除する。中央配置の`translate`と発光の`scale`を分離し、発光中もパネルの中心を保つ。
+
+### 0.4 V2ダッシュ体力と銃なし拘束表示
+
+- 通常モードのダッシュは`src/v2/playerStamina.ts`がV1最終仕様を保持する。最大15.0を150段階で管理し、移動入力を伴うShiftで0.1秒ごとに1段階消費、非消費時は0.2秒ごとに1段階回復する。0のままShiftと移動を保持すると回復しない。洗脳系状態は満タンを維持する。倍率は2倍で、デバッグモードは体力制限なしとする。
+- 体力の更新は`playing`中に限り、他フェーズでは消費・回復timerをリセットする。`createV2PlayerController`の`dashMode`と`update`のゲーム進行・Player状態を必須入力とし、旧Runtimeを参照しない。新sessionとPlayerのspawn resetで体力を初期化する。
+- `src/ui/v2PlayerStatusHud.ts`は通常モードの`playing`中だけ左の体力ゲージを表示する。通常色は`#f5f5f5`、洗脳系状態はV1と同じ`#ff66b5`。高さ800px以下ではミニマップ右の現在位置表示の下へ縮小配置し、操作説明への重なりを避ける。タイトル・終了・session破棄時に消す。
+- `V2SurvivalFrame.noGunRestrainedTargetIds`は現在Player銃なしの近接拘束とNPCの`captures[].targetId`を重複除去して公開する。拘束する側のNPCや通常被弾による移動停止は対象へ含めず、表示側で距離を再判定しない。
+- NPC拘束は`v2CharacterVisualRuntime`が補間済み足元へ高さ0.3mの赤い帯を描画する。幅はCharacter画像、向きはupright時に水平yawへ合わせる。camera-facing時はカメラの上方向とbillboardを使い、Spriteと同じview平面の下端へ合わせる。下端alpha約0.96から上端0への共有グラデーション、2秒周期の明滅を使用する。alpha cutoffと深度書込・小さなdepth biasでCharacter、壁、ガラスの前後関係を保つ。帯MeshをActor、共有Material／TextureをCharacter Runtimeが破棄する。
+- Player拘束は画面下辺40pxの赤いグラデーションを2秒周期で明滅させる。通常・デバッグ共通で、拘束解除と`playing`終了時に消す。既存の拘束距離・時間・移動可否は変更しない。
+- タイトルの機能名は「アラーム床」とし、保存fieldは従来の`features.alarmEnabled`を維持する。
+
+### 0.5 いきなり公開処刑の再開操作とミッション表示
+
+- いきなり公開処刑は処刑中・処刑完了後ともRで同じsession内の処刑をリプレイし、Enterでタイトルへ戻る。Rは設定・実人口・会場・人物ごとの画像とボイス割当・配置・射手担当を保持する。BIT／NPCの発射タイミング（同時／時間差の判定と待機時間）だけを再抽選し、session seedと動的所有者を維持する。
+- `survival.replayExecution()`は弾・被弾・対象状態・参加者の役割・配置を初期化する。いきなり公開処刑は途中再開も受理し、instant用の参加者状態と射手割当を保つ。素材読込、タイトル表示、追加クリックを要求せず、CanvasのPointer Lockを維持する。
+- いきなり公開処刑のRでは`audio.stopAllSe()`と`voiceRuntime.resetForReplay()`が旧SE／VOICEを停止する。音声profileと媒体poolを保持し、次の状態更新で同一状態の観客loopも開始し直す。BGMは継続する。実際にsessionを構築するタイトル復帰・設定反映・再試行では読み込み表示を行い、失敗時はPointer Lockを解除する。
+- `dispatchV2RuntimeEndFlow`は開始mode、`resolveV2MissionHudMode`は開始modeとMission有効設定を必須で受け取る。サバイバルの既存R／Enter規則は維持する。
+- Mission HUDはサバイバルかつMission有効の場合だけ生成する。通常プレイでは進行中ミッション、整列・公開処刑・処刑完了ではミッション結果を表示する。タイトルといきなり公開処刑では表示しない。
 
 以下の第1～16節はv1.3.1／旧T02時点の実装を追跡する付録として残す。V2実装との不一致は本節、`docs/spec_stage_runtime_v2.md`、`docs/spec_stage_assets_v2.md`を優先する。
 

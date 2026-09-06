@@ -17,10 +17,18 @@ export const V2_PERFORMANCE_COLD_FRAME_COUNT =
 export const V2_PERFORMANCE_STEADY_FRAME_COUNT =
   V2_PERFORMANCE_STEADY_DURATION_SECONDS *
   V2_PERFORMANCE_TARGET_FRAMES_PER_SECOND;
+export const V2_PERFORMANCE_STRESS_DURATION_SECONDS = 120;
 
 export type V2PerformanceView = "courtyard" | "away";
+export type V2PerformanceProfile = "fixed-4200" | "normal" | "stress";
+export type V2PerformanceStatus =
+  | "collecting"
+  | "draining"
+  | "complete"
+  | "aborted";
 
 export type V2PerformanceScenario = Readonly<{
+  profile: V2PerformanceProfile;
   seed: number;
   view: V2PerformanceView;
 }>;
@@ -42,7 +50,16 @@ export type V2PerformanceSection =
   | "bit"
   | "execution"
   | "frame-build"
-  | "render";
+  | "render"
+  | "traversal"
+  | "interaction"
+  | "minimap"
+  | "runtime-hud"
+  | "mission-hud"
+  | "audio"
+  | "alarm-visual"
+  | "diagnostics"
+  | "mission";
 
 export type V2PerformanceMetricSummary = Readonly<{
   sampleCount: number;
@@ -63,12 +80,13 @@ export type V2PerformanceWindowReport = Readonly<{
   firstSampleElapsedSeconds: number | null;
   lastSampleElapsedSeconds: number | null;
   coveredDurationSeconds: number;
+  frameIntervalTimeMs: V2PerformanceMetricSummary;
   totalFrameTimeMs: V2PerformanceMetricSummary;
   frameWorkTimeMs: V2PerformanceMetricSummary;
   sectionTimeMs: Readonly<
     Partial<Record<V2PerformanceSection, V2PerformanceMetricSummary>>
   >;
-  renderTimeMs: V2PerformanceMetricSummary;
+  renderTimeMs: V2PerformanceMetricSummary | null;
   activeMeshEvaluationTimeMs: V2PerformanceMetricSummary;
   gpuFrameTimeMs: V2PerformanceMetricSummary | null;
   drawCalls: V2PerformanceMetricSummary;
@@ -82,8 +100,21 @@ export type V2PerformanceWindowReport = Readonly<{
   longestTaskMs: number;
 }>;
 
+export type V2PerformanceSlowWorkFrame = Readonly<{
+  // 最初の計測frameを0とする。elapsedSecondsはprofileの計測窓と同じ時間軸。
+  frameIndex: number;
+  elapsedSeconds: number;
+  frameStartedAtMilliseconds: number;
+  frameWorkTimeMs: number;
+  sectionTimeMs: Readonly<Partial<Record<V2PerformanceSection, number>>>;
+  counters: Readonly<Record<string, number>>;
+}>;
+
 export type V2PerformanceReport = Readonly<{
-  status: "collecting" | "complete";
+  schemaVersion: 2;
+  profile: V2PerformanceProfile;
+  status: V2PerformanceStatus;
+  abortReason: string | null;
   seed: number;
   view: V2PerformanceView;
   targetFramesPerSecond: number;
@@ -91,6 +122,15 @@ export type V2PerformanceReport = Readonly<{
   renderWidth: number;
   renderHeight: number;
   elapsedSeconds: number;
+  wallElapsedSeconds: number;
+  simulationElapsedSeconds: number;
+  measurementStartedAtMilliseconds: number | null;
+  measurementEndedAtMilliseconds: number | null;
+  finalFrameCallbackAtMilliseconds: number | null;
+  sampledFrameCount: number;
+  slowestWorkFrames: readonly V2PerformanceSlowWorkFrame[];
+  finalFrameIntervalObserved: boolean;
+  longTasksDrained: boolean;
   availability: Readonly<{
     gpuFrameTime: boolean;
     heap: boolean;
@@ -98,24 +138,29 @@ export type V2PerformanceReport = Readonly<{
   }>;
   cold: V2PerformanceWindowReport;
   steady: V2PerformanceWindowReport;
+  stress: V2PerformanceWindowReport | null;
   acceptance: Readonly<{
+    status: "incomplete" | "passed" | "failed" | "external-validation-required";
     sampleWindowsComplete: boolean;
     renderSizeIs1920x1080: boolean;
-    populationIs99x66x50: boolean;
+    populationMatchesProfile: boolean;
     populationStayedAtExpectedCounts: boolean;
     initialBrainwashedNpcCountWasExpected: boolean;
+    bitReinforcementObserved: boolean;
     combatWorkloadObserved: boolean;
     p95AtMost16Point7Ms: boolean;
     p99AtMost25Ms: boolean;
     maximumAtMost50Ms: boolean;
     longTaskCountIsZero: boolean;
-    passed: boolean;
+    passed: boolean | null;
   }>;
 }>;
 
 export type V2PerformanceProgress = Readonly<{
-  status: "collecting" | "complete";
+  status: V2PerformanceStatus;
   elapsedSeconds: number;
+  wallElapsedSeconds: number;
+  simulationElapsedSeconds: number;
   renderWidth: number;
   renderHeight: number;
 }>;
@@ -133,13 +178,16 @@ export interface V2PerformanceDiagnostics {
     operation: () => T
   ): T;
   count(name: string, value?: number): void;
-  finishFrame(): void;
+  finishFrame(simulationElapsedSeconds: number): void;
+  finalize(): Promise<V2PerformanceReport>;
+  abort(reason: string): void;
   getProgress(): V2PerformanceProgress;
   getReport(): V2PerformanceReport;
   dispose(): void;
 }
 
 type MutableWindowSamples = {
+  frameIntervalTimeMs: number[];
   totalFrameTimeMs: number[];
   frameWorkTimeMs: number[];
   sectionTimeMs: Map<V2PerformanceSection, number[]>;
@@ -154,6 +202,7 @@ type MutableWindowSamples = {
   longTaskDurationsMs: number[];
   firstSampleElapsedSeconds: number | null;
   lastSampleElapsedSeconds: number | null;
+  lastIntervalEndElapsedSeconds: number | null;
 };
 
 type PerformanceWithMemory = Performance &
@@ -166,6 +215,7 @@ type PerformanceWithMemory = Performance &
   >;
 
 const createWindowSamples = (): MutableWindowSamples => ({
+  frameIntervalTimeMs: [],
   totalFrameTimeMs: [],
   frameWorkTimeMs: [],
   sectionTimeMs: new Map(),
@@ -179,7 +229,8 @@ const createWindowSamples = (): MutableWindowSamples => ({
   counters: new Map(),
   longTaskDurationsMs: [],
   firstSampleElapsedSeconds: null,
-  lastSampleElapsedSeconds: null
+  lastSampleElapsedSeconds: null,
+  lastIntervalEndElapsedSeconds: null
 });
 
 const percentile = (
@@ -251,14 +302,17 @@ const buildWindowReport = (
       samples.lastSampleElapsedSeconds,
     coveredDurationSeconds:
       samples.firstSampleElapsedSeconds === null ||
-      samples.lastSampleElapsedSeconds === null
+      samples.lastIntervalEndElapsedSeconds === null
         ? 0
-        : samples.lastSampleElapsedSeconds -
+        : samples.lastIntervalEndElapsedSeconds -
           samples.firstSampleElapsedSeconds,
+    frameIntervalTimeMs: summarize(samples.frameIntervalTimeMs),
     totalFrameTimeMs: summarize(samples.totalFrameTimeMs),
     frameWorkTimeMs: summarize(samples.frameWorkTimeMs),
     sectionTimeMs: summarizeMap(samples.sectionTimeMs),
-    renderTimeMs: summarize(samples.renderTimeMs),
+    renderTimeMs: samples.renderTimeMs.length > 0
+      ? summarize(samples.renderTimeMs)
+      : null,
     activeMeshEvaluationTimeMs: summarize(
       samples.activeMeshEvaluationTimeMs
     ),
@@ -338,8 +392,22 @@ export const readV2PerformanceScenario = (
   search: string
 ): V2PerformanceScenario | null => {
   const parameters = new URLSearchParams(search);
-  if (parameters.get("performance") !== "acceptance") {
+  const requestedProfile = parameters.get("performance");
+  if (requestedProfile === null) {
     return null;
+  }
+  const profile: V2PerformanceProfile =
+    requestedProfile === "acceptance"
+      ? "fixed-4200"
+      : requestedProfile === "normal" || requestedProfile === "stress"
+        ? requestedProfile
+        : (() => {
+            throw new Error(
+              "performanceにはacceptance、normal、stressのいずれかが必要です。"
+            );
+          })();
+  if (profile !== "fixed-4200" && !parameters.has("seed")) {
+    throw new Error("実時間性能計測にはseedの明示指定が必要です。");
   }
   const requestedView = parameters.get("view");
   const view: V2PerformanceView =
@@ -353,6 +421,7 @@ export const readV2PerformanceScenario = (
             );
           })();
   return Object.freeze({
+    profile,
     seed: parseSeed(parameters.get("seed")),
     view
   });
@@ -369,237 +438,193 @@ export const createV2SeededRandom = (seed: number) => {
   };
 };
 
-export const createV2PerformanceDiagnostics = (
-  engine: Engine,
-  scene: Scene,
-  scenario: V2PerformanceScenario,
-  population: V2PerformancePopulation
-): V2PerformanceDiagnostics => {
-  const sceneInstrumentation = new SceneInstrumentation(scene);
-  const engineInstrumentation = new EngineInstrumentation(engine);
-  const gpuFrameTimeAvailable = Boolean(
-    engine.getCaps().timerQuery
-  );
-  const longTaskAvailable =
-    PerformanceObserver.supportedEntryTypes.includes("longtask");
+export type V2PerformanceFrameMetrics = Readonly<{
+  renderWidth: number;
+  renderHeight: number;
+  renderTimeMs: number | null;
+  activeMeshEvaluationTimeMs: number;
+  gpuFrameTimeMs: number | null;
+  drawCalls: number;
+  activeMeshes: number;
+  totalMeshes: number;
+  heapBytes: number | null;
+}>;
 
-  const cold = createWindowSamples();
-  const steady = createWindowSamples();
-  const sectionTimeThisFrame = new Map<
-    V2PerformanceSection,
-    number
-  >();
+export type V2PerformanceLongTaskEntry = Readonly<{
+  startTime: number;
+  duration: number;
+}>;
+
+export interface V2PerformanceSampleCollector {
+  beginFrame(startedAtMs: number): void;
+  addSectionTime(section: V2PerformanceSection, durationMs: number): void;
+  count(name: string, value?: number): void;
+  finishFrame(
+    finishedAtMs: number,
+    simulationElapsedSeconds: number,
+    metrics: V2PerformanceFrameMetrics
+  ): void;
+  recordLongTasks(entries: readonly V2PerformanceLongTaskEntry[]): void;
+  finishLongTaskDrain(): V2PerformanceReport;
+  abort(reason: string): V2PerformanceReport;
+  getStatus(): V2PerformanceStatus;
+  getProgress(): V2PerformanceProgress;
+  getReport(): V2PerformanceReport;
+}
+
+type V2PerformanceWindowName = "cold" | "steady" | "stress";
+
+const selectMeasurementWindow = (
+  profile: V2PerformanceProfile,
+  elapsedSeconds: number
+): V2PerformanceWindowName | null => {
+  if (profile === "stress") {
+    return elapsedSeconds < V2_PERFORMANCE_STRESS_DURATION_SECONDS
+      ? "stress"
+      : null;
+  }
+  return selectV2PerformanceWindow(elapsedSeconds);
+};
+
+const clearWindowSamples = (samples: MutableWindowSamples) => {
+  samples.frameIntervalTimeMs.length = 0;
+  samples.totalFrameTimeMs.length = 0;
+  samples.frameWorkTimeMs.length = 0;
+  samples.sectionTimeMs.clear();
+  samples.renderTimeMs.length = 0;
+  samples.activeMeshEvaluationTimeMs.length = 0;
+  samples.gpuFrameTimeMs.length = 0;
+  samples.drawCalls.length = 0;
+  samples.activeMeshes.length = 0;
+  samples.totalMeshes.length = 0;
+  samples.heapBytes.length = 0;
+  samples.counters.clear();
+  samples.longTaskDurationsMs.length = 0;
+};
+
+// 実clock・Babylonの読取と集計を分け、productionとfixtureが同じ集計器を使う。
+export const createV2PerformanceSampleCollector = ({
+  scenario,
+  population,
+  renderWidth: initialRenderWidth,
+  renderHeight: initialRenderHeight,
+  longTaskAvailable
+}: Readonly<{
+  scenario: V2PerformanceScenario;
+  population: V2PerformancePopulation;
+  renderWidth: number;
+  renderHeight: number;
+  longTaskAvailable: boolean;
+}>): V2PerformanceSampleCollector => {
+  if (
+    scenario.profile !== "fixed-4200" &&
+    scenario.profile !== "normal" &&
+    scenario.profile !== "stress"
+  ) {
+    throw new Error("性能計測profileを明示してください。");
+  }
+
+  const samplesByWindow = {
+    cold: createWindowSamples(),
+    steady: createWindowSamples(),
+    stress: createWindowSamples()
+  };
+  const sectionTimeThisFrame = new Map<V2PerformanceSection, number>();
   const countersThisFrame = new Map<string, number>();
-  let frameStartTime = 0;
-  let previousFrameStartTime = 0;
-  let frameIndex = 0;
-  let frameStartedElapsedSeconds = 0;
+  const longTasks: V2PerformanceLongTaskEntry[] = [];
+  const slowestWorkFrames: V2PerformanceSlowWorkFrame[] = [];
+  let status: V2PerformanceStatus = "collecting";
+  let abortReason: string | null = null;
+  let measurementStartedAtMs: number | null = null;
+  let measurementEndedAtMs: number | null = null;
+  let coldEndedAtMs: number | null = null;
+  let previousFrameStartedAtMs: number | null = null;
+  let activeFrame: Readonly<{
+    startedAtMs: number;
+    elapsedSeconds: number;
+    previousIntervalMs: number | null;
+    samples: MutableWindowSamples;
+  }> | null = null;
+  let pendingInterval: Readonly<{
+    startedAtMs: number;
+    samples: MutableWindowSamples;
+  }> | null = null;
   let elapsedSeconds = 0;
-  let disposed = false;
-  let instrumentationStarted = false;
-  let currentLongTaskSamples: MutableWindowSamples | null = null;
+  let wallElapsedSeconds = 0;
+  let simulationElapsedSeconds = 0;
+  let sampledFrameCount = 0;
+  let renderWidth = initialRenderWidth;
+  let renderHeight = initialRenderHeight;
+  let finalFrameIntervalObserved = false;
+  let longTasksDrained = false;
+  let finalReport: V2PerformanceReport | null = null;
 
-  const getWindow = (elapsed: number) => {
-    const window = selectV2PerformanceWindow(elapsed);
-    return window === "cold"
-      ? cold
-      : window === "steady"
-        ? steady
-        : null;
-  };
-
-  const recordLongTasks = (
-    entries: readonly PerformanceEntry[]
-  ) => {
-    for (const entry of entries) {
-      if (entry.duration > 50) {
-        currentLongTaskSamples?.longTaskDurationsMs.push(
-          entry.duration
-        );
-      }
+  const releaseSamples = () => {
+    for (const samples of Object.values(samplesByWindow)) {
+      clearWindowSamples(samples);
     }
-  };
-  const longTaskObserver = new PerformanceObserver((entryList) => {
-    recordLongTasks(entryList.getEntries());
-  });
-
-  const beginFrame = () => {
-    if (disposed) {
-      throw new Error("V2性能診断は破棄済みです。");
-    }
-    const now = performance.now();
-    if (!instrumentationStarted) {
-      sceneInstrumentation.captureRenderTime = true;
-      sceneInstrumentation.captureActiveMeshesEvaluationTime =
-        true;
-      if (gpuFrameTimeAvailable) {
-        engineInstrumentation.captureGPUFrameTime = true;
-      }
-      if (longTaskAvailable) {
-        longTaskObserver.observe({ entryTypes: ["longtask"] });
-      }
-      instrumentationStarted = true;
-    }
-    frameStartTime = now;
-    frameStartedElapsedSeconds =
-      (frameIndex * V2_PERFORMANCE_TARGET_FRAME_INTERVAL_MS) /
-      1000;
-    currentLongTaskSamples = getWindow(
-      frameStartedElapsedSeconds
-    );
     sectionTimeThisFrame.clear();
     countersThisFrame.clear();
+    longTasks.length = 0;
+    slowestWorkFrames.length = 0;
+    activeFrame = null;
+    pendingInterval = null;
   };
 
-  const measure = <T>(
-    section: V2PerformanceSection,
-    operation: () => T
-  ) => {
-    if (frameStartTime === 0) {
-      throw new Error(
-        "V2性能診断のmeasureはbeginFrame後に実行してください。"
-      );
+  const getLongTaskWindow = (entry: V2PerformanceLongTaskEntry) => {
+    const startedAtMs = entry.startTime;
+    if (
+      measurementStartedAtMs === null ||
+      startedAtMs + entry.duration <= measurementStartedAtMs ||
+      (measurementEndedAtMs !== null && startedAtMs >= measurementEndedAtMs)
+    ) {
+      return null;
     }
-    const startedAt = performance.now();
-    const result = operation();
-    const duration = performance.now() - startedAt;
-    sectionTimeThisFrame.set(
-      section,
-      (sectionTimeThisFrame.get(section) ?? 0) + duration
+    // 最初のplaying callbackを含むtaskはcallback入口より前に始まる場合がある。
+    if (startedAtMs < measurementStartedAtMs) {
+      return scenario.profile === "stress" ? "stress" : "cold";
+    }
+    if (scenario.profile === "fixed-4200") {
+      return coldEndedAtMs === null || startedAtMs < coldEndedAtMs
+        ? "cold"
+        : "steady";
+    }
+    return selectMeasurementWindow(
+      scenario.profile,
+      (startedAtMs - measurementStartedAtMs) / 1000
     );
-    return result;
-  };
-
-  const beginSection = (_section: V2PerformanceSection) => {
-    if (frameStartTime === 0) {
-      throw new Error(
-        "V2性能診断のbeginSectionはbeginFrame後に実行してください。"
-      );
-    }
-    return performance.now();
-  };
-
-  const finishSection = (
-    section: V2PerformanceSection,
-    startedAt: number
-  ) => {
-    const duration = performance.now() - startedAt;
-    sectionTimeThisFrame.set(
-      section,
-      (sectionTimeThisFrame.get(section) ?? 0) + duration
-    );
-  };
-
-  const count = (name: string, value = 1) => {
-    if (!Number.isFinite(value) || value < 0) {
-      throw new Error(
-        `V2性能診断counter ${name}には0以上の有限値が必要です。`
-      );
-    }
-    countersThisFrame.set(
-      name,
-      (countersThisFrame.get(name) ?? 0) + value
-    );
-  };
-
-  const finishFrame = () => {
-    if (frameStartTime === 0) {
-      throw new Error(
-        "V2性能診断のfinishFrameはbeginFrame後に実行してください。"
-      );
-    }
-    const now = performance.now();
-    elapsedSeconds =
-      ((frameIndex + 1) *
-        V2_PERFORMANCE_TARGET_FRAME_INTERVAL_MS) /
-      1000;
-    const samples = currentLongTaskSamples;
-    if (samples) {
-      samples.firstSampleElapsedSeconds ??= elapsedSeconds;
-      samples.lastSampleElapsedSeconds = elapsedSeconds;
-      const workTime = now - frameStartTime;
-      const intervalTime =
-        previousFrameStartTime === 0
-          ? workTime
-          : frameStartTime - previousFrameStartTime;
-      samples.frameWorkTimeMs.push(workTime);
-      samples.totalFrameTimeMs.push(
-        Math.max(workTime, intervalTime)
-      );
-      countersThisFrame.set(
-        "scenario.render-size-mismatch",
-        engine.getRenderWidth() === 1920 &&
-          engine.getRenderHeight() === 1080
-          ? 0
-          : 1
-      );
-      for (const [section, duration] of sectionTimeThisFrame) {
-        const sectionSamples =
-          samples.sectionTimeMs.get(section) ?? [];
-        sectionSamples.push(duration);
-        samples.sectionTimeMs.set(section, sectionSamples);
-      }
-      for (const [name, value] of countersThisFrame) {
-        const counterSamples = samples.counters.get(name) ?? [];
-        counterSamples.push(value);
-        samples.counters.set(name, counterSamples);
-      }
-      samples.renderTimeMs.push(
-        sceneInstrumentation.renderTimeCounter.current
-      );
-      samples.activeMeshEvaluationTimeMs.push(
-        sceneInstrumentation.activeMeshesEvaluationTimeCounter
-          .current
-      );
-      const gpuNanoseconds =
-        engineInstrumentation.gpuFrameTimeCounter.current;
-      if (gpuNanoseconds > 0) {
-        samples.gpuFrameTimeMs.push(
-          gpuNanoseconds / 1_000_000
-        );
-      }
-      samples.drawCalls.push(
-        sceneInstrumentation.drawCallsCounter.current
-      );
-      samples.activeMeshes.push(
-        scene.getActiveMeshes().length
-      );
-      samples.totalMeshes.push(scene.meshes.length);
-      const performanceMemory =
-        (performance as PerformanceWithMemory).memory;
-      if (performanceMemory) {
-        samples.heapBytes.push(
-          performanceMemory.usedJSHeapSize
-        );
-      }
-    }
-    previousFrameStartTime = frameStartTime;
-    frameStartTime = 0;
-    frameIndex += 1;
   };
 
   const getReport = (): V2PerformanceReport => {
-    if (instrumentationStarted && longTaskAvailable) {
-      recordLongTasks(longTaskObserver.takeRecords());
+    if (finalReport !== null) {
+      return finalReport;
     }
-    const coldReport = buildWindowReport(
-      V2_PERFORMANCE_COLD_DURATION_SECONDS,
-      cold
-    );
-    const steadyReport = buildWindowReport(
-      V2_PERFORMANCE_STEADY_DURATION_SECONDS,
-      steady
-    );
-    const windows = [coldReport, steadyReport];
-    const sampleWindowsComplete =
-      isV2PerformanceWindowCoverageComplete(
-        coldReport,
-        steadyReport
-      );
-    const counterTotal = (
-      report: V2PerformanceWindowReport,
-      name: string
-    ) => report.counters[name]?.total ?? 0;
+    const longTasksByWindow: Record<V2PerformanceWindowName, number[]> = {
+      cold: [],
+      steady: [],
+      stress: []
+    };
+    for (const entry of longTasks) {
+      const window = getLongTaskWindow(entry);
+      if (window !== null) {
+        longTasksByWindow[window].push(entry.duration);
+      }
+    }
+    const reportWindow = (
+      name: V2PerformanceWindowName,
+      durationSeconds: number
+    ) => buildWindowReport(durationSeconds, {
+      ...samplesByWindow[name],
+      longTaskDurationsMs: longTasksByWindow[name]
+    });
+    const cold = reportWindow("cold", V2_PERFORMANCE_COLD_DURATION_SECONDS);
+    const steady = reportWindow("steady", V2_PERFORMANCE_STEADY_DURATION_SECONDS);
+    const stress = scenario.profile === "stress"
+      ? reportWindow("stress", V2_PERFORMANCE_STRESS_DURATION_SECONDS)
+      : null;
+    const windows = stress === null ? [cold, steady] : [stress];
+    const counterTotal = (report: V2PerformanceWindowReport, name: string) =>
+      report.counters[name]?.total ?? 0;
     const counterPositiveRatio = (
       report: V2PerformanceWindowReport,
       name: string
@@ -609,157 +634,496 @@ export const createV2PerformanceDiagnostics = (
         ? summary.positiveSampleCount / summary.sampleCount
         : 0;
     };
+    const sampleWindowsComplete =
+      status === "complete" &&
+      finalFrameIntervalObserved &&
+      longTasksDrained &&
+      windows.every((window) =>
+        window.frameWorkTimeMs.sampleCount > 0 &&
+        window.frameWorkTimeMs.sampleCount === window.frameIntervalTimeMs.sampleCount
+      ) &&
+      (scenario.profile !== "fixed-4200" ||
+        (isV2PerformanceWindowCoverageComplete(cold, steady) &&
+          cold.frameWorkTimeMs.sampleCount === V2_PERFORMANCE_COLD_FRAME_COUNT &&
+          steady.frameWorkTimeMs.sampleCount === V2_PERFORMANCE_STEADY_FRAME_COUNT));
     const renderSizeIs1920x1080 =
-      engine.getRenderWidth() === 1920 &&
-      engine.getRenderHeight() === 1080 &&
-      windows.every(
-        (report) =>
-          counterTotal(
-            report,
-            "scenario.render-size-mismatch"
-          ) === 0
+      renderWidth === 1920 &&
+      renderHeight === 1080 &&
+      windows.every((window) =>
+        counterTotal(window, "scenario.render-size-mismatch") === 0
       );
-    const populationIs99x66x50 =
-      population.npcCount === 99 &&
-      population.initialBrainwashedNpcCount === 66 &&
-      population.initialBitCount === 50;
-    const populationStayedAtExpectedCounts = windows.every(
-      (report) =>
-        report.counters["scenario.npc-count"]?.minimum ===
-          population.npcCount &&
-        report.counters["scenario.npc-count"]?.maximum ===
-          population.npcCount &&
-        (report.counters["scenario.bit-count"]?.minimum ?? 0) >=
-          population.initialBitCount
-    );
+    const populationMatchesProfile = scenario.profile === "normal"
+      ? population.npcCount === 50 &&
+        population.initialBrainwashedNpcCount === 10 &&
+        population.initialBitCount === 1
+      : population.npcCount === 99 &&
+        population.initialBrainwashedNpcCount === 66 &&
+        population.initialBitCount === 50;
+    const maximumBitPopulation = scenario.profile === "normal" ? 25 : 50;
+    const populationStayedAtExpectedCounts = windows.every((window) => {
+      // 出現演出中のBITはactor sphereへ未登録でも、既に実個体を確保している。
+      const bitPopulation = window.counters["bit.population-count"];
+      return window.counters["scenario.npc-count"]?.minimum === population.npcCount &&
+        window.counters["scenario.npc-count"]?.maximum === population.npcCount &&
+        bitPopulation !== undefined &&
+        bitPopulation.sampleCount === window.frameWorkTimeMs.sampleCount &&
+        bitPopulation.minimum >= population.initialBitCount &&
+        bitPopulation.maximum <= maximumBitPopulation;
+    });
+    const initialWindow = stress === null ? cold : stress;
     const initialBrainwashedNpcCountWasExpected =
-      coldReport.counters[
-        "scenario.brainwashed-npc-count"
-      ]?.first === population.initialBrainwashedNpcCount;
-    const steadyBeamSamples =
-      steadyReport.counters["beam.spawned"];
-    const combatWorkloadObserved =
-      counterTotal(
-        coldReport,
-        "scenario.alert-injections"
-      ) >= 1 &&
-      counterTotal(
-        coldReport,
-        "bit.route-plans.chase"
-      ) >= 1 &&
-      counterPositiveRatio(
-        steadyReport,
-        "scenario.active-alerts"
-      ) >= 0.9 &&
-      counterPositiveRatio(
-        steadyReport,
-        "scenario.alive-targets"
-      ) >= 0.9 &&
-      counterPositiveRatio(
-        steadyReport,
-        "scenario.playing"
-      ) >= 0.9 &&
-      (steadyBeamSamples?.positiveSampleCount ?? 0) >= 6;
-    const p95AtMost16Point7Ms = windows.every(
-      (report) => report.totalFrameTimeMs.p95 <= 16.7
+      initialWindow.counters["scenario.brainwashed-npc-count"]?.first ===
+        population.initialBrainwashedNpcCount;
+    const bitReinforcementObserved = scenario.profile !== "normal" ||
+      windows.some((window) => counterTotal(window, "bit.reinforcement-spawns") > 0);
+    const combatWorkloadObserved = scenario.profile === "fixed-4200"
+      ? counterTotal(cold, "scenario.alert-injections") >= 1 &&
+        counterTotal(cold, "bit.route-plans.chase") >= 1 &&
+        counterPositiveRatio(steady, "scenario.active-alerts") >= 0.9 &&
+        counterPositiveRatio(steady, "scenario.alive-targets") >= 0.9 &&
+        counterPositiveRatio(steady, "scenario.playing") >= 0.9 &&
+        (steady.counters["beam.spawned"]?.positiveSampleCount ?? 0) >= 6
+      : windows.some((window) => counterTotal(window, "beam.spawned") > 0) &&
+        (scenario.profile === "stress" ||
+          counterPositiveRatio(steady, "scenario.playing") >= 0.9);
+    // 固定4200 frameだけ旧total定義を使う。通常の描画込み時間は次callbackまでの実間隔。
+    const thresholdMetrics = windows.map((window) =>
+      scenario.profile === "fixed-4200"
+        ? window.totalFrameTimeMs
+        : window.frameIntervalTimeMs
     );
-    const p99AtMost25Ms = windows.every(
-      (report) => report.totalFrameTimeMs.p99 <= 25
-    );
-    const maximumAtMost50Ms = windows.every(
-      (report) => report.totalFrameTimeMs.maximum <= 50
-    );
+    const p95AtMost16Point7Ms = thresholdMetrics.every((metric) => metric.p95 <= 16.7);
+    const p99AtMost25Ms = thresholdMetrics.every((metric) => metric.p99 <= 25);
+    const maximumAtMost50Ms = thresholdMetrics.every((metric) => metric.maximum <= 50);
     const longTaskCountIsZero =
-      longTaskAvailable &&
-      windows.every((report) => report.longTaskCount === 0);
-    const complete =
-      elapsedSeconds >=
-      V2_PERFORMANCE_COLD_DURATION_SECONDS +
-        V2_PERFORMANCE_STEADY_DURATION_SECONDS;
+      longTaskAvailable && windows.every((window) => window.longTaskCount === 0);
+    const configurationAndPopulationValid =
+      renderSizeIs1920x1080 &&
+      populationMatchesProfile &&
+      populationStayedAtExpectedCounts &&
+      initialBrainwashedNpcCountWasExpected;
+    const passed = scenario.profile === "stress"
+      ? null
+      : sampleWindowsComplete &&
+        configurationAndPopulationValid &&
+        bitReinforcementObserved &&
+        combatWorkloadObserved &&
+        p95AtMost16Point7Ms &&
+        p99AtMost25Ms &&
+        maximumAtMost50Ms &&
+        longTaskCountIsZero;
+    const acceptanceStatus = !sampleWindowsComplete
+      ? "incomplete"
+      : scenario.profile === "stress"
+        ? configurationAndPopulationValid
+          ? "external-validation-required"
+          : "failed"
+        : passed ? "passed" : "failed";
     return Object.freeze({
-      status: complete ? "complete" : "collecting",
+      schemaVersion: 2,
+      profile: scenario.profile,
+      status,
+      abortReason,
       seed: scenario.seed,
       view: scenario.view,
-      targetFramesPerSecond:
-        V2_PERFORMANCE_TARGET_FRAMES_PER_SECOND,
+      targetFramesPerSecond: V2_PERFORMANCE_TARGET_FRAMES_PER_SECOND,
       population,
-      renderWidth: engine.getRenderWidth(),
-      renderHeight: engine.getRenderHeight(),
+      renderWidth,
+      renderHeight,
       elapsedSeconds,
+      wallElapsedSeconds,
+      simulationElapsedSeconds,
+      measurementStartedAtMilliseconds: measurementStartedAtMs,
+      measurementEndedAtMilliseconds: measurementEndedAtMs === null
+        ? null
+        : scenario.profile === "fixed-4200"
+          ? measurementEndedAtMs
+          : measurementStartedAtMs! + (
+            scenario.profile === "stress"
+              ? V2_PERFORMANCE_STRESS_DURATION_SECONDS
+              : V2_PERFORMANCE_COLD_DURATION_SECONDS + V2_PERFORMANCE_STEADY_DURATION_SECONDS
+          ) * 1000,
+      finalFrameCallbackAtMilliseconds: measurementEndedAtMs,
+      sampledFrameCount,
+      slowestWorkFrames: Object.freeze([...slowestWorkFrames]),
+      finalFrameIntervalObserved,
+      longTasksDrained,
       availability: Object.freeze({
-        gpuFrameTime:
-          coldReport.gpuFrameTimeMs !== null &&
-          steadyReport.gpuFrameTimeMs !== null,
-        heap:
-          coldReport.heapBytes !== null &&
-          steadyReport.heapBytes !== null,
+        gpuFrameTime: windows.every((window) => window.gpuFrameTimeMs !== null),
+        heap: windows.every((window) => window.heapBytes !== null),
         longTask: longTaskAvailable
       }),
-      cold: coldReport,
-      steady: steadyReport,
+      cold,
+      steady,
+      stress,
       acceptance: Object.freeze({
+        status: acceptanceStatus,
         sampleWindowsComplete,
         renderSizeIs1920x1080,
-        populationIs99x66x50,
+        populationMatchesProfile,
         populationStayedAtExpectedCounts,
         initialBrainwashedNpcCountWasExpected,
+        bitReinforcementObserved,
         combatWorkloadObserved,
         p95AtMost16Point7Ms,
         p99AtMost25Ms,
         maximumAtMost50Ms,
         longTaskCountIsZero,
-        passed:
-          complete &&
-          sampleWindowsComplete &&
-          renderSizeIs1920x1080 &&
-          populationIs99x66x50 &&
-          populationStayedAtExpectedCounts &&
-          initialBrainwashedNpcCountWasExpected &&
-          combatWorkloadObserved &&
-          p95AtMost16Point7Ms &&
-          p99AtMost25Ms &&
-          maximumAtMost50Ms &&
-          longTaskCountIsZero
+        passed
       })
     });
   };
 
-  return Object.freeze({
-    scenario,
-    beginFrame,
-    beginSection,
-    finishSection,
-    measure,
-    count,
-    finishFrame,
-    getProgress: () =>
-      Object.freeze({
-        status:
-          elapsedSeconds >=
-          V2_PERFORMANCE_COLD_DURATION_SECONDS +
-            V2_PERFORMANCE_STEADY_DURATION_SECONDS
-            ? "complete"
-            : "collecting",
+  return Object.freeze<V2PerformanceSampleCollector>({
+    beginFrame: (startedAtMs: number) => {
+      if (status !== "collecting") {
+        return;
+      }
+      if (activeFrame !== null) {
+        throw new Error("前frameのfinishFrameより先にbeginFrameを呼べません。");
+      }
+      measurementStartedAtMs ??= startedAtMs;
+      wallElapsedSeconds = (startedAtMs - measurementStartedAtMs) / 1000;
+      elapsedSeconds = scenario.profile === "fixed-4200"
+        ? sampledFrameCount / V2_PERFORMANCE_TARGET_FRAMES_PER_SECOND
+        : wallElapsedSeconds;
+      if (pendingInterval !== null) {
+        pendingInterval.samples.frameIntervalTimeMs.push(
+          startedAtMs - pendingInterval.startedAtMs
+        );
+        pendingInterval.samples.lastIntervalEndElapsedSeconds = elapsedSeconds;
+        pendingInterval = null;
+      }
+      if (
+        scenario.profile === "fixed-4200" &&
+        sampledFrameCount === V2_PERFORMANCE_COLD_FRAME_COUNT
+      ) {
+        coldEndedAtMs = startedAtMs;
+      }
+      const window = selectMeasurementWindow(scenario.profile, elapsedSeconds);
+      if (window === null) {
+        measurementEndedAtMs = startedAtMs;
+        finalFrameIntervalObserved = sampledFrameCount > 0;
+        status = "draining";
+        return;
+      }
+      activeFrame = {
+        startedAtMs,
         elapsedSeconds,
+        previousIntervalMs: previousFrameStartedAtMs === null
+          ? null
+          : startedAtMs - previousFrameStartedAtMs,
+        samples: samplesByWindow[window]
+      };
+      previousFrameStartedAtMs = startedAtMs;
+      sectionTimeThisFrame.clear();
+      countersThisFrame.clear();
+    },
+    addSectionTime: (section, durationMs) => {
+      if (activeFrame !== null && status === "collecting") {
+        sectionTimeThisFrame.set(
+          section,
+          (sectionTimeThisFrame.get(section) ?? 0) + durationMs
+        );
+      }
+    },
+    count: (name, value = 1) => {
+      if (activeFrame === null || status !== "collecting") {
+        return;
+      }
+      if (!Number.isFinite(value) || value < 0) {
+        throw new Error("V2性能診断counter " + name + "には0以上の有限値が必要です。");
+      }
+      countersThisFrame.set(name, (countersThisFrame.get(name) ?? 0) + value);
+    },
+    finishFrame: (finishedAtMs, nextSimulationElapsedSeconds, metrics) => {
+      if (status !== "collecting") {
+        return;
+      }
+      if (activeFrame === null) {
+        throw new Error("V2性能診断のfinishFrameはbeginFrame後に実行してください。");
+      }
+      const samples = activeFrame.samples;
+      const workTime = finishedAtMs - activeFrame.startedAtMs;
+      wallElapsedSeconds = (finishedAtMs - measurementStartedAtMs!) / 1000;
+      simulationElapsedSeconds = nextSimulationElapsedSeconds;
+      sampledFrameCount += 1;
+      elapsedSeconds = scenario.profile === "fixed-4200"
+        ? sampledFrameCount / V2_PERFORMANCE_TARGET_FRAMES_PER_SECOND
+        : wallElapsedSeconds;
+      renderWidth = metrics.renderWidth;
+      renderHeight = metrics.renderHeight;
+      samples.firstSampleElapsedSeconds ??= activeFrame.elapsedSeconds;
+      samples.lastSampleElapsedSeconds = activeFrame.elapsedSeconds;
+      samples.frameWorkTimeMs.push(workTime);
+      // T06-1の固定baselineと比較する旧式の量。新しい実frame間隔とは別欄へ記録する。
+      samples.totalFrameTimeMs.push(Math.max(
+        workTime,
+        activeFrame.previousIntervalMs === null ? workTime : activeFrame.previousIntervalMs
+      ));
+      countersThisFrame.set(
+        "scenario.render-size-mismatch",
+        renderWidth === 1920 && renderHeight === 1080 ? 0 : 1
+      );
+      for (const [section, duration] of sectionTimeThisFrame) {
+        const values = samples.sectionTimeMs.get(section) ?? [];
+        values.push(duration);
+        samples.sectionTimeMs.set(section, values);
+      }
+      for (const [name, value] of countersThisFrame) {
+        const values = samples.counters.get(name) ?? [];
+        values.push(value);
+        samples.counters.set(name, values);
+      }
+      if (metrics.renderTimeMs !== null) {
+        samples.renderTimeMs.push(metrics.renderTimeMs);
+      }
+      samples.activeMeshEvaluationTimeMs.push(metrics.activeMeshEvaluationTimeMs);
+      if (metrics.gpuFrameTimeMs !== null) {
+        samples.gpuFrameTimeMs.push(metrics.gpuFrameTimeMs);
+      }
+      samples.drawCalls.push(metrics.drawCalls);
+      samples.activeMeshes.push(metrics.activeMeshes);
+      samples.totalMeshes.push(metrics.totalMeshes);
+      if (metrics.heapBytes !== null) {
+        samples.heapBytes.push(metrics.heapBytes);
+      }
+      if (
+        slowestWorkFrames.length < 10 ||
+        workTime > slowestWorkFrames[slowestWorkFrames.length - 1].frameWorkTimeMs
+      ) {
+        // 全frameのMapを複製せず、CPU work上位10件に入る時だけ同時点の値を残す。
+        slowestWorkFrames.push(Object.freeze({
+          frameIndex: sampledFrameCount - 1,
+          elapsedSeconds: activeFrame.elapsedSeconds,
+          frameStartedAtMilliseconds: activeFrame.startedAtMs,
+          frameWorkTimeMs: workTime,
+          sectionTimeMs: Object.freeze(Object.fromEntries(sectionTimeThisFrame)),
+          counters: Object.freeze(Object.fromEntries(countersThisFrame))
+        }));
+        slowestWorkFrames.sort((left, right) =>
+          right.frameWorkTimeMs - left.frameWorkTimeMs || left.frameIndex - right.frameIndex
+        );
+        if (slowestWorkFrames.length > 10) {
+          slowestWorkFrames.pop();
+        }
+      }
+      pendingInterval = {
+        startedAtMs: activeFrame.startedAtMs,
+        samples
+      };
+      activeFrame = null;
+    },
+    recordLongTasks: (entries) => {
+      if (status !== "collecting" && status !== "draining") {
+        return;
+      }
+      for (const entry of entries) {
+        if (entry.duration > 50) {
+          longTasks.push(Object.freeze({
+            startTime: entry.startTime,
+            duration: entry.duration
+          }));
+        }
+      }
+    },
+    finishLongTaskDrain: () => {
+      if (status !== "draining") {
+        throw new Error("最終frame間隔を取得してからLong Taskの回収を確定してください。");
+      }
+      longTasksDrained = true;
+      status = "complete";
+      finalReport = getReport();
+      releaseSamples();
+      return finalReport;
+    },
+    abort: (reason) => {
+      if (status === "complete" || status === "aborted") {
+        throw new Error("終了済みの性能計測をabortできません。");
+      }
+      status = "aborted";
+      abortReason = reason;
+      finalReport = getReport();
+      releaseSamples();
+      return finalReport;
+    },
+    getStatus: () => status,
+    getProgress: () => Object.freeze({
+      status,
+      elapsedSeconds,
+      wallElapsedSeconds,
+      simulationElapsedSeconds,
+      renderWidth,
+      renderHeight
+    }),
+    getReport
+  });
+};
+
+export const createV2PerformanceDiagnostics = (
+  engine: Engine,
+  scene: Scene,
+  scenario: V2PerformanceScenario,
+  population: V2PerformancePopulation
+): V2PerformanceDiagnostics => {
+  const sceneInstrumentation = new SceneInstrumentation(scene);
+  const engineInstrumentation = new EngineInstrumentation(engine);
+  const gpuFrameTimeAvailable = Boolean(engine.getCaps().timerQuery);
+  const longTaskAvailable =
+    PerformanceObserver.supportedEntryTypes.includes("longtask");
+  const collector = createV2PerformanceSampleCollector({
+    scenario,
+    population,
+    renderWidth: engine.getRenderWidth(),
+    renderHeight: engine.getRenderHeight(),
+    longTaskAvailable
+  });
+  const longTaskObserver = new PerformanceObserver((entryList) => {
+    collector.recordLongTasks(entryList.getEntries());
+  });
+  let disposed = false;
+  let instrumentationStarted = false;
+  let instrumentationStopped = false;
+  let frameIsOpen = false;
+  let finalizationTimer: ReturnType<typeof setTimeout> | null = null;
+  let resolveFinalization: ((report: V2PerformanceReport) => void) | null = null;
+
+  const stopInstrumentation = () => {
+    if (!instrumentationStarted || instrumentationStopped) {
+      return;
+    }
+    if (longTaskAvailable) {
+      collector.recordLongTasks(longTaskObserver.takeRecords());
+      longTaskObserver.disconnect();
+    }
+    sceneInstrumentation.captureRenderTime = false;
+    sceneInstrumentation.captureActiveMeshesEvaluationTime = false;
+    if (gpuFrameTimeAvailable) {
+      engineInstrumentation.captureGPUFrameTime = false;
+    }
+    instrumentationStopped = true;
+  };
+  const settleFinalization = (report: V2PerformanceReport) => {
+    if (finalizationTimer !== null) {
+      clearTimeout(finalizationTimer);
+      finalizationTimer = null;
+    }
+    const resolve = resolveFinalization;
+    resolveFinalization = null;
+    resolve?.(report);
+  };
+  const abort = (reason: string) => {
+    stopInstrumentation();
+    settleFinalization(collector.abort(reason));
+  };
+  const assertFrameIsOpen = () => {
+    if (collector.getStatus() === "collecting" && !frameIsOpen) {
+      throw new Error("V2性能診断のsection計測はbeginFrame後に実行してください。");
+    }
+  };
+
+  return Object.freeze<V2PerformanceDiagnostics>({
+    scenario,
+    beginFrame: () => {
+      const startedAtMs = performance.now();
+      if (disposed) {
+        throw new Error("V2性能診断は破棄済みです。");
+      }
+      if (collector.getStatus() !== "collecting") {
+        return;
+      }
+      if (!instrumentationStarted) {
+        sceneInstrumentation.captureRenderTime = true;
+        sceneInstrumentation.captureActiveMeshesEvaluationTime = true;
+        if (gpuFrameTimeAvailable) {
+          engineInstrumentation.captureGPUFrameTime = true;
+        }
+        if (longTaskAvailable) {
+          longTaskObserver.observe({ entryTypes: ["longtask"] });
+        }
+        instrumentationStarted = true;
+      }
+      collector.beginFrame(startedAtMs);
+      frameIsOpen = true;
+    },
+    beginSection: (_section) => {
+      assertFrameIsOpen();
+      return collector.getStatus() === "collecting"
+        ? performance.now()
+        : 0;
+    },
+    finishSection: (section, startedAt) => {
+      assertFrameIsOpen();
+      if (collector.getStatus() === "collecting") {
+        collector.addSectionTime(section, performance.now() - startedAt);
+      }
+    },
+    measure: <T>(section: V2PerformanceSection, operation: () => T) => {
+      assertFrameIsOpen();
+      if (collector.getStatus() !== "collecting") {
+        return operation();
+      }
+      const startedAt = performance.now();
+      const result = operation();
+      collector.addSectionTime(section, performance.now() - startedAt);
+      return result;
+    },
+    count: collector.count,
+    finishFrame: (simulationElapsedSeconds) => {
+      const finishedAtMs = performance.now();
+      assertFrameIsOpen();
+      if (collector.getStatus() !== "collecting") {
+        frameIsOpen = false;
+        return;
+      }
+      const gpuNanoseconds = engineInstrumentation.gpuFrameTimeCounter.current;
+      const memory = (performance as PerformanceWithMemory).memory;
+      collector.finishFrame(finishedAtMs, simulationElapsedSeconds, {
         renderWidth: engine.getRenderWidth(),
-        renderHeight: engine.getRenderHeight()
-      }),
-    getReport,
+        renderHeight: engine.getRenderHeight(),
+        renderTimeMs: sceneInstrumentation.renderTimeCounter.current,
+        activeMeshEvaluationTimeMs:
+          sceneInstrumentation.activeMeshesEvaluationTimeCounter.current,
+        gpuFrameTimeMs: gpuFrameTimeAvailable && gpuNanoseconds > 0
+          ? gpuNanoseconds / 1_000_000
+          : null,
+        drawCalls: sceneInstrumentation.drawCallsCounter.current,
+        activeMeshes: scene.getActiveMeshes().length,
+        totalMeshes: scene.meshes.length,
+        heapBytes: memory === undefined ? null : memory.usedJSHeapSize
+      });
+      frameIsOpen = false;
+    },
+    finalize: () => {
+      if (
+        disposed ||
+        collector.getStatus() !== "draining" ||
+        resolveFinalization !== null
+      ) {
+        throw new Error("性能計測の最終回収はdraining状態で一度だけ開始してください。");
+      }
+      return new Promise<V2PerformanceReport>((resolve) => {
+        resolveFinalization = resolve;
+        // 最終intervalを観測したcallbackが終了してから、そのtaskの通知も回収する。
+        finalizationTimer = setTimeout(() => {
+          finalizationTimer = null;
+          stopInstrumentation();
+          settleFinalization(collector.finishLongTaskDrain());
+        }, 0);
+      });
+    },
+    abort,
+    getProgress: collector.getProgress,
+    getReport: collector.getReport,
     dispose: () => {
       if (disposed) {
         throw new Error("V2性能診断は既に破棄済みです。");
       }
-      if (instrumentationStarted) {
-        sceneInstrumentation.captureRenderTime = false;
-        sceneInstrumentation.captureActiveMeshesEvaluationTime =
-          false;
-        if (gpuFrameTimeAvailable) {
-          engineInstrumentation.captureGPUFrameTime = false;
-        }
-        if (longTaskAvailable) {
-          recordLongTasks(longTaskObserver.takeRecords());
-          longTaskObserver.disconnect();
-        }
+      const status = collector.getStatus();
+      if (status === "collecting" || status === "draining") {
+        abort("session-disposed-before-measurement-complete");
+      } else {
+        stopInstrumentation();
       }
       engineInstrumentation.dispose();
       sceneInstrumentation.dispose();
