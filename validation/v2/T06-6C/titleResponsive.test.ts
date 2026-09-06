@@ -72,34 +72,57 @@ export const runT06_6CTests = async (): Promise<readonly T06TestResult[]> => {
       assert(JSON.stringify(actual) === JSON.stringify(expected), actual.join("|"));
       return actual.join(" → ");
     }),
-    executeTest("終了フローdispatcherのphase guard", () => {
+    executeTest("通常開始の終了フローは全phaseの既存操作を保つ", () => {
       const cases = [
-        dispatchV2RuntimeEndFlow(["retry"], { phase: "playing" }),
-        dispatchV2RuntimeEndFlow(["advance-end-flow"], { phase: "playing" }),
-        dispatchV2RuntimeEndFlow(["advance-end-flow"], { phase: "assembly" }),
-        dispatchV2RuntimeEndFlow(["retry"], { phase: "execution" }),
-        dispatchV2RuntimeEndFlow(["advance-end-flow"], { phase: "execution" }),
-        dispatchV2RuntimeEndFlow(["retry"], { phase: "execution-complete" }),
-        dispatchV2RuntimeEndFlow(["advance-end-flow"], { phase: "execution-complete" })
-      ];
-      const expected = [
-        "retry-normal-session", "return-to-title", "return-to-title",
-        "ignored", "ignored", "replay-execution", "return-to-title"
-      ];
-      assert(JSON.stringify(cases) === JSON.stringify(expected), cases.join("|"));
-      return "通常playingはR retry／Enterタイトル、処刑中だけ無効";
+        ["playing", "retry-normal-session", "return-to-title"],
+        ["assembly", "ignored", "return-to-title"],
+        ["execution", "ignored", "ignored"],
+        ["execution-complete", "replay-execution", "return-to-title"]
+      ] as const;
+      for (const [phase, expectedRetry, expectedEnter] of cases) {
+        const retry = dispatchV2RuntimeEndFlow(["retry"], { phase }, "normal");
+        const enter = dispatchV2RuntimeEndFlow(["advance-end-flow"], { phase }, "normal");
+        assert(
+          retry === expectedRetry && enter === expectedEnter,
+          `通常開始 ${phase}: R=${retry}／Enter=${enter}`
+        );
+      }
+      return "通常開始の4phaseでR／Enterの8通りを確認";
     }),
-    executeTest("Mission結果表示phase", () => {
-      const actual = [
-        resolveV2MissionHudMode(false, "playing"),
-        resolveV2MissionHudMode(true, "playing"),
-        resolveV2MissionHudMode(true, "assembly"),
-        resolveV2MissionHudMode(true, "execution"),
-        resolveV2MissionHudMode(true, "execution-complete")
-      ];
-      const expected = ["hidden", "missions", "results", "hidden", "results"];
-      assert(JSON.stringify(actual) === JSON.stringify(expected), actual.join("|"));
-      return "通常epilogueと公開処刑完了でresultsを表示";
+    executeTest("即時公開処刑は処刑中と完了後にR再生／Enterタイトルを受け付ける", () => {
+      for (const phase of ["execution", "execution-complete"] as const) {
+        const retry = dispatchV2RuntimeEndFlow(["retry"], { phase }, "instant-public-execution");
+        const enter = dispatchV2RuntimeEndFlow(["advance-end-flow"], { phase }, "instant-public-execution");
+        assert(
+          retry === "replay-execution" && enter === "return-to-title",
+          `即時公開処刑 ${phase}: R=${retry}／Enter=${enter}`
+        );
+      }
+      return "即時公開処刑のexecution／execution-completeでR／Enterの4通りを確認";
+    }),
+    executeTest("Mission HUDは開始mode・有効設定・開始状態・全phaseに従う", () => {
+      const phases = ["playing", "assembly", "execution", "execution-complete"] as const;
+      const hidden = ["hidden", "hidden", "hidden", "hidden"] as const;
+      const cases = [
+        ["normal", true, true, ["missions", "results", "results", "results"]],
+        ["normal", true, false, hidden],
+        ["normal", false, true, hidden],
+        ["normal", false, false, hidden],
+        ["instant-public-execution", true, true, hidden],
+        ["instant-public-execution", true, false, hidden],
+        ["instant-public-execution", false, true, hidden],
+        ["instant-public-execution", false, false, hidden]
+      ] as const;
+      for (const [mode, missionEnabled, started, expected] of cases) {
+        const actual = phases.map((phase) =>
+          resolveV2MissionHudMode(started, phase, mode, missionEnabled)
+        );
+        assert(
+          JSON.stringify(actual) === JSON.stringify(expected),
+          `mode=${mode}／Mission=${missionEnabled}／started=${started}: ${actual.join("|")}`
+        );
+      }
+      return "2mode×Mission ON/OFF×開始前後×4phaseの32通りを確認";
     }),
     executeTest("設定DOMとfocusを再生成しない", () => {
       const npcInput = panel.root.querySelector<HTMLInputElement>('[data-ui="v2-settings-npc-count"]')!;

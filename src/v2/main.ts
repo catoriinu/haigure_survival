@@ -630,7 +630,10 @@ scene.activeCamera = camera;
 
 titleHeading.textContent = "HAIGURE SURVIVAL V2";
 titleVersion.textContent = "ver.2.0.0";
-titleOverlay.style.display = "grid";
+titleOverlay.style.display = startImmediately &&
+  sessionStartSnapshot.startMode === "instant-public-execution"
+  ? "none"
+  : "grid";
 minimapCanvas.style.display = "none";
 minimapReadout.style.display = "none";
 staminaGauge.style.display = "none";
@@ -1366,7 +1369,8 @@ const playerStatusHud = createV2PlayerStatusHud({
   staminaGauge
 });
 ownedPlayerStatusHud = playerStatusHud;
-const missionHud = settingsSnapshot.features.missionEnabled
+const missionHud = sessionStartSnapshot.startMode === "normal" &&
+  settingsSnapshot.features.missionEnabled
   ? createV2MissionHudController({ host: document.body })
   : null;
 ownedMissionHud = missionHud;
@@ -2402,7 +2406,9 @@ const updateGameplayHelp = (frame: ReturnType<typeof survival.getFrame>) => {
     return;
   }
   let nextText = V2_GAMEPLAY_BASE_HELP_TEXT;
-  if (frame.phase === "playing") {
+  if (sessionStartSnapshot.startMode === "instant-public-execution") {
+    nextText += "\nR: リプレイ  Enter: タイトルへ戻る";
+  } else if (frame.phase === "playing") {
     if (frame.playerCompletionUnlocked) {
       nextText += "\nG：銃あり  N：銃なし  H：ハイグレ";
     }
@@ -2689,18 +2695,32 @@ engine.runRenderLoop(() => {
     }
     updateElevatorNpcAcceptanceAfterTraversal();
     const endFlowDecision = started
-      ? dispatchV2RuntimeEndFlow(actions, survivalFrame)
+      ? dispatchV2RuntimeEndFlow(
+          actions,
+          survivalFrame,
+          sessionStartSnapshot.startMode
+        )
       : "ignored";
     if (endFlowDecision === "replay-execution") {
       if (sessionStartSnapshot.startMode === "instant-public-execution") {
+        const replaySeed = nextRuntimeSessionSeed();
+        const replaySnapshot = createV2SessionStartSnapshot({
+          startMode: sessionStartSnapshot.startMode,
+          settings: sessionStartSnapshot.settings,
+          runtimePopulation: sessionStartSnapshot.runtimePopulation,
+          venueRandom: createSchoolRuntimeRandom(
+            replaySeed,
+            "instant-execution-venue"
+          )
+        });
         started = false;
         input.reset();
         requestSessionRebuild(
           Object.freeze({
             startAfterCreate: true,
-            preservePointerLock: false,
-            retrySnapshot: sessionStartSnapshot,
-            retrySeed: sessionSeed
+            preservePointerLock: true,
+            retrySnapshot: replaySnapshot,
+            retrySeed: replaySeed
           })
         );
       } else {
@@ -2828,7 +2848,12 @@ engine.runRenderLoop(() => {
     if (missionHud !== null && survivalFrame.mission !== null) {
       presentationSectionStartedAt = frameDiagnostics?.beginSection("mission-hud") ?? 0;
       missionHud.update({
-        mode: resolveV2MissionHudMode(started, survivalFrame.phase),
+        mode: resolveV2MissionHudMode(
+          started,
+          survivalFrame.phase,
+          sessionStartSnapshot.startMode,
+          settingsSnapshot.features.missionEnabled
+        ),
         frame: survivalFrame.mission
       });
       frameDiagnostics?.finishSection("mission-hud", presentationSectionStartedAt);
@@ -3099,8 +3124,8 @@ let failedSessionRequest: Readonly<{
   snapshot: V2SessionStartSnapshot;
 }> | null = null;
 
-const showSessionLoading = () => {
-  titleOverlay.style.display = "grid";
+const showSessionLoading = (showTitle: boolean) => {
+  titleOverlay.style.display = showTitle ? "grid" : "none";
   statusInfo.style.display = "none";
   helpPanel.style.display = "none";
   minimapCanvas.style.display = "none";
@@ -3133,7 +3158,10 @@ const rebuildSession = (
           document.exitPointerLock();
         }
       },
-      showLoading: showSessionLoading,
+      showLoading: () => showSessionLoading(
+        !(options.startAfterCreate &&
+          options.retrySnapshot?.startMode === "instant-public-execution")
+      ),
       afterCurrentDispose: recordStaticOnlyBaseline,
       createSession: (sessionSeed) => {
         requestedSeed = sessionSeed;
@@ -3165,6 +3193,8 @@ const rebuildSession = (
           snapshot: requestedSnapshot
         });
       }
+      document.exitPointerLock();
+      titleOverlay.style.display = "grid";
       titleOverlayController.setError(
         `${formatLoadError(error)}\nタイトル画面をクリックすると再試行します。`
       );

@@ -74,6 +74,13 @@ V2性能計測は`src/v2/performanceDiagnostics.ts`の同一collectorを使用�
 - Player拘束は画面下辺40pxの赤いグラデーションを2秒周期で明滅させる。通常・デバッグ共通で、拘束解除と`playing`終了時に消す。既存の拘束距離・時間・移動可否は変更しない。
 - タイトルの機能名は「アラーム床」とし、保存fieldは従来の`features.alarmEnabled`を維持する。
 
+### 0.5 いきなり公開処刑の再開操作とミッション表示
+
+- いきなり公開処刑は処刑中・処刑完了後ともRで即リプレイ、Enterでタイトルへ戻る。Rは開始snapshotの設定と実人口を保持し、新seedから会場と動的sessionを再構築する。設定保持には処刑方式・対象人数・周囲人数・音量・表示・学校設定を含む。
+- Rによる再構築中と再開後はタイトルを非表示にし、CanvasのPointer Lockを維持する。追加クリックを要求せず、静的学校資源を再利用する。再構築失敗時はPointer Lockを解除して既存のエラー・クリック再試行画面を表示する。
+- `dispatchV2RuntimeEndFlow`は開始mode、`resolveV2MissionHudMode`は開始modeとMission有効設定を必須で受け取る。サバイバルの既存R／Enter規則は維持する。
+- Mission HUDはサバイバルかつMission有効の場合だけ生成する。通常プレイでは進行中ミッション、整列・公開処刑・処刑完了ではミッション結果を表示する。タイトルといきなり公開処刑では表示しない。
+
 以下の第1～16節はv1.3.1／旧T02時点の実装を追跡する付録として残す。V2実装との不一致は本節、`docs/spec_stage_runtime_v2.md`、`docs/spec_stage_assets_v2.md`を優先する。
 
 ## 1. v1.3.1／旧T02実装付録の位置付け
