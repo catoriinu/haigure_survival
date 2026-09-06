@@ -88,6 +88,8 @@ export type V2PublicExecutionPhase =
   | "execution"
   | "complete";
 
+export type V2ExecutionReplayShooterPolicy = "preserve" | "reshuffle";
+
 export type V2PublicExecutionFrame = Readonly<{
   phase: V2PublicExecutionPhase;
   venueId: string | null;
@@ -113,7 +115,7 @@ export interface V2PublicExecutionSystem {
   ): V2PublicExecutionFrame;
   update(deltaSeconds: number): readonly V2ExecutionShotEvent[];
   notifyTargetCompleted(targetId: string): boolean;
-  replay(): V2PublicExecutionFrame;
+  replay(shooterPolicy: V2ExecutionReplayShooterPolicy): V2PublicExecutionFrame;
   reset(): void;
   getFrame(): V2PublicExecutionFrame;
 }
@@ -380,7 +382,7 @@ export const createV2PublicExecutionSystem = (
       (V2_PUBLIC_EXECUTION_DELAY_MAXIMUM_SECONDS -
         V2_PUBLIC_EXECUTION_DELAY_MINIMUM_SECONDS);
 
-  const prepareTargets = () => {
+  const prepareTargets = (shooterPolicy: V2ExecutionReplayShooterPolicy) => {
     if (!session) {
       throw new Error("公開処刑sessionがありません");
     }
@@ -391,7 +393,10 @@ export const createV2PublicExecutionSystem = (
 
     let originKind: V2ExecutionAssignment["originKind"];
     let assignments: readonly (readonly string[])[];
-    if (
+    if (shooterPolicy === "preserve") {
+      originKind = targets[0].originKind;
+      assignments = Object.freeze(targets.map((target) => target.shooterIds));
+    } else if (
       session.candidate.variant ===
       "npc-survivor-player-block"
     ) {
@@ -554,7 +559,7 @@ export const createV2PublicExecutionSystem = (
           playerShooterId: shooters.playerShooterId
         })
       });
-      prepareTargets();
+      prepareTargets("reshuffle");
       return buildFrame();
     },
     update: (deltaSeconds) => {
@@ -607,13 +612,13 @@ export const createV2PublicExecutionSystem = (
       }
       return true;
     },
-    replay: () => {
+    replay: (shooterPolicy) => {
       if (phase !== "execution" && phase !== "complete") {
         throw new Error(
           "公開処刑リプレイは処刑中または完了後にだけ開始できます"
         );
       }
-      prepareTargets();
+      prepareTargets(shooterPolicy);
       return buildFrame();
     },
     reset: () => {

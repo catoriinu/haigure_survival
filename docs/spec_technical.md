@@ -76,8 +76,9 @@ V2性能計測は`src/v2/performanceDiagnostics.ts`の同一collectorを使用�
 
 ### 0.5 いきなり公開処刑の再開操作とミッション表示
 
-- いきなり公開処刑は処刑中・処刑完了後ともRで即リプレイ、Enterでタイトルへ戻る。Rは開始snapshotの設定と実人口を保持し、新seedから会場と動的sessionを再構築する。設定保持には処刑方式・対象人数・周囲人数・音量・表示・学校設定を含む。
-- Rによる再構築中と再開後はタイトルを非表示にし、CanvasのPointer Lockを維持する。追加クリックを要求せず、静的学校資源を再利用する。再構築失敗時はPointer Lockを解除して既存のエラー・クリック再試行画面を表示する。
+- いきなり公開処刑は処刑中・処刑完了後ともRで同じsession内の処刑をリプレイし、Enterでタイトルへ戻る。Rは設定・実人口・会場・人物ごとの画像とボイス割当・配置・射手担当を保持する。BIT／NPCの発射タイミング（同時／時間差の判定と待機時間）だけを再抽選し、session seedと動的所有者を維持する。
+- `survival.replayExecution()`は弾・被弾・対象状態・参加者の役割・配置を初期化する。いきなり公開処刑は途中再開も受理し、instant用の参加者状態と射手割当を保つ。素材読込、タイトル表示、追加クリックを要求せず、CanvasのPointer Lockを維持する。
+- いきなり公開処刑のRでは`audio.stopAllSe()`と`voiceRuntime.resetForReplay()`が旧SE／VOICEを停止する。音声profileと媒体poolを保持し、次の状態更新で同一状態の観客loopも開始し直す。BGMは継続する。実際にsessionを構築するタイトル復帰・設定反映・再試行では読み込み表示を行い、失敗時はPointer Lockを解除する。
 - `dispatchV2RuntimeEndFlow`は開始mode、`resolveV2MissionHudMode`は開始modeとMission有効設定を必須で受け取る。サバイバルの既存R／Enter規則は維持する。
 - Mission HUDはサバイバルかつMission有効の場合だけ生成する。通常プレイでは進行中ミッション、整列・公開処刑・処刑完了ではミッション結果を表示する。タイトルといきなり公開処刑では表示しない。
 

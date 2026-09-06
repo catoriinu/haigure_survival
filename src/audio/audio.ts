@@ -273,6 +273,17 @@ export class AudioManager {
     return this.playSpatial(url, getPosition, options, this.sePool);
   }
 
+  stopAllSe() {
+    this.assertActive();
+    for (const slot of this.sePool) {
+      if (!slot.active) {
+        continue;
+      }
+      slot.playRequestId += 1;
+      this.stopSlot(slot, false);
+    }
+  }
+
   playVoice(
     url: string,
     getPosition: () => Vector3,

@@ -630,10 +630,7 @@ scene.activeCamera = camera;
 
 titleHeading.textContent = "HAIGURE SURVIVAL V2";
 titleVersion.textContent = "ver.2.0.0";
-titleOverlay.style.display = startImmediately &&
-  sessionStartSnapshot.startMode === "instant-public-execution"
-  ? "none"
-  : "grid";
+titleOverlay.style.display = "grid";
 minimapCanvas.style.display = "none";
 minimapReadout.style.display = "none";
 staminaGauge.style.display = "none";
@@ -2703,30 +2700,13 @@ engine.runRenderLoop(() => {
       : "ignored";
     if (endFlowDecision === "replay-execution") {
       if (sessionStartSnapshot.startMode === "instant-public-execution") {
-        const replaySeed = nextRuntimeSessionSeed();
-        const replaySnapshot = createV2SessionStartSnapshot({
-          startMode: sessionStartSnapshot.startMode,
-          settings: sessionStartSnapshot.settings,
-          runtimePopulation: sessionStartSnapshot.runtimePopulation,
-          venueRandom: createSchoolRuntimeRandom(
-            replaySeed,
-            "instant-execution-venue"
-          )
-        });
-        started = false;
-        input.reset();
-        requestSessionRebuild(
-          Object.freeze({
-            startAfterCreate: true,
-            preservePointerLock: true,
-            retrySnapshot: replaySnapshot,
-            retrySeed: replaySeed
-          })
-        );
+        audio.stopAllSe();
+        survival.replayExecution();
+        voiceRuntime.resetForReplay();
       } else {
         survival.replayExecution();
-        survivalFrame = survival.getFrame();
       }
+      survivalFrame = survival.getFrame();
     } else if (endFlowDecision === "retry-normal-session") {
       started = false;
       input.reset();
@@ -3124,8 +3104,8 @@ let failedSessionRequest: Readonly<{
   snapshot: V2SessionStartSnapshot;
 }> | null = null;
 
-const showSessionLoading = (showTitle: boolean) => {
-  titleOverlay.style.display = showTitle ? "grid" : "none";
+const showSessionLoading = () => {
+  titleOverlay.style.display = "grid";
   statusInfo.style.display = "none";
   helpPanel.style.display = "none";
   minimapCanvas.style.display = "none";
@@ -3158,10 +3138,7 @@ const rebuildSession = (
           document.exitPointerLock();
         }
       },
-      showLoading: () => showSessionLoading(
-        !(options.startAfterCreate &&
-          options.retrySnapshot?.startMode === "instant-public-execution")
-      ),
+      showLoading: showSessionLoading,
       afterCurrentDispose: recordStaticOnlyBaseline,
       createSession: (sessionSeed) => {
         requestedSeed = sessionSeed;

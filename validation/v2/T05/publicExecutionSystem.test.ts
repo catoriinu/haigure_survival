@@ -9,7 +9,8 @@ import {
   V2_PUBLIC_EXECUTION_TRIGGER_SECONDS,
   type V2ExecutionBlock,
   type V2ExecutionCandidateInput,
-  type V2ExecutionShooterPools
+  type V2ExecutionShooterPools,
+  type V2PublicExecutionFrame
 } from "../../../src/v2/publicExecutionSystem";
 import type { V2HumanTargetSnapshot } from "../../../src/v2/combatTypes";
 import type { StageAssemblyVenue } from "../../../src/world/stageSpatialContext";
@@ -519,7 +520,7 @@ const testManualPlayerCompletionPendingTargets = () => {
     "player手動処刑の完了対象がpendingから除外されません"
   );
 
-  const replayedDuringExecution = system.replay();
+  const replayedDuringExecution = system.replay("reshuffle");
   assert(
     replayedDuringExecution.phase === "execution" &&
       replayedDuringExecution.pendingTargetIds.join(",") ===
@@ -544,7 +545,7 @@ const testManualPlayerCompletionPendingTargets = () => {
     "player手動処刑の全完了後phaseまたはpendingが不正です"
   );
 
-  const replayed = system.replay();
+  const replayed = system.replay("reshuffle");
   assert(
     replayed.phase === "execution" &&
       replayed.pendingTargetIds.join(",") === "target-a,target-b" &&
@@ -705,7 +706,7 @@ const testVenueCompletionAndReplay = () => {
     "全対象完了後のphase・pendingまたは完了一覧が不正です"
   );
 
-  const replayed = system.replay();
+  const replayed = system.replay("reshuffle");
   assert(
     replayed.phase === "execution" &&
       replayed.venueId === venueCourtyard.id &&
@@ -749,6 +750,137 @@ const testVenueCompletionAndReplay = () => {
   return "全対象完了通知でcomplete、リプレイは同一会場・候補・配置を維持して同時判定・待機・NPC割当を再抽選";
 };
 
+const assertPreservedReplay = (
+  entered: V2PublicExecutionFrame,
+  replayed: V2PublicExecutionFrame,
+  label: string
+) => {
+  assert(
+    replayed.phase === "execution" &&
+      replayed.candidate === entered.candidate &&
+      replayed.venueId === entered.venueId,
+    `${label}: 同じ候補・会場で公開処刑を再開しません`
+  );
+  assert(
+    replayed.placements.length === entered.placements.length &&
+      replayed.placements.every((placement, index) => {
+        const original = entered.placements[index];
+        return placement.id === original.id && placement.role === original.role &&
+          placement.position.equals(original.position);
+      }) &&
+      JSON.stringify(replayed.assignments) === JSON.stringify(entered.assignments),
+    `${label}: 人物配置または射手担当が変化しました`
+  );
+  assert(
+    replayed.pendingTargetIds.join(",") === entered.pendingTargetIds.join(",") &&
+      replayed.completedTargetIds.length === 0,
+    `${label}: 発射済み・完了済みの対象が再開時に戻りません`
+  );
+};
+
+const testPreservedAutomaticReplay = (usesNpcVolley: boolean) => {
+  const survivors = Object.freeze([createHuman("target-a"), createHuman("target-b")]);
+  const bitCount = V2_PUBLIC_EXECUTION_MAXIMUM_TARGETS - (usesNpcVolley ? 1 : 0);
+  const candidate = requireCandidate(createInput(survivors, createNpcBlocks(survivors), bitCount));
+  const label = usesNpcVolley ? "NPC" : "BIT";
+  // 初回だけNPCの3射手をshuffleする。再開後の値は同時判定と待機時間に使う。
+  const initialRandomValues = usesNpcVolley ? [0.1, 0.9, 0.9, 0.5] : [0.1, 0.5];
+  const nextRandom = createRandomSequence([
+    ...initialRandomValues,
+    0.9, 0, 0.999999,
+    0.1, 0.25
+  ]);
+  let randomCalls = 0;
+  const system = createV2PublicExecutionSystem(() => {
+    randomCalls += 1;
+    return nextRandom();
+  });
+  const entered = system.enter(
+    candidate,
+    venueCourtyard,
+    ["player", "audience-a"],
+    createShooterPools(bitCount, usesNpcVolley ? 3 : 0)
+  );
+  assert(
+    entered.simultaneous &&
+      entered.assignments.every((assignment) =>
+        assignment.originKind === (usesNpcVolley ? "execution-npc" : "execution-bit")
+      ) &&
+      system.update(V2_PUBLIC_EXECUTION_DELAY_MAXIMUM_SECONDS).length === 2 &&
+      system.notifyTargetCompleted("target-a") &&
+      system.getFrame().phase === "execution",
+    `${label}: 全対象発射済み・一部完了の再開条件を作れません`
+  );
+
+  const replayedDuringExecution = system.replay("preserve");
+  assertPreservedReplay(entered, replayedDuringExecution, `${label}処刑中`);
+  assert(
+    !replayedDuringExecution.simultaneous &&
+      randomCalls === initialRandomValues.length + 3 &&
+      system.update(0).length === 0,
+    `${label}: 処刑中の再開で同時判定と2対象の待機以外を再抽選しました`
+  );
+  const firstEvents = system.update(V2_PUBLIC_EXECUTION_DELAY_MINIMUM_SECONDS);
+  const lastEvents = system.update(
+    V2_PUBLIC_EXECUTION_DELAY_MAXIMUM_SECONDS - V2_PUBLIC_EXECUTION_DELAY_MINIMUM_SECONDS
+  );
+  assert(
+    firstEvents.length === 1 && firstEvents[0].targetId === "target-a" &&
+      lastEvents.length === 1 && lastEvents[0].targetId === "target-b" &&
+      system.notifyTargetCompleted("target-a") && system.notifyTargetCompleted("target-b") &&
+      system.getFrame().phase === "complete",
+    `${label}: 再開後の個別待機または全対象完了が不正です`
+  );
+
+  const replayedAfterCompletion = system.replay("preserve");
+  assertPreservedReplay(entered, replayedAfterCompletion, `${label}処刑完了後`);
+  const replayDelay = V2_PUBLIC_EXECUTION_DELAY_MINIMUM_SECONDS +
+    0.25 * (V2_PUBLIC_EXECUTION_DELAY_MAXIMUM_SECONDS - V2_PUBLIC_EXECUTION_DELAY_MINIMUM_SECONDS);
+  assert(
+    replayedAfterCompletion.simultaneous &&
+      randomCalls === initialRandomValues.length + 5 &&
+      system.update(replayDelay - 0.001).length === 0 &&
+      system.update(0.002).length === 2,
+    `${label}: 完了後の再開で同時判定と共有待機だけを再抽選していません`
+  );
+  return `${label}の候補・会場・配置・射手担当を固定し、処刑中／完了後の発射タイミング再抽選と進行初期化を確認`;
+};
+
+const testPreservedManualReplay = () => {
+  const survivors = Object.freeze([createHuman("target-a"), createHuman("target-b")]);
+  const candidate = requireCandidate(createInput(
+    survivors,
+    survivors.map((target) => ({
+      targetId: target.id,
+      blockerId: "player",
+      blockerKind: "player" as const
+    })),
+    0
+  ));
+  const system = createV2PublicExecutionSystem(() => {
+    throw new Error("Player手動処刑の担当維持リプレイで乱数を消費しました");
+  });
+  const entered = system.enter(candidate, venueCourtyard, ["player"], createShooterPools(0, 0));
+  for (const completeBeforeReplay of [false, true]) {
+    assert(system.notifyTargetCompleted("target-a"), "手動処刑の一部完了を受理しません");
+    if (completeBeforeReplay) {
+      assert(system.notifyTargetCompleted("target-b"), "手動処刑の全完了を受理しません");
+    }
+    assert(
+      system.getFrame().phase === (completeBeforeReplay ? "complete" : "execution"),
+      "手動処刑の再開元phaseが不正です"
+    );
+    const replayed = system.replay("preserve");
+    assertPreservedReplay(entered, replayed, completeBeforeReplay ? "手動処刑完了後" : "手動処刑中");
+    assert(
+      !replayed.simultaneous &&
+        system.update(V2_PUBLIC_EXECUTION_DELAY_MAXIMUM_SECONDS * 2).length === 0,
+      "Player手動処刑の担当維持リプレイで自動発射しました"
+    );
+  }
+  return "Player手動処刑は候補・会場・配置・担当を維持し、途中／完了後とも乱数消費・自動発射なしで進行を初期化";
+};
+
 export const runPublicExecutionSystemTests =
   (): readonly PublicExecutionSystemTestResult[] => [
     executeTest(
@@ -778,5 +910,17 @@ export const runPublicExecutionSystemTests =
     executeTest(
       "会場維持・完了通知・リプレイ再抽選を行う",
       testVenueCompletionAndReplay
+    ),
+    executeTest(
+      "BIT担当を維持し発射タイミングだけを再抽選する",
+      () => testPreservedAutomaticReplay(false)
+    ),
+    executeTest(
+      "NPC担当を維持し発射タイミングだけを再抽選する",
+      () => testPreservedAutomaticReplay(true)
+    ),
+    executeTest(
+      "Player手動処刑の担当を維持して進行を初期化する",
+      testPreservedManualReplay
     )
   ];

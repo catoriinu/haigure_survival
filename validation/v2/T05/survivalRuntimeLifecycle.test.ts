@@ -30,7 +30,12 @@ import {
 } from "../../../src/v2/performanceDiagnostics";
 import type { V2PlayerController } from "../../../src/v2/playerController";
 import type { V2MissionElevatorSnapshot } from "../../../src/v2/missionRuntime";
-import { V2_NO_GUN_TOUCH_BRAINWASH_DURATION_SECONDS } from "../../../src/v2/characterStateSystem";
+import {
+  V2_HIT_FADE_DURATION_SECONDS,
+  V2_HIT_FLICKER_DURATION_SECONDS,
+  V2_NPC_BRAINWASH_DECISION_SECONDS,
+  V2_NO_GUN_TOUCH_BRAINWASH_DURATION_SECONDS
+} from "../../../src/v2/characterStateSystem";
 import type { V2CharacterState } from "../../../src/v2/combatTypes";
 import {
   V2_NPC_CAPTURE_DURATION_SECONDS,
@@ -528,6 +533,157 @@ export const runSurvivalNoGunRestraintTests = async (
     }
   );
   return Object.freeze(checks);
+};
+
+const runInstantExecutionReplayTest = async (
+  scene: Scene,
+  stage: StageSpatialSession
+): Promise<SurvivalRuntimeLifecycleCheck> => {
+  const name = "即時公開処刑の途中・完了後リプレイで弾と被弾を消し役割・配置を保つ";
+  const playerSpawn = requireFirstFixturePlayerSpawn(stage);
+  const player = createFakePlayer(playerSpawn);
+  const elevatorSnapshots = createInitialMissionElevatorSnapshots(stage);
+  let runtime: V2SurvivalRuntime | null = null;
+  let characterVisuals: V2CharacterVisualRuntime | null = null;
+  try {
+    characterVisuals = await createDefaultV2CharacterVisualRuntime(
+      scene,
+      Object.freeze(["player", "npc_0", "npc_1"])
+    );
+    const executionRuntime = createV2SurvivalRuntime({
+      scene,
+      stage,
+      playerSpawn,
+      player,
+      initialPlayerState: "normal",
+      showGroundShadows: false,
+      characterVisuals,
+      random: () => 0.9,
+      npcSpawnRandom: createV2SeededRandom(V2_PERFORMANCE_DEFAULT_SEED ^ 0x4e50_4304),
+      bitSpawnRandom: createV2SeededRandom(V2_PERFORMANCE_DEFAULT_SEED ^ 0x4249_5404),
+      playerMissionRandom: createV2SeededRandom(V2_PERFORMANCE_DEFAULT_SEED ^ 0x4d50_4c04),
+      npcMissionRandom: createV2SeededRandom(V2_PERFORMANCE_DEFAULT_SEED ^ 0x4d4e_4c04),
+      broadcastMissionRandom: createV2SeededRandom(V2_PERFORMANCE_DEFAULT_SEED ^ 0x4d42_4304),
+      getOrbVisibilityPredicate: () => () => true,
+      population: Object.freeze({
+        npcCount: 2,
+        initialBrainwashedNpcCount: 0,
+        initialBitCount: 0,
+        bitReinforcementIntervalSeconds: 10,
+        maximumBitCount: 0
+      }),
+      features: Object.freeze({ missionEnabled: false, alarmEnabled: false }),
+      startupScenario: Object.freeze({
+        method: "npc-player",
+        venueId: "assembly-courtyard",
+        targetActorIds: Object.freeze(["npc_0"]),
+        audienceNpcIds: Object.freeze(["npc_1"]),
+        npcShooterIds: Object.freeze([]),
+        bitShooterIds: Object.freeze([]),
+        playerRole: "shooter"
+      }),
+      brainwashSettings: Object.freeze({
+        instantBrainwash: false,
+        brainwashOnNoGunTouch: false,
+        gunPercent: 0,
+        noGunPercent: 100
+      }),
+      performanceDiagnostics: null,
+      performanceWorkloadScenario: null,
+      releaseStageTraversalForScriptedPhase: () => {},
+      selectNavigationRoute: selectDistanceNavigationRoute
+    });
+    runtime = executionRuntime;
+    executionRuntime.activateStartupScenario();
+    const initialTargets = executionRuntime.getHumanTargets();
+    const targetState = () =>
+      executionRuntime.getHumanTargets().find((target) => target.id === "npc_0")!.state;
+    let elapsedSeconds = 0;
+    const advance = (deltaSeconds: number) => {
+      elapsedSeconds += deltaSeconds;
+      return executionRuntime.update(deltaSeconds, elapsedSeconds, null, elevatorSnapshots);
+    };
+    const fireAtTarget = () => {
+      const target = executionRuntime.getHumanTargets().find((entry) => entry.id === "npc_0")!;
+      return executionRuntime.requestPlayerGunFire(
+        target.aimPosition.subtract(player.getEyePosition())
+      );
+    };
+    const advanceUntilHit = () => {
+      for (let tick = 0; tick < 100 && targetState() === "evade"; tick += 1) {
+        advance(0.05);
+      }
+      return targetState();
+    };
+
+    const flyingShotAccepted = executionRuntime.requestPlayerGunFire(Vector3.Up());
+    const flyingFrame = advance(0);
+    const pendingShotAccepted = fireAtTarget();
+    executionRuntime.replayExecution();
+    const beamReplayFrame = advance(0);
+
+    const firstHitShotAccepted = fireAtTarget();
+    advance(0);
+    const hitState = advanceUntilHit();
+    const activeHitShells = scene.meshes.filter((mesh) =>
+      mesh.name.startsWith("v2-hit-effect-shell-") && mesh.isEnabled()
+    );
+    executionRuntime.replayExecution();
+    const hitReplayFrame = executionRuntime.getFrame();
+    const replayTargetState = targetState();
+    const clearedAudioCount = executionRuntime.drainAudioEvents().length;
+    const hitShellsRetainedAndCleared = activeHitShells.every((mesh) =>
+      !mesh.isDisposed() && !mesh.isEnabled()
+    );
+
+    const completionShotAccepted = fireAtTarget();
+    advance(0);
+    const secondHitState = advanceUntilHit();
+    const completeFrame = advance(
+      V2_HIT_FLICKER_DURATION_SECONDS + V2_HIT_FADE_DURATION_SECONDS +
+      V2_NPC_BRAINWASH_DECISION_SECONDS
+    );
+    executionRuntime.replayExecution();
+    const completeReplayFrame = executionRuntime.getFrame();
+    const replayTargets = executionRuntime.getHumanTargets();
+    const positionsPreserved = replayTargets.every((target, index) =>
+      target.id === initialTargets[index].id &&
+      Vector3.Distance(target.footPosition, initialTargets[index].footPosition) < 1e-9
+    );
+    const audienceState = replayTargets.find((target) => target.id === "npc_1")!.state;
+    return Object.freeze({
+      name,
+      ok:
+        flyingShotAccepted && pendingShotAccepted && flyingFrame.activeBeamCount === 1 &&
+        beamReplayFrame.activeBeamCount === 0 && beamReplayFrame.phase === "execution" &&
+        firstHitShotAccepted && hitState === "hit-a" && activeHitShells.length > 0 &&
+        hitReplayFrame.activeBeamCount === 0 && replayTargetState === "evade" &&
+        clearedAudioCount === 0 && hitShellsRetainedAndCleared &&
+        completionShotAccepted && secondHitState === "hit-a" &&
+        completeFrame.phase === "execution-complete" &&
+        completeReplayFrame.phase === "execution" &&
+        completeReplayFrame.executionCompletedTargetCount === 0 &&
+        completeReplayFrame.executionPendingTargetIds.join(",") === "npc_0" &&
+        completeReplayFrame.playerState === "brainwash-complete-gun" &&
+        targetState() === "evade" && audienceState === "brainwash-complete-haigure-formation" &&
+        positionsPreserved,
+      detail:
+        `弾=${flyingFrame.activeBeamCount}->${beamReplayFrame.activeBeamCount} / ` +
+        `被弾=${hitState}->${replayTargetState} / 演出=${activeHitShells.length}/${hitShellsRetainedAndCleared} / ` +
+        `未配送音声=${clearedAudioCount} / 完了=${completeFrame.phase}->${completeReplayFrame.phase} / ` +
+        `Player=${completeReplayFrame.playerState} / 観客=${audienceState} / 配置保持=${positionsPreserved}`
+    });
+  } catch (error) {
+    return Object.freeze({
+      name,
+      ok: false,
+      detail: error instanceof Error ? error.stack ?? error.message : String(error)
+    });
+  } finally {
+    runtime?.dispose();
+    characterVisuals?.dispose();
+    player.dispose();
+  }
 };
 
 export const runSurvivalRuntimeLifecycleTests = async (
@@ -1220,6 +1376,7 @@ export const runSurvivalRuntimeLifecycleTests = async (
   }
 
   checks.push(...await runSurvivalNoGunRestraintTests(scene, lifecycleStage));
+  checks.push(await runInstantExecutionReplayTest(scene, lifecycleStage));
   return Object.freeze(checks);
 };
 

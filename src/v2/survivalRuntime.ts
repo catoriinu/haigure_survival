@@ -2963,9 +2963,13 @@ constructionDependencies: V2SurvivalConstructionDependencies = Object.freeze({})
     },
     replayExecution: () => {
       assertActive();
-      if (phase !== "execution-complete") {
+      const instantExecution = startupScenario !== null;
+      if (
+        phase !== "execution-complete" &&
+        !(instantExecution && phase === "execution")
+      ) {
         throw new Error(
-          "公開処刑リプレイは処刑完了後に開始してください。"
+          "公開処刑リプレイは完了後、または即時公開処刑の処刑中に開始してください。"
         );
       }
       const candidate = executionSystem.getFrame().candidate;
@@ -2974,11 +2978,13 @@ constructionDependencies: V2SurvivalConstructionDependencies = Object.freeze({})
       }
       clearCombatForPhaseTransition();
       prepareExecutionTargetStates(candidate);
-      const replayFrame = executionSystem.replay();
+      const replayFrame = executionSystem.replay(
+        instantExecution ? "preserve" : "reshuffle"
+      );
       prepareExecutionParticipantStates(
         candidate,
         replayFrame,
-        false
+        instantExecution
       );
       applyExecutionPlacements(replayFrame);
       phase = "execution";

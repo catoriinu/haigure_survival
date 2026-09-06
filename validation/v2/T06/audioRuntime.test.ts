@@ -374,6 +374,210 @@ export const runAudioRuntimeTests = async () =>
         runtime.dispose();
       }
     }),
+    executeTest("VOICEリプレイresetの旧onEnded無効化", () => {
+      const played: Array<
+        Readonly<{
+          loop: boolean;
+          onEnded?: () => void;
+          handle: SpatialHandle;
+        }>
+      > = [];
+      const runtime = createV2VoiceRuntimeForAssetCatalog(
+        {
+          audio: Object.freeze({
+            playVoice: (
+              _url: string,
+              _getPosition: () => Vector3,
+              options: SpatialPlayOptions
+            ) => {
+              const handle = createSpatialHandle();
+              played.push(
+                Object.freeze({
+                  loop: options.loop,
+                  onEnded: options.onEnded,
+                  handle
+                })
+              );
+              return handle;
+            }
+          }),
+          random: () => 0,
+          assignments: PLAYER_CHARACTER_ASSIGNMENTS,
+          baseOptions: Object.freeze({
+            volume: 1,
+            maxDistance: 5,
+            loop: false
+          }),
+          loopOptions: Object.freeze({
+            volume: 1,
+            maxDistance: 5,
+            loop: true
+          })
+        },
+        createVoiceAssetCatalog()
+      );
+      try {
+        const normal = Object.freeze([createSnapshot("normal")]);
+        const haigure = Object.freeze([
+          createSnapshot("brainwash-complete-haigure")
+        ]);
+        runtime.update(0, false, normal);
+        runtime.update(0, false, haigure);
+        const oldEnter = played[0];
+        assert(
+          played.length === 1 &&
+            !oldEnter.loop &&
+            oldEnter.onEnded !== undefined,
+          "reset前のハイグレenter VOICEがありません。"
+        );
+
+        runtime.resetForReplay();
+        assert(
+          !oldEnter.handle.isActive(),
+          "リプレイresetで旧VOICE handleが停止されません。"
+        );
+        runtime.update(0, false, haigure);
+        const replayEnter = played[1];
+        assert(
+          Number(played.length) === 2 &&
+            !replayEnter.loop &&
+            replayEnter.onEnded !== undefined,
+          "同一ハイグレstateがリプレイ後に再評価されません。"
+        );
+        oldEnter.onEnded?.();
+        assert(
+          Number(played.length) === 2 && replayEnter.handle.isActive(),
+          "旧onEndedがリプレイ後のVOICEを変更しました。"
+        );
+        replayEnter.onEnded?.();
+        assert(
+          Number(played.length) === 3 && played[2].loop,
+          "リプレイ後の現行enter終了からloopへ接続されません。"
+        );
+        return "旧handleと旧onEndedを無効化し、同一stateをenterから再生";
+      } finally {
+        runtime.dispose();
+      }
+    }),
+    executeTest("VOICEリプレイresetの同一formation再開・割当保持", () => {
+      const played: Array<Readonly<{ url: string; handle: SpatialHandle }>> = [];
+      const assignments: V2CharacterAssignments = Object.freeze([
+        Object.freeze({
+          actorId: "npc-01",
+          voiceProfileId: "02",
+          portraitDirectory: "02_hgsv_mb"
+        }),
+        Object.freeze({
+          actorId: "player",
+          voiceProfileId: "01",
+          portraitDirectory: "01_hgsv_mb"
+        })
+      ]);
+      const runtime = createV2VoiceRuntimeForAssetCatalog(
+        {
+          audio: Object.freeze({
+            playVoice: (url: string) => {
+              const handle = createSpatialHandle();
+              played.push(Object.freeze({ url, handle }));
+              return handle;
+            }
+          }),
+          random: () => 0,
+          assignments,
+          baseOptions: Object.freeze({
+            volume: 1,
+            maxDistance: 5,
+            loop: false
+          }),
+          loopOptions: Object.freeze({
+            volume: 1,
+            maxDistance: 5,
+            loop: true
+          })
+        },
+        createVoiceAssetCatalog()
+      );
+      try {
+        const normal = Object.freeze([
+          createSnapshot("normal", "player"),
+          createSnapshot("normal", "npc-01")
+        ]);
+        const formation = Object.freeze([
+          createSnapshot("brainwash-complete-haigure-formation", "player"),
+          createSnapshot("brainwash-complete-haigure-formation", "npc-01")
+        ]);
+        runtime.update(0, false, normal);
+        runtime.update(0, false, formation);
+        const firstCycle = [...played];
+        assert(
+          firstCycle.length === 2 &&
+            firstCycle[0].url.includes("/02_cool/") &&
+            firstCycle[1].url.includes("/01_devil/"),
+          `formationの初回割当が不正です: ${firstCycle.map(({ url }) => url).join(" | ")}`
+        );
+
+        runtime.resetForReplay();
+        assert(
+          firstCycle.every(({ handle }) => !handle.isActive()),
+          "formationの旧loop handleが停止されません。"
+        );
+        runtime.update(0, false, formation);
+        const replayCycle = played.slice(2);
+        assert(
+          replayCycle.length === 2 &&
+            replayCycle[0].url === firstCycle[0].url &&
+            replayCycle[1].url === firstCycle[1].url &&
+            replayCycle.every(({ handle }) => handle.isActive()),
+          `同一formationの再開または割当保持が不正です: ${replayCycle.map(({ url }) => url).join(" | ")}`
+        );
+        return "actor/profile割当を保持して同一formation loopを再開";
+      } finally {
+        runtime.dispose();
+      }
+    }),
+    executeTest("VOICEリプレイresetのhit-a残留停止", () => {
+      const played: SpatialHandle[] = [];
+      const runtime = createV2VoiceRuntimeForAssetCatalog(
+        {
+          audio: Object.freeze({
+            playVoice: () => {
+              const handle = createSpatialHandle();
+              played.push(handle);
+              return handle;
+            }
+          }),
+          random: () => 0,
+          assignments: PLAYER_CHARACTER_ASSIGNMENTS,
+          baseOptions: Object.freeze({
+            volume: 1,
+            maxDistance: 5,
+            loop: false
+          }),
+          loopOptions: Object.freeze({
+            volume: 1,
+            maxDistance: 5,
+            loop: true
+          })
+        },
+        createVoiceAssetCatalog()
+      );
+      try {
+        runtime.update(0, false, Object.freeze([createSnapshot("normal")]));
+        runtime.update(0, false, Object.freeze([createSnapshot("hit-a")]));
+        assert(
+          played.length === 1 && played[0].isActive(),
+          "reset前のhit-a VOICEが再生されていません。"
+        );
+        runtime.resetForReplay();
+        assert(
+          !played[0].isActive(),
+          "リプレイreset後もhit-a VOICEが残留しています。"
+        );
+        return "hit-a one-shotをリプレイ境界で停止";
+      } finally {
+        runtime.dispose();
+      }
+    }),
     executeTest("VOICE idle条件と停止中抑止", () => {
       let playCount = 0;
       const runtime = createV2VoiceRuntimeForAssetCatalog(
@@ -586,7 +790,7 @@ export const runAudioRuntimeTests = async () =>
       );
       return "VOICEを0へ保存し、他categoryを保持、未知fieldを削除";
     }),
-    executeTest("AudioManager disposeの全音声停止・Context終了", async () => {
+    executeTest("AudioManager SE一括停止・pool再利用・dispose", async () => {
       type FakeAudioNode = Readonly<{
         gain: { value: number };
         pan: { value: number };
@@ -711,13 +915,17 @@ export const runAudioRuntimeTests = async () =>
       try {
         const manager = new AudioManager(camera);
         manager.startBgm("/fixture/bgm.mp3");
+        let seEndedCount = 0;
         const seHandle = manager.playSe(
           "/fixture/se.mp3",
           () => new Vector3(1, 0, 0),
           Object.freeze({
             volume: 1,
             maxDistance: 5,
-            loop: false
+            loop: false,
+            onEnded: () => {
+              seEndedCount += 1;
+            }
           })
         );
         const voiceHandle = manager.playVoice(
@@ -728,6 +936,28 @@ export const runAudioRuntimeTests = async () =>
             maxDistance: 5,
             loop: true
           })
+        );
+        const bgmAudio = audioInstances[audioInstances.length - 1];
+        manager.stopAllSe();
+        assert(
+          !seHandle.isActive() &&
+            voiceHandle.isActive() &&
+            seEndedCount === 0 &&
+            bgmAudio.pauseCount === 0,
+          "SE一括停止がVOICE／BGMまたはonEndedへ波及しました。"
+        );
+        const replaySeHandle = manager.playSe(
+          "/fixture/replay-se.mp3",
+          () => new Vector3(3, 0, 0),
+          Object.freeze({
+            volume: 1,
+            maxDistance: 5,
+            loop: false
+          })
+        );
+        assert(
+          audioInstances.length === 49 && replaySeHandle.isActive(),
+          "SE一括停止後に既存poolから再生できません。"
         );
         await manager.dispose();
 
@@ -742,7 +972,7 @@ export const runAudioRuntimeTests = async () =>
             audioInstances.reduce(
               (total, audio) => total + audio.playCount,
               0
-            ) === 3,
+            ) === 4,
           `BGM／SE／VOICEの生成・再生数が不正です: audio=${audioInstances.length}`
         );
         assert(
@@ -772,7 +1002,7 @@ export const runAudioRuntimeTests = async () =>
           () => manager.getCategoryVolume("bgm"),
           "dispose後もAudioManagerを参照できました。"
         );
-        return "BGM＋32 SE＋16 VOICEを停止・切断し、AudioContextを1回close";
+        return "SEだけを停止してpool再利用後、BGM＋32 SE＋16 VOICEをdispose";
       } finally {
         Object.defineProperty(window, "Audio", {
           configurable: true,
