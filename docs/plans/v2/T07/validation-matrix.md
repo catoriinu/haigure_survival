@@ -2,8 +2,8 @@
 
 更新日: 2026-09-06
 担当: GPT-5.6 Sol / Highの読み取り調査、親Astraが整理。
-基点: develop c8769e32。P2前提文書commit: ec24845。対象: `codex/v2-t07-regression-docs`の未コミット差分。
-状態: 通常・stressのbefore／after正式計測、after保持観測と3周＋6周補助診断、固定4200frame参考採取、候補最終採否、Web限定実操作、Electron受入、5単位のローカルcommitを実施済み。13 suite中12 suite PASS、T04総合116/118。保持不一致・媒体診断の原因は未確定で、T07全体とV4は未完。
+基点: develop c8769e32。P2前提文書commit: ec24845。対象: PR #84、Runtime検証head `8e6cd34`。
+状態: **T07／V4は既知問題を許容したユーザー判断により受入OK**。PR作成後のWeb追加検証・独立レビューと、最終9項目の扱いは [最終受入記録](accepted-known-issues.md) に集約する。以下は初回の検証対応・証拠を保持した表であり、古いfixture件数やbefore／after値を最終Runtimeの再実行結果にはしない。数値FAIL・未確定は維持する。
 
 | 契約群 | 既存入口 | 守る内容と追加計測 | 現時点の証拠 |
 |---|---|---|---|
@@ -11,7 +11,7 @@
 | 光線・光球・命中・描画 | T05 beamCombat / hitEffectSystem / bitCombatIntegration、T06 stageTransparentRenderingOrder / characterVisual | pool、破棄、Ray、命中event、窓越しWebGL描画。通常Web/Electronの実画面とCPU/GPU寄与を確認する | T05 325/325、T06 70/70 PASS。ElectronでG選択と実射撃を確認。Web wrapperはfront／left／rightを視認し、射撃確認の証拠にはしない。GPUは補助値として採取し、個別変更の因果は確定しない |
 | 操作・Follower・同期射撃 | T05 npc-command.html、T06 runtimeInteraction / runtimeHud、acceptance:t06:electron | G/N/H、F/E/C、Follow/Leave、無制限Follower、同期射撃。継続WASD、Pointer Lock、実負荷時の入力応答を確認する | T05 NPC操作27/27、T06 70/70 PASS。ElectronはG／N／H、射撃、R等を確認。実Web wrapperはCanvas開始、Pointer Lock、W／D／S／A、実mouse左右視点、front／left／right視認だけをPASS |
 | Mission・Alarm・放送・ミニマップ | B05、T05 Alarm群、T06-3、T06-4、Mission Electron normal / haigure | 意味資産・表示・Runtime・実学校配線は異なる契約。通常ゲームでも同時動作と実操作を確認する | B05 42/42、T06-3 16/16、T06-4 38/38 PASS。Mission normal／haigure Electronはいずれもexit 0・診断配列空 |
-| 世界境界・扉・エレベーター | T04学校統合、T05 worldBoundary、T06操作/HUD、acceptance:t06-4p-2:electron | GLB境界、動的扉、Player/Follower/自律NPCの乗降。通常ゲームで通過・開閉・乗降を確認する | T04学校統合82/82、T05 325/325 PASS。通常人口50/10/6でPlayer＋Follower 5人、自律NPC `npc_7`の乗降を確認。T04総合待ち |
+| 世界境界・扉・エレベーター | T04学校統合、T05 worldBoundary、T06操作/HUD、acceptance:t06-4p-2:electron | GLB境界、動的扉、Player/Follower/自律NPCの乗降。通常ゲームで通過・開閉・乗降を確認する | T04学校統合82/82、T05 325/325 PASS。通常人口50/10/6でPlayer＋Follower 5人、自律NPC `npc_7`の乗降を確認。T04総合は116/118、既知2件を許容済み |
 | 設定・保存・reset・開始モード | T06-6A、T06-6B、acceptance:t06-6b:electron | 既定値、schema、V1キー分離、全/部分reset、通常/5方式即時公開処刑。6Aと6Bは相互内包しない | T06-6A 12/12、T06-6B 14/14 PASS。Electronで通常、5方式、Mission／Alarm 4組合せ、R再演を確認 |
 | 終了導線・R/Enter | T06 runtimeInteraction、T06-6C game-flow Electron、T06-6D game-flow Electron | 6Cはphaseと操作、6Dは同じ導線上の所有と破棄。単純な代替関係ではない | T06-6C 7/7、T06-6D 13/13 PASS。Electronのgame-flowとCanvas再試行はいずれもexit 0。終了後GPU stderrはP2-T02で継続調査 |
 | 6 viewport・連続resize | T06-6C fixture / Electron | 既存runnerは指定6サイズを含む8サイズ。P2-U01の長時間案内も通常Webで6サイズ確認する | instant／normal各8 viewportと連続resize 4遷移PASS。AIが640×480・480×360の両モード画像を確認。実聴・ユーザー確認とは区別 |
@@ -41,4 +41,4 @@
 - この表は入口の対応表であり、全コマンドを重複実行する一覧ではない。変更単位と最終受入に対して、Astraが契約と証拠の対応を固定する。
 - Solは棚卸し、定型記録、確定仕様の小修正を担当。Astraは計測設計、採否、安全/寿命契約、テスト削除、独立レビューを担当する。
 - 共有ファイルとGit操作は親が管理し、同一ファイルの並行編集と重いbuild/計測の同時実行を避ける。
-- Web保持のstatic-only baseline不一致は資源名診断3周＋6周を完了したが、正式1件の不一致時内訳がなく原因未確定。次の調査では不一致時の資源名・生成stackを保存する。P2-T02のGPU stderr調査とは別であり、renderer診断、媒体診断、owner解放とも分ける。
+- Web保持の旧static-only baseline不一致は初回の資源名診断3周＋6周で非再現。PR作成後の最新3周＋詳細6周でも非再現で、追加診断は資源の識別子・名前・生成破棄stackを保存した。旧1件の原因は未確定のままT07-K08として許容済み。P2-T02のGPU stderr履歴、renderer診断、媒体診断、owner解放とは分ける。

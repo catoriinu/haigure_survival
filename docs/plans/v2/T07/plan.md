@@ -2,9 +2,17 @@
 
 更新日: 2026-09-06
 
+現在状態: PR #84作成後のWeb追加検証と独立レビューを実施し、ユーザーが既知9項目を許容して問題なしと判断した。**T07／V4はユーザー判断による受入OK、PR #84のマージ準備中**。最新の判断は [既知問題の許容と最終受入](accepted-known-issues.md)、今回の手順は [マージ準備計画](merge-preparation-plan.md) を参照する。下記の実測FAIL・未確定は維持し、AI数値基準PASSとは区別する。
+
 最新の追加作業は[いきなり公開処刑の操作とミッション表示](instant-execution-replay-plan.md)を参照する。Rは同session内で発射タイミングだけを再抽選し、タイトルに戻るまで人物・会場を保持する。再開時間の測定は不要とのユーザー指定を適用する。直前の[ダッシュ体力と拘束表示](stamina-restraint-plan.md)および[プレイ中HUDとデバッグ表示の調整](hud-polish-plan.md)はユーザー確認OKとなった。ユーザーの2026-09-06訂正により、今後の受入・build・試験はWeb版だけを対象とする。以下の既実施Electron結果は履歴であり、追加試験の指示やWeb版の合否条件とは扱わない。
 
 ## プロンプト
+
+2026-09-06 最終受入判断:
+
+> 読んだ限り、どれも人間にとって影響は少ないと言えるので既知の問題として記録したうえで、問題なしとします。PRマージに向けて準備してください。
+
+以下の当初条件に対し、現行Webの既知9項目は許容済みとし、修正・追加検証をマージ条件へ戻さない。Web限定・再開時間測定不要の後発指定も維持する。
 
 2026-09-06 P2依頼からの担当・範囲指定:
 
@@ -94,22 +102,24 @@ P2-U01は後発のユーザー指定によりT07で修正する。性能・構�
 - [x] 既定通常構成の開始直後10秒・定常戦闘60秒をWeb／Electronで計測する
 - [x] 最大構成を同一seedで120秒実行し、診断・保持・baseline比を測定する
 - [x] CPU／GPU／AI／NavMesh／演出／UI／heapを分離して意味不変の最適化を行う
-- [ ] BIT安全、扉、エレベーター、Follower、Mission、Alarm、放送、終了導線を回帰する
+- [x] BIT安全、扉、エレベーター、Follower、Mission、Alarm、放送、終了導線を回帰し、残る既知項目はユーザー許容で受入を完了する
 - [x] `V2TitleSettings`、V1保存分離、6 viewport、連続resize、静的資源再利用を回帰する
 - [x] Web版とElectron版をbuildし、配布監査と実行時console／process診断を採取する
 - [x] ゲーム仕様、技術仕様、3D実行仕様、Blender資産仕様を同期する
-- [ ] V4性能・リリースゲートと独立レビューを完了する
+- [x] PR作成後のWeb追加検証・独立レビューと既知問題許容のユーザー判断により、V4受入を完了する
 - [x] 結果を更新し、T07差分だけをcommitする
 
 ## 結果
 
-2026-09-06実行開始。T06-6DはPR #83、develop `c8769e32`へ統合済み。P2は人間確認OKを含めて受入完了・必須修正0件であり、AI測定PASSとは区別する。P2確定文書9件は別ローカルcommit `ec24845`へ保存した。ユーザーが手動worktree作成を承認し、専用の`codex/v2-t07-regression-docs`へ引き継いだ。正本にあった対象外4件は内容を保全した。push・PR・merge・worktree削除は対象外。
+以下は初回実装・計測時点の結果を含む。最新Runtimeの追加検証と受入判断は [最終受入記録](accepted-known-issues.md) に集約する。
+
+2026-09-06実行開始。T06-6DはPR #83、develop `c8769e32`へ統合済み。P2は人間確認OKを含めて受入完了・必須修正0件であり、AI測定PASSとは区別する。P2確定文書9件は別ローカルcommit `ec24845`へ保存した。ユーザーが手動worktree作成を承認し、専用の`codex/v2-t07-regression-docs`へ引き継いだ。正本にあった対象外4件は内容を保全した。当初はローカルcommitまでを対象とし、後発の明示承認でpushとPR #84作成を完了した。merge・worktree削除は未実施。
 
 計測基盤と契約対応表を整備し、製品改善前のbaselineを採取した。通常の実時間70秒と最大構成120秒、I3の固定4200frame比較を区別する。Web／Electronの通常・stressは変更前後各3 attemptを実施し、24 attempt中23回を完走した。再開始保持観測も完了。通常の数値条件未達、Electronの入力中断回、素材request中断を個別に保存して原因を切り分けた。
 
 P2-U01本体、Mission HUDのDOM再利用、空間queryのmembership再利用を適用した。P2-U01の`runStartupUi.mjs`はloading／stalled／running／failedの4状態×6 viewport＝24条件に合格し、実行前後のsource hashも不変だった。AIが最小480×360の4状態と、6 viewportすべてのstalled画像を実際に確認した。さらにT06-6D再試行Electronで、初回失敗、設定操作による再試行なし、Canvas実クリックによる復旧、現在設定の反映がPASSした。これによりP2-U01の独立ステップを完了とする。画像確認はAIによる実画面確認であり、実聴やユーザー確認を意味しない。
 
-最終機能回帰は13 suite中12 suiteがPASSし、T04総合の最終結果は116/118、外部issue 0だった。個数同期の2件は解消したが、北西階段4F→屋上BIT遷移の施設壁横断と、南西階段2 polygonのNPC物理床誤差超過が残る。いずれも安全判定や閾値を緩めず、学校資産・派生NavMeshの別修正へ渡すため、機能・安全回帰の全体ステップは未完を維持する。
+最終機能回帰は13 suite中12 suiteがPASSし、T04総合の最終結果は116/118、外部issue 0だった。個数同期の2件は解消したが、北西階段4F→屋上BIT遷移の施設壁横断と、南西階段2 polygonのNPC物理床誤差超過が残る。安全判定や閾値は維持し、後発のユーザー判断によりT07-K02／K03として許容した。機能・安全回帰の受入は完了し、両項目を修正済みにはしない。
 
 `npm run build`はV2依存監査、型検査、renderer build、Web配布監査、Electron buildを含めてPASSした。Babylon chunk 4,082.68kBが4,000kBを超える警告は残り、配布監査の`localAudioArtifacts`／`localCharacterArtifacts`／`unexpectedArtifacts`はすべて空だった。build成功と、実行時console・stderr 0件は分けて判定する。
 
@@ -121,4 +131,4 @@ Mission HUDのDOM再利用、空間query membershipのrevision内再利用、既
 
 再開始保持観測はWeb／Electronとも3周を完走し、両runtimeで接続DOM数が402に固定され、最終owner残留とconsole／page診断異常は0だった。Webは2→3周の`staticOnlyBaselineMismatchCount=1`により構造条件FAIL。追加の資源名診断3周＋6周の全7境界では個数・ID・名前まで一致したが、正式1件の原因は確定できなかった。追加6周版は別VOICE中断1件が未解決で診断FAILだった。Electron正式保持は構造条件PASSだがsession 1の`aim.mp3`にcomplete-buffer証拠がなく媒体診断FAILである。固定4200frame参考pairも採取したが、beforeはruntime診断未達、afterは終盤のPointer Lock解除があり、歴史的I3条件との差もあるため比較未確定とした。
 
-Electron stress停止は既存NavMeshの共有斜辺で希望点が隣接2面とも面外判定となる局所条件を再現し、正式runと同じ異常拘束点を得た。正式runでの到達経緯は未確定であり、新しいRuntime不具合の問題別修正へ渡す。保持の不一致時内訳と媒体中断の正常性も残課題として固定した。今回の実装・計測・調査結果はT07の5単位でローカルcommitし、P2前提文書commitと分離した。T07全体およびV4は完了扱いにしない。各commitと詳細は[結果](results.md)へ集約する。
+Electron stress停止は既存NavMeshの共有斜辺で希望点が隣接2面とも面外判定となる局所条件を再現し、正式runと同じ異常拘束点を得た。正式runでの到達経緯は未確定。保持の不一致時内訳と媒体中断の正常性も未確定として記録した。その後のWeb追加検証と実プレイ影響報告を経て、ユーザーがT07-K01～K09を許容し、T07／V4受入OKと判断した。実装・計測・調査結果のcommitと詳細は[結果](results.md)、最新の採否は[最終受入記録](accepted-known-issues.md)へ集約する。

@@ -4,7 +4,9 @@
 
 ## 判定
 
-T07のローカル受入は未合格である。実装・計測・原因調査の実施と、性能・機能の合格を区別する。正式V4はPR作成後のゲートであり、今回実施していない。
+**T07／V4はユーザー判断による受入OK、PR #84のマージ準備中である。** PR作成後のWeb追加検証と独立レビュー、再現性・実プレイ影響の報告を経て、ユーザーが既知9項目を許容した。正本は [既知問題の許容と最終受入](accepted-known-issues.md)。数値・fixtureのFAILと原因未確定は保持し、修正済み・AI数値基準PASSとは扱わない。
+
+以下の表と初回計測値は最終HUD／リプレイ変更前の履歴証拠である。Runtime head `8e6cd34` の追加Web実測は最終受入記録へ集約し、旧before／after比較を最終版へ流用しない。Electronの追加build・試験と再開時間測定は後発のユーザー指定により対象外。
 
 | 判定対象 | 結果 | 根拠 |
 |---|---|---|
@@ -102,14 +104,14 @@ Blenderのgeometry-only監査はPASS。GLBは22,477,080 bytes、Node 1,923、Mes
 
 独立fixtureの入口は、既存の計測器22項目とstress driver22項目を`measurementRunner.mjs`から重複なく呼ぶ形へ統一した。T07型検査と44/44項目がPASSし、実学校の合格数には加算しない。比較器も欠落・壊れたJSON・必須check・source版・GC・単回未達・5%境界など9分類76ケースのoffline検証を通過した。
 
-## 未解決事項と次の境界
+## 初回調査の未解決事項と現在の扱い
 
 - Electron stressの移動拘束例外は、要求した水平距離0.006660に対し0.030708移動し、許容0.02を超えた。既存NavMeshを読む約0.8秒のNode/wasm検証で、面内判定される開始面6822658からも正式runと完全一致する異常拘束点を再現した。共有斜辺上の希望点を隣接2面がともに面外判定し、NavMeshの壁辺へ拘束する条件である。希望点のZを診断上だけ±1e-6 world変えると一方の面が面内判定になり、要求近傍へ戻った。製品query最適化を使わず局所再現したが、正式runがその境界へ到達する過程と最適化による時間変化の因果は未確定。固定offsetや安全検査の緩和は製品へ追加していない。
 - Electronの約30fps周期は、ゲームを読まない空WebGL clearでも再現し、rAFだけでは約60fpsだった。背景抑制と全画面の各単独変更でも改善しない。NVIDIA DRSの読み取りでは明示的なfps／同期設定値を取得できず、設定なし・制限なしとは断定しない。OS／driver設定は変更していない。
 - P2-T02のGPU stderrは複数の終了処理で観測し、性能runnerでもbefore stress 2／after stress 1に各1件ある。renderer診断、正常終了、最終owner0と分け、無害・原因解消とは判定しない。
 - 正式性能24 attemptにはraw media中断14件があり、13件は全区間buffer観測を持つ。before Electron stress 1の`aim.mp3`だけは対応する正常性を確定できない。after Electron保持の別runでも同音声の証拠不足が1件ある。追加Web6周のsession 3→通常RでもVOICE中断1件に置換・完全読込の証拠がなく未解決。異なるrunを混ぜず、成功回への差し替えは行わない。
 
-学校資産は今回監査だけと指定されている。屋上経路・階段NavMeshはP2の資産修正、移動拘束はP2のRuntime修正として分離する。再開始資源は不一致の実体を確定してから修正範囲を決める。問題別修正の統合と対象回帰を確認するまでT07合格およびV4開始可能とは扱わない。資産側はT04の両失敗と関連の実移動・安全・資産整合、移動拘束は保存した境界の最小再現と両版の120秒stressを完了条件とし、警告・例外を隠して合格にしない。
+学校資産は監査だけの範囲を維持する。当初は屋上経路・階段NavMesh・移動拘束・保持診断の修正と再評価を受入前提としていたが、後発のユーザー判断で [既知9項目の許容](accepted-known-issues.md) へ置き換えた。修正・追加試験をPR #84のマージ前提にはしない。将来再対応する場合は対象を改めて指定し、安全判定・閾値を維持して再現と解消を確認する。
 
 ## 証拠と操作履歴
 
@@ -125,6 +127,7 @@ Blenderのgeometry-only監査はPASS。GLBは22,477,080 bytes、Node 1,923、Mes
 - `electron-frame-pacing.md`、`nvidia-drs-readonly/`: 空canvas因子診断とdriver profileの読み取り。
 - `after-electron-stress-abort-analysis.md`、`after-electron-stress-nav-probe.json`: 移動拘束の境界数値条件、元runとの一致、開始面と希望点の対照、到達経緯の未確認範囲。
 - `retained-resource-diagnostic-web.json`、`retained-resource-diagnostic-web-6cycles.json`、`retained-static-baseline-analysis.md`、`retained-static-baseline-evidence.json`: 正式保持失敗とは分離した資源名の追加観測。3周＋6周の不再現、別VOICE中断、破棄順・遅延生成・原因未確定の根拠。
+- `ai-remaining-review/`: PR作成後の最終Runtimeに対するWeb通常3回・stress3回、保持3回＋詳細6回、対象3 fixture、HUD・NavMesh・媒体観測の診断と実プレイ影響評価。採否は公開文書の[最終受入記録](accepted-known-issues.md)を参照する。
 
 P2前提文書9件は別ローカルcommit `ec24845`へ保存した。T07は専用branch `codex/v2-t07-regression-docs`で次の5単位をローカルcommitした。
 
@@ -136,4 +139,4 @@ P2前提文書9件は別ローカルcommit `ec24845`へ保存した。T07は専�
 | `1ed4304` | 学校受入の現行期待値と診断を整備 |
 | 本結果記録を含む文書commit | T07の実測結果と未達条件を記録 |
 
-各commitの対象一覧、UTF-8 BOMなし、staged差分、公開差分へのローカル利用者の絶対パス混入0を確認した。最終文書の独立監査2件は、6周結果の同期と計測fixture入口の追加で対応した。実装・計測・文書化の今回作業を保存したものであり、T07の受入合格を意味しない。push、PR作成、merge、統合元同期、worktree削除は行っていない。
+各commitの対象一覧、UTF-8 BOMなし、staged差分、公開差分へのローカル利用者の絶対パス混入0を確認した。初回文書の独立監査2件は、6周結果の同期と計測fixture入口の追加で対応した。その後HUD・体力・拘束・公開処刑リプレイを追加し、明示承認により `8e6cd34` までの計12 commitをpushして`develop`宛てPR #84を作成した。PR作成後の追加検証と既知問題許容により受入OKへ更新した。merge、統合元同期、worktree削除は未実施。
