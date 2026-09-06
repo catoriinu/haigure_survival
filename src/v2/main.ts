@@ -34,6 +34,7 @@ import { createV2TitleLayoutController } from "../ui/v2TitleLayoutController";
 import { createTitleOverlayController } from "../ui/titleOverlayController";
 import {
   createBrowserV2TitleSettingsStore,
+  V2_DEFAULT_TITLE_SETTINGS,
   type V2TitleSettingsRuntimePopulation
 } from "../v2TitleSettingsStore";
 import {
@@ -57,9 +58,14 @@ import {
 } from "../world/stageSpatialContext";
 import {
   createV2PerformanceDiagnostics,
+  createV2SeededRandom,
   readV2PerformanceScenario,
   V2_PERFORMANCE_TARGET_FRAME_INTERVAL_MS
 } from "./performanceDiagnostics";
+import {
+  createV2PerformanceStressWorkload,
+  type V2StressInput
+} from "./performanceStressWorkload";
 import {
   createV2AlarmFloorVisualSystem,
   V2_ALARM_FLOOR_VISUALIZATION_ENABLED,
@@ -306,7 +312,18 @@ const titleOverlayController = createTitleOverlayController({
 const createSessionStartSnapshot = (
   sessionSeed: number
 ): V2SessionStartSnapshot => {
-  const storedSettings = titleSettingsStore.get();
+  const storedSettings = performanceScenario === null
+    ? titleSettingsStore.get()
+    : performanceScenario.profile === "normal"
+      ? V2_DEFAULT_TITLE_SETTINGS
+      : {
+          ...V2_DEFAULT_TITLE_SETTINGS,
+          school: { ...V2_DEFAULT_TITLE_SETTINGS.school, roomDisorderLevel: 10 },
+          features: {
+            ...V2_DEFAULT_TITLE_SETTINGS.features,
+            alarmEnabled: performanceScenario.profile === "stress"
+          }
+        };
   const roomVariantReviewRequested = new URLSearchParams(location.search).has(
     "roomVariantReview"
   );
@@ -319,7 +336,8 @@ const createSessionStartSnapshot = (
         }
       }
     : storedSettings;
-  const fixturePopulation: V2TitleSettingsRuntimePopulation | null = performanceScenario
+  const fixturePopulation: V2TitleSettingsRuntimePopulation | null = performanceScenario !== null &&
+    performanceScenario.profile !== "normal"
     ? V2_PERFORMANCE_ACCEPTANCE_POPULATION
     : rampValidationTarget
       ? Object.freeze({
@@ -536,7 +554,7 @@ const performanceDiagnostics = performanceScenario
       engine,
       scene,
       performanceScenario,
-      V2_PERFORMANCE_ACCEPTANCE_POPULATION
+      sessionStartSnapshot.runtimePopulation
     )
   : null;
 if (performanceDiagnostics) {
@@ -836,7 +854,9 @@ const initializeRuntime = async () => {
         noGunPercent: settingsSnapshot.brainwash.noGunPercent
       }),
       performanceDiagnostics,
-      performanceWorkloadScenario: performanceScenario,
+      performanceWorkloadScenario: performanceScenario?.profile === "fixed-4200"
+        ? performanceScenario
+        : null,
       releaseStageTraversalForScriptedPhase: () => {
         if (ownedTraversalCoordinator === null) {
           throw new Error(
@@ -1068,6 +1088,7 @@ let ownedRuntimeHud: ReturnType<
 let ownedMissionHud: ReturnType<
   typeof createV2MissionHudController
 > | null = null;
+let ownedPerformanceStressWorkload: ReturnType<typeof createV2PerformanceStressWorkload> | null = null;
 let ownedMinimap: ReturnType<
   typeof createV2MinimapController
 > | null = null;
@@ -1131,9 +1152,22 @@ const disposeRuntimeSynchronously = () => {
     audioDisposeStarted = true;
   }
   releaseDynamicOwnerIfAcquired("audio");
-  performanceDiagnostics?.dispose();
+  const disposedWorkloadReport = ownedPerformanceStressWorkload?.getReport() ?? null;
+  if (performanceDiagnostics !== null) {
+    const status = performanceDiagnostics.getProgress().status;
+    if (status === "collecting" || status === "draining") {
+      performanceDiagnostics.abort("session-disposed");
+    }
+    window.dispatchEvent(new CustomEvent("v2-performance-report", {
+      detail: { report: performanceDiagnostics.getReport(), workload: disposedWorkloadReport }
+    }));
+    performanceDiagnostics.dispose();
+  }
+  ownedPerformanceStressWorkload?.dispose();
   delete window.__v2PerformanceDiagnostics;
   delete document.body.dataset.v2PerformanceReport;
+  delete document.body.dataset.v2PerformanceStressWorkload;
+  delete document.body.dataset.v2PerformanceContext;
   delete document.body.dataset.v2RuntimeStressReport;
   delete document.body.dataset.v2NpcSpawnReport;
   delete document.body.dataset.v2MissionAcceptanceScenario;
@@ -1345,11 +1379,19 @@ const playerCharacterVisual = createV2PlayerCharacterVisual(
   characterVisuals
 );
 ownedPlayerCharacterVisual = playerCharacterVisual;
+const performanceStressWorkload = performanceScenario?.profile === "stress"
+  ? createV2PerformanceStressWorkload({ stage, dynamicRuntime, survival, player, camera,
+    replayInputs: window.__v2PerformanceStressReplayInputs ?? null })
+  : null;
+ownedPerformanceStressWorkload = performanceStressWorkload;
 const audio = new AudioManager(camera);
 ownedAudio = audio;
 acquireDynamicOwner("audio");
 const audioVolumeLevels = settingsSnapshot.audio;
 applyV2AudioVolumeLevels(audio, audioVolumeLevels);
+const audioRandom = performanceScenario === null
+  ? Math.random
+  : createV2SeededRandom(sessionSeed);
 const gameplayAudioBridge = createV2GameplayAudioBridge({
   audio,
   assets: audioAssets,
@@ -1358,7 +1400,7 @@ const gameplayAudioBridge = createV2GameplayAudioBridge({
 ownedGameplayAudioBridge = gameplayAudioBridge;
 const voiceRuntime = createV2VoiceRuntime({
   audio,
-  random: Math.random,
+  random: audioRandom,
   assignments: characterAssignments,
   baseOptions: Object.freeze({
     volume: 0.72,
@@ -1375,7 +1417,7 @@ ownedVoiceRuntime = voiceRuntime;
 loadingSession.advance();
 const bgmUrl = audioAssets.selectBgmUrl(
   SCHOOL_STAGE.label,
-  Math.random
+  audioRandom
 );
 let audioActivated = false;
 canvas.tabIndex = 0;
@@ -1393,6 +1435,17 @@ const characterViewForward = Vector3.Zero();
 const characterViewUp = Vector3.Zero();
 const playerGunDirection = Vector3.Zero();
 let performanceReportPublished = false;
+const publishPerformanceReport = () => {
+  // dispose中のabortもfinalizeのPromiseを解決する。旧sessionの遅延公開を止める。
+  if (disposed || performanceDiagnostics === null) return;
+  const report = performanceDiagnostics.getReport();
+  const workload = performanceStressWorkload?.getReport() ?? null;
+  if (workload !== null) {
+    document.body.dataset.v2PerformanceStressWorkload = JSON.stringify(workload);
+  }
+  document.body.dataset.v2PerformanceReport = JSON.stringify(report);
+  window.dispatchEvent(new CustomEvent("v2-performance-report", { detail: { report, workload } }));
+};
 const runtimeStressStartedAt = runtimeStressScenario
   ? performance.now()
   : null;
@@ -2325,7 +2378,7 @@ const startPlay = (requestPointerLock: boolean) => {
 
 const updateGameplayHelp = (frame: ReturnType<typeof survival.getFrame>) => {
   if (
-    performanceScenario !== null ||
+    performanceScenario?.profile === "fixed-4200" ||
     runtimeStressScenario !== null ||
     rampValidationTarget !== null ||
     elevatorNpcAcceptanceScenario !== null ||
@@ -2422,10 +2475,30 @@ eventScope.listen(window, "blur", () => {
 
 if (performanceScenario) {
   configurePerformanceView();
-  started = true;
-  titleOverlay.style.display = "none";
-  statusInfo.style.display = "block";
-  helpPanel.style.display = "block";
+  if (performanceScenario.profile === "fixed-4200") {
+    started = true;
+    titleOverlay.style.display = "none";
+    statusInfo.style.display = "block";
+    helpPanel.style.display = "block";
+  }
+  document.body.dataset.v2PerformanceContext = JSON.stringify({
+    catalogFingerprint: createStageCatalogFingerprint(SCHOOL_STAGE),
+    sessionSeed,
+    snapshot: sessionStartSnapshot,
+    roomVariantSelections,
+    camera: { position: camera.position.asArray(), rotation: camera.rotation.asArray(), fov: camera.fov },
+    features: survival.getFeatureResources(),
+    initialFrame: survival.getFrame(),
+    materialMode: import.meta.env.DEV ? "local-catalog" : "distribution-default",
+    characterAssignments,
+    defaultPortraitActorCount: characterAssignments.filter((assignment) => assignment.portraitDirectory === "00_default").length,
+    bgmUrl,
+    bgmCount: audioAssets.bgmUrls.length,
+    voiceDirectoryCount: audioAssets.voiceDirectories.length,
+    portraitDirectoryCount: V2_PORTRAIT_ASSET_INVENTORY.directories.length,
+    portraitFileCount: [...V2_PORTRAIT_ASSET_INVENTORY.filesByDirectory.values()]
+      .reduce((sum, files) => sum + files.size, 0)
+  });
   helpPanel.textContent =
     `性能受入計測\nseed ${performanceScenario.seed}\n` +
     `view ${performanceScenario.view}`;
@@ -2490,34 +2563,37 @@ const renderScene = () => {
 
 engine.runRenderLoop(() => {
   try {
+    const frameDiagnostics = started ? performanceDiagnostics : null;
+    frameDiagnostics?.beginFrame();
     const actions = input.drainPressedActions();
-    performanceDiagnostics?.beginFrame();
-    if (performanceDiagnostics) {
+    if (frameDiagnostics) {
       for (const kind of stageRayQueryKinds) {
-        performanceDiagnostics.count(`ray.${kind}.queries`, 0);
-        performanceDiagnostics.count(
+        frameDiagnostics.count(`ray.${kind}.queries`, 0);
+        frameDiagnostics.count(
           `ray.${kind}.candidates`,
           0
         );
-        performanceDiagnostics.count(
+        frameDiagnostics.count(
           `ray.${kind}.intersections`,
           0
         );
-        performanceDiagnostics.count(
+        frameDiagnostics.count(
           `ray.${kind}.indexed-triangles`,
           0
         );
-        performanceDiagnostics.count(
+        frameDiagnostics.count(
           `ray.${kind}.exact-triangle-tests`,
           0
         );
       }
     }
-    const delta = performanceScenario
+    const delta = performanceScenario?.profile === "fixed-4200"
       ? V2_PERFORMANCE_TARGET_FRAME_INTERVAL_MS / 1000
       : Math.min(engine.getDeltaTime() / 1000, 0.05);
     updateElevatorNpcAcceptanceBeforeTraversal();
-    const traversalFrame = traversalCoordinator.update(delta);
+    const traversalFrame = frameDiagnostics
+      ? frameDiagnostics.measure("traversal", () => traversalCoordinator.update(delta))
+      : traversalCoordinator.update(delta);
     const playerElevatorTraversal =
       traversalCoordinator.getPlayerElevatorTraversalSnapshot();
     const nextPlayerElevatorMoving =
@@ -2544,8 +2620,8 @@ engine.runRenderLoop(() => {
     ) {
       survival.releaseAssemblyPlayerControl();
     }
-    const playerFrame = performanceDiagnostics
-      ? performanceDiagnostics.measure("player", () =>
+    const playerFrame = frameDiagnostics
+      ? frameDiagnostics.measure("player", () =>
           player.update(
             delta,
             started && survival.canPlayerMove(),
@@ -2560,8 +2636,8 @@ engine.runRenderLoop(() => {
     let survivalFrame = survival.getFrame();
     if (started) {
       elapsedSeconds += delta;
-      survivalFrame = performanceDiagnostics
-        ? performanceDiagnostics.measure(
+      survivalFrame = frameDiagnostics
+        ? frameDiagnostics.measure(
             "survival",
             () =>
               survival.update(
@@ -2577,6 +2653,12 @@ engine.runRenderLoop(() => {
             playerElevatorTraversal,
             traversalFrame.runtimeSnapshot.elevators
           );
+    }
+    if (performanceStressWorkload !== null && frameDiagnostics !== null &&
+        frameDiagnostics.getProgress().status !== "complete") {
+      frameDiagnostics.measure("diagnostics", () =>
+        performanceStressWorkload.update(frameDiagnostics.getProgress().elapsedSeconds)
+      );
     }
     updateElevatorNpcAcceptanceAfterTraversal();
     const endFlowDecision = started
@@ -2636,6 +2718,7 @@ engine.runRenderLoop(() => {
       facingYaw: characterFacingYaw
     });
     updateGameplayHelp(survivalFrame);
+    let presentationSectionStartedAt = frameDiagnostics?.beginSection("interaction") ?? 0;
     const interactionActive =
       started &&
       document.pointerLockElement ===
@@ -2673,7 +2756,9 @@ engine.runRenderLoop(() => {
       });
       survivalFrame = survival.getFrame();
     }
+    frameDiagnostics?.finishSection("interaction", presentationSectionStartedAt);
     const minimapActive = started && survivalFrame.phase === "playing";
+    presentationSectionStartedAt = frameDiagnostics?.beginSection("minimap") ?? 0;
     minimap.update({
       active: minimapActive,
       elapsedSeconds,
@@ -2691,6 +2776,8 @@ engine.runRenderLoop(() => {
       missionTargetLocationIds:
         survivalFrame.mission?.missionTargetLocationIds ?? Object.freeze([])
     });
+    frameDiagnostics?.finishSection("minimap", presentationSectionStartedAt);
+    presentationSectionStartedAt = frameDiagnostics?.beginSection("runtime-hud") ?? 0;
     runtimeHud.update({
       active: interactionActive,
       frame: survivalFrame,
@@ -2699,11 +2786,14 @@ engine.runRenderLoop(() => {
       doorCandidates,
       feedback: interactionFeedback
     });
+    frameDiagnostics?.finishSection("runtime-hud", presentationSectionStartedAt);
     if (missionHud !== null && survivalFrame.mission !== null) {
+      presentationSectionStartedAt = frameDiagnostics?.beginSection("mission-hud") ?? 0;
       missionHud.update({
         mode: resolveV2MissionHudMode(started, survivalFrame.phase),
         frame: survivalFrame.mission
       });
+      frameDiagnostics?.finishSection("mission-hud", presentationSectionStartedAt);
     }
     if (missionAcceptanceScenario !== null) {
       if (survivalFrame.mission === null) {
@@ -2823,6 +2913,7 @@ engine.runRenderLoop(() => {
           minimapReadout: minimapReadout.textContent ?? ""
         });
     }
+    presentationSectionStartedAt = frameDiagnostics?.beginSection("audio") ?? 0;
     const audioEvents = survival.drainAudioEvents();
     if (audioActivated) {
       gameplayAudioBridge.dispatch(audioEvents);
@@ -2833,11 +2924,15 @@ engine.runRenderLoop(() => {
       );
       audio.updateSpatial();
     }
+    frameDiagnostics?.finishSection("audio", presentationSectionStartedAt);
+    frameDiagnostics?.count("scenario.audio-active", audioActivated ? 1 : 0);
+    presentationSectionStartedAt = frameDiagnostics?.beginSection("alarm-visual") ?? 0;
     alarmFloorVisual?.update({
       frame: survivalFrame.alarm,
       playerFootPosition: currentPlayerTarget.footPosition,
       elapsedSeconds
     });
+    frameDiagnostics?.finishSection("alarm-visual", presentationSectionStartedAt);
     if (runtimeStressScenario) {
       runtimeStressFrameCount += 1;
       if (
@@ -2858,12 +2953,11 @@ engine.runRenderLoop(() => {
         performanceDiagnostics?.getProgress();
       if (
         performanceDiagnostics &&
-        performanceProgress?.status === "complete" &&
+        performanceProgress?.status === "draining" &&
         !performanceReportPublished
       ) {
-        document.body.dataset.v2PerformanceReport =
-          JSON.stringify(performanceDiagnostics.getReport());
         performanceReportPublished = true;
+        void performanceDiagnostics.finalize().then(publishPerformanceReport);
       }
       const performanceText = performanceProgress
         ? `\nPERF ${performanceProgress.status} ` +
@@ -2899,14 +2993,19 @@ engine.runRenderLoop(() => {
         publishRuntimeStressReport(runtimeStressStatus, null);
       }
     }
-    if (performanceDiagnostics) {
-      performanceDiagnostics.measure("render", renderScene);
-      performanceDiagnostics.finishFrame();
+    if (frameDiagnostics) {
+      frameDiagnostics.measure("render", renderScene);
+      frameDiagnostics.finishFrame(elapsedSeconds);
     } else {
       renderScene();
     }
   } catch (error) {
     engine.stopRenderLoop();
+    const performanceStatus = performanceDiagnostics?.getProgress().status;
+    if (performanceStatus === "collecting" || performanceStatus === "draining") {
+      performanceDiagnostics!.abort(formatLoadError(error));
+    }
+    publishPerformanceReport();
     minimap.clear();
     runtimeStressStatus = "failed";
     publishRuntimeStressReport(
@@ -3157,6 +3256,7 @@ type V2SchoolVisualAcceptanceSnapshot = Readonly<{
 
 declare global {
   interface Window {
+    __v2PerformanceStressReplayInputs?: readonly V2StressInput[] | null;
     __v2SchoolVisualAcceptance?: Readonly<{
       setPose(
         pose: V2SchoolVisualAcceptancePose

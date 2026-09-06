@@ -404,6 +404,7 @@ export const runSurvivalRuntimeLifecycleTests = async (
     );
     let orbVisibilityPredicateFactoryCalls = 0;
     const performanceWorkloadScenario = Object.freeze({
+      profile: "fixed-4200" as const,
       seed: V2_PERFORMANCE_DEFAULT_SEED,
       view: "courtyard" as const
     });
@@ -460,7 +461,7 @@ export const runSurvivalRuntimeLifecycleTests = async (
       null,
       createInitialMissionElevatorSnapshots(lifecycleStage)
     );
-    performanceDiagnostics.finishFrame();
+    performanceDiagnostics.finishFrame(1 / 60);
     const firstHumanTargets = firstRuntime.getHumanTargets();
     const repeatedHumanTargets = firstRuntime.getHumanTargets();
     checks.push(
@@ -1008,6 +1009,7 @@ export const runPerformanceDiagnosticsLifecycleTests = async (
   scene: Scene
 ): Promise<readonly SurvivalRuntimeLifecycleCheck[]> => {
   const scenario = Object.freeze({
+    profile: "fixed-4200" as const,
     seed: V2_PERFORMANCE_DEFAULT_SEED,
     view: "courtyard" as const
   });
@@ -1028,7 +1030,7 @@ export const runPerformanceDiagnosticsLifecycleTests = async (
     );
     try {
       diagnostics.beginFrame();
-      diagnostics.finishFrame();
+      diagnostics.finishFrame(1 / 60);
       return Object.freeze({
         ...captureObservableCounts("scene", scene),
         ...captureObservableCounts("engine", engine)

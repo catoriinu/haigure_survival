@@ -94,6 +94,7 @@ import type {
   V2PerformanceDiagnostics,
   V2PerformanceScenario
 } from "./performanceDiagnostics";
+import type { V2StressWorkloadSnapshot } from "./performanceStressWorkload";
 import {
   createV2TargetNavigationAreaTracker,
   type V2TargetNavigationAreaTracker
@@ -316,6 +317,7 @@ export const summarizeV2TargetTracking = (
 export interface V2SurvivalRuntime {
   activateStartupScenario(): boolean;
   getFeatureResources(): V2SurvivalFeatureResources;
+  getStressWorkloadSnapshot(): V2StressWorkloadSnapshot;
   prepareVisualResources(): Promise<void>;
   update(
     deltaSeconds: number,
@@ -1879,6 +1881,34 @@ constructionDependencies: V2SurvivalConstructionDependencies = Object.freeze({})
       frame = buildFrame();
       return true;
     },
+    getStressWorkloadSnapshot: () => {
+      assertActive();
+      const npcTracking = npcSystem.getFrameView().tracking;
+      const bitTracking = bitSystem.getFrameView().targetStates;
+      const countPersonalities = (actors: readonly Readonly<{
+        targetSelectionPersonality: "persistent" | "nearest-visible" | null;
+        targetId: string | null;
+      }>[], targetedOnly: boolean) => {
+        let persistent = 0;
+        let nearestVisible = 0;
+        for (const actor of actors) {
+          if (targetedOnly && actor.targetId === null) continue;
+          if (actor.targetSelectionPersonality === "persistent") persistent += 1;
+          if (actor.targetSelectionPersonality === "nearest-visible") nearestVisible += 1;
+        }
+        return Object.freeze({ persistent, nearestVisible });
+      };
+      return Object.freeze({
+        populationBitCount: bitSystem.getFrameView().populationBitCount,
+        npcPersonalities: countPersonalities(npcTracking, false),
+        bitPersonalities: countPersonalities(bitTracking, false),
+        targetedNpcPersonalities: countPersonalities(npcTracking, true),
+        targetedBitPersonalities: countPersonalities(bitTracking, true),
+        followerIds: Object.freeze(npcTracking.filter((npc) => npc.commandMode === "follow").map((npc) => npc.npcId)),
+        scheduledFollowerShotIds: Object.freeze(npcTracking.filter((npc) => npc.followerFirePhase === "scheduled").map((npc) => npc.npcId)),
+        activeFollowerShotIds: Object.freeze(npcTracking.filter((npc) => npc.followerFirePhase === "active").map((npc) => npc.npcId))
+      });
+    },
     getFeatureResources: () => {
       assertActive();
       return Object.freeze({
@@ -2268,6 +2298,7 @@ constructionDependencies: V2SurvivalConstructionDependencies = Object.freeze({})
             "bit.beam-requests",
             bitDiagnostics.beamRequests
           );
+          performanceDiagnostics.count("bit.reinforcement-spawns", bitDiagnostics.reinforcementSpawns);
         }
         previousBitThreats = buildBitThreats(
           bitFrameView,
@@ -2326,7 +2357,9 @@ constructionDependencies: V2SurvivalConstructionDependencies = Object.freeze({})
           performanceSectionStartedAt
         );
 
+        performanceSectionStartedAt = performanceDiagnostics?.beginSection("mission") ?? 0;
         updateMissionFrame(deltaSeconds, elevators);
+        performanceDiagnostics?.finishSection("mission", performanceSectionStartedAt);
         if (phase === "playing") {
           alertCoordinator.publish([
             ...npcSystem.drainAlertRequests(),
@@ -2448,7 +2481,9 @@ constructionDependencies: V2SurvivalConstructionDependencies = Object.freeze({})
         }
         npcSystem.drainBeamRequests();
         npcSystem.drainAlertRequests();
+        performanceSectionStartedAt = performanceDiagnostics?.beginSection("mission") ?? 0;
         updateMissionFrame(deltaSeconds, elevators);
+        performanceDiagnostics?.finishSection("mission", performanceSectionStartedAt);
       }
 
       if (phase === "execution") {
@@ -2517,6 +2552,7 @@ constructionDependencies: V2SurvivalConstructionDependencies = Object.freeze({})
         }
         const npcFrameView = npcSystem.getFrameView();
         const bitFrameView = bitSystem.getFrameView();
+        performanceDiagnostics.count("bit.population-count", bitFrameView.populationBitCount);
         performanceDiagnostics.count(
           "scenario.alive-targets",
           aliveTargetCount

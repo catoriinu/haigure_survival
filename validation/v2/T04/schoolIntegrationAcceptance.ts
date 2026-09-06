@@ -158,6 +158,11 @@ type TraversalFixturePlayer = V2PlayerController &
 
 const SCHOOL_INTEGRATION_SEED = 0;
 const POSITION_EPSILON = 1e-6;
+// 銃なし接触は接触洗脳APIを通り、ビームを生成しない。
+type SchoolBeamOriginKind = Exclude<
+  V2BeamOriginKind,
+  "npc-no-gun-touch" | "player-no-gun-touch"
+>;
 const CURRENT_BEAM_ORIGIN_KINDS = Object.freeze(
   Object.keys({
     "bit-chase": true,
@@ -165,13 +170,11 @@ const CURRENT_BEAM_ORIGIN_KINDS = Object.freeze(
     "bit-random": true,
     "bit-carpet": true,
     "npc-gun": true,
-    "npc-no-gun-touch": true,
     "player-gun": true,
-    "player-no-gun-touch": true,
     "execution-bit": true,
     "execution-npc": true,
     "execution-player": true
-  } satisfies Record<V2BeamOriginKind, true>) as V2BeamOriginKind[]
+  } satisfies Record<SchoolBeamOriginKind, true>) as SchoolBeamOriginKind[]
 );
 const TRAVERSAL_ACTOR_RADII = Object.freeze(
   new Vector3(0.05, 0.15, 0.05)
@@ -782,6 +785,10 @@ class StrictTraversalSurvivalHarness implements V2SurvivalRuntime {
 
   getFrame(): never {
     return this.unexpected("getFrame");
+  }
+
+  getStressWorkloadSnapshot(): never {
+    return this.unexpected("getStressWorkloadSnapshot");
   }
 
   drainAudioEvents() {
