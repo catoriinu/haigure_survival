@@ -2,7 +2,7 @@
 
 更新日: 2026-09-06
 
-現在状態: T07は既知9項目のユーザー許容を含めて受入完了し、PR #84でdevelop `46bc162`へ統合済み。v2.0.0へのバージョン更新とリリースノートを準備中。今回の依頼はdevelopからmainへのPR作成までで、mainへのmerge・タグ作成・公開は別工程とする。[リリース準備計画](plans/v2/release-preparation/plan.md)を現在作業の正本とする。
+現在状態: T07は既知9項目のユーザー許容を含めて受入完了し、PR #84でdevelop `46bc162`へ統合済み。v2.0.0へのバージョン更新・リリースノート・build／配布監査を完了し、developからmainへの[PR #85](https://github.com/catoriinu/haigure_survival/pull/85)を作成した。今回のリリース準備は完了。mainへのmerge・タグ作成・公開は別工程とする。[リリース準備計画](plans/v2/release-preparation/plan.md)に結果を記録した。
 
 ## プロンプト
 

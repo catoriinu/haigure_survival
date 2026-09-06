@@ -21,8 +21,8 @@
 - [x] Git・v1.3.1タグ・PR #84統合・T07の受入を確認する
 - [x] 本体バージョンとリリースノート、関連文書を更新する
 - [x] build・配布監査、バージョン整合、文書の参照・UTF-8・差分を確認する
-- [ ] 対象変更をcommitし、developへ反映・pushする
-- [ ] 確定した宛先へdevelopからPRを作成し、remoteとPR headを照合する
+- [x] 対象変更をcommitし、developへ反映・pushする
+- [x] 確定した宛先へdevelopからPRを作成し、remoteとPR headを照合する
 
 ## 結果
 
@@ -35,3 +35,5 @@
 初回検証では既存node_modulesの実行リンクとBabylon依存の欠損があり、lockfileを変更せず`npm.cmd ci --no-audit --no-fund`で復元した。配布ライセンス2件の作業コピーがCRLFだったため、既存.gitattributesのLF指定へ戻し、正本と配布先のハッシュ一致を確認した。ライセンス本文や検証閾値は変更していない。
 
 今回の変更はバージョンmetadataと文書のみで、Runtime・UI・資産の変更はない。通常ゲームの再受入・新規確認サーバー起動は行わず、PR #84の最終Web受入記録を引き継ぐ。独立したbuildログはAI作業領域のproject fps-survival、logs/release-v2.0.0/build.logへ保存した。
+
+リリース準備本体はcommit `583f05a`としてdevelopへ反映・pushし、[PR #85](https://github.com/catoriinu/haigure_survival/pull/85)を`develop → main`で作成した。作成時のlocal develop、origin/develop、GitHub実ブランチ、PR headが`583f05a6d74e5e1391ad8bc60263fa580b850620`で一致することを確認。PRはOPEN・非Draft、競合なし。mainはv1.3.1の`bb3b5c5`を維持している。既存未追跡4件のSHA-256も作業前後で一致した。本完了記録は後続の文書のみのcommitで同PRへ反映する。
