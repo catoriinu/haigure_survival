@@ -2,7 +2,9 @@
 
 更新日: 2026-09-06
 
-現在状態: T06-6DはPR #83で`develop=c8769e32`へ統合済み。P2確定文書はT07へ引継ぎ済み。T07は実装・Web追加検証・独立レビューを完了し、[既知9項目のユーザー許容](plans/v2/T07/accepted-known-issues.md)によりT07／V4受入OK。`codex/v2-t07-regression-docs`のPR #84を`develop`へマージする準備中で、統合とリリース準備の開始は未実施。
+現在状態: T07は既知9項目のユーザー許容を含めて受入完了し、PR #84でdevelop `46bc162`へ統合済み。v2.0.0へのバージョン更新とリリースノートを準備中。今回の依頼はdevelopからmainへのPR作成までで、mainへのmerge・タグ作成・公開は別工程とする。[リリース準備計画](plans/v2/release-preparation/plan.md)を現在作業の正本とする。
+
+今回のリリース準備はユーザー指定の経路を優先する。作業ブランチで準備変更をcommitし、developへfast-forward反映・push後、developからmainへPRを作成する。以下の一般規則にあるリリースブランチは今回は作成しない。
 
 ## 1. 目的
 
