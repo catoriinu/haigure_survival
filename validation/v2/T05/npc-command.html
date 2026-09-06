@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" href="data:," />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' ws: wss:; media-src 'self' data: blob:; worker-src 'self' blob:; object-src 'none'; base-uri 'self'"
+    />
+    <title>T05-3 同陣営NPC指示・同期射撃検証</title>
+    <link rel="stylesheet" href="./style.css" />
+  </head>
+  <body>
+    <main>
+      <canvas
+        id="render-canvas"
+        aria-label="T05-3 NPC指示fixture"
+      ></canvas>
+      <aside class="panel">
+        <p class="eyebrow">HAIGURE SURVIVAL v2</p>
+        <h1>T05-3 同陣営NPC指示・同期射撃検証</h1>
+        <p id="summary" class="summary" data-state="running">
+          検証を開始しています。
+        </p>
+        <button id="run-validation" type="button">全検証を再実行</button>
+        <dl id="metrics" class="metrics"></dl>
+        <ol
+          id="check-results"
+          class="check-results"
+          aria-live="polite"
+        ></ol>
+      </aside>
+    </main>
+    <script type="module" src="./npcCommandMain.ts"></script>
+  </body>
+</html>

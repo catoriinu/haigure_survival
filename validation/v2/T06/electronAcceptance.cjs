@@ -1,0 +1,1253 @@
+const { app, BrowserWindow, ipcMain } = require("electron");
+const fs = require("node:fs");
+const path = require("node:path");
+
+const readArgument = (name) => {
+  const index = process.argv.indexOf(name);
+  if (index < 0 || index + 1 >= process.argv.length) {
+    throw new Error(`${name}の値が必要です。`);
+  }
+  return process.argv[index + 1];
+};
+
+const applicationUrl = new URL(readArgument("--url"));
+const reportPath = process.env.T06_ELECTRON_REPORT_FILE ?? null;
+const audioOnly = process.env.T06_ELECTRON_AUDIO_ONLY === "1";
+const poolStartOnly = process.env.T06_ELECTRON_POOL_START_ONLY === "1";
+const missionOnly = process.env.T06_ELECTRON_MISSION_ONLY === "1";
+const elevatorOnly =
+  process.env.T06_ELECTRON_ELEVATOR_ONLY === "1";
+if (
+  applicationUrl.hostname !== "localhost" &&
+  applicationUrl.hostname !== "127.0.0.1"
+) {
+  throw new Error("--urlにはローカルVite URLが必要です。");
+}
+
+const wait = (milliseconds) =>
+  new Promise((resolve) => setTimeout(resolve, milliseconds));
+
+const assertCondition = (condition, message) => {
+  if (!condition) {
+    throw new Error(message);
+  }
+};
+
+const report = {
+  status: "running",
+  url: applicationUrl.toString(),
+  startedAt: new Date().toISOString(),
+  checks: [],
+  stateTimeline: [],
+  audioResources: {
+    completed: [],
+    failed: []
+  },
+  diagnostics: {
+    console: [],
+    renderer: [],
+    load: [],
+    renderProcessGone: [],
+    unresponsive: []
+  },
+  supplemental: {
+    fec: "候補位置に依存するためElectron連続操作には含めない。T06専用fixtureで検証する。",
+    water: poolStartOnly
+      ? "固定seedの実プール開始地点から水中移動を専用受入で検証する。"
+      : "水Volumeまでの安定した実入力経路を定義していないため通常のElectron連続操作には含めない。固定プール開始専用受入で検証する。"
+  }
+};
+
+const addCheck = (name, evidence) => {
+  report.checks.push({ name, evidence });
+  process.stdout.write(`[T06 Electron] PASS ${name}\n`);
+};
+
+const getAudioCategory = (url) => {
+  const pathname = decodeURIComponent(new URL(url).pathname).toLowerCase();
+  if (!/\.(mp3|wav|ogg|m4a)$/.test(pathname)) {
+    return null;
+  }
+  if (pathname.includes("/audio/bgm/")) {
+    return "BGM";
+  }
+  if (pathname.includes("/audio/voice/")) {
+    return "VOICE";
+  }
+  if (pathname.includes("/audio/se/")) {
+    return "SE";
+  }
+  return null;
+};
+
+const parseState = (text) =>
+  text.match(/状態 ([^\s]+)/)?.[1] ?? null;
+
+const parsePosition = (text) => {
+  const match = text.match(
+    /X (-?\d+(?:\.\d+)?)\s+Y (-?\d+(?:\.\d+)?)\s+Z (-?\d+(?:\.\d+)?)/
+  );
+  return match
+    ? { x: Number(match[1]), y: Number(match[2]), z: Number(match[3]) }
+    : null;
+};
+
+const parseBeamCount = (text) =>
+  Number(text.match(/BEAM (\d+)/)?.[1] ?? 0);
+
+const parseBitPlayerTargetCount = (text) =>
+  Number(text.match(/プレイヤー標的 NPC \d+\s+BIT (\d+)/)?.[1] ?? 0);
+
+const assertNpcSpawnReport = (snapshot, label) => {
+  const report = snapshot.npcSpawnReport;
+  assertCondition(report !== null, `${label}のNPC spawn reportがありません。`);
+  assertCondition(
+    String(report.sessionSeed) === snapshot.runtimeSessionSeed &&
+      report.playerSpawnId === snapshot.playerSpawnId,
+    `${label}のseedまたはPlayer開始IDがDOM診断と一致しません。`
+  );
+  assertCondition(
+    report.npcCount === 50 &&
+      report.initialBrainwashedNpcCount === 10 &&
+      report.signature.length === 50 &&
+      new Set(report.signature.map((entry) => entry.id)).size === 50,
+    `${label}のNPC 50/初期洗脳10またはsignatureが不正です。`
+  );
+  assertCondition(
+    report.activeBiases.length === 1 &&
+      typeof report.activeBiases[0].id === "string" &&
+      report.activeBiases[0].id.length > 0 &&
+      report.activeBiases[0].playerSpawnId === report.playerSpawnId &&
+      report.activeBiases[0].weight === 0.5 &&
+      report.npcInsideActiveBiasCount >= 0 &&
+      report.npcInsideActiveBiasCount <= report.npcCount &&
+      report.initialBrainwashedInsideActiveBiasCount >= 0 &&
+      report.initialBrainwashedInsideActiveBiasCount <=
+        report.initialBrainwashedNpcCount &&
+      report.npcInsideActiveBiasCount -
+        report.initialBrainwashedInsideActiveBiasCount >=
+        0 &&
+      report.npcInsideActiveBiasCount -
+        report.initialBrainwashedInsideActiveBiasCount <=
+        report.npcCount - report.initialBrainwashedNpcCount,
+    `${label}の選択Player対応bias診断が不正です。`
+  );
+  return report;
+};
+
+const horizontalDistance = (left, right) =>
+  Math.hypot(right.x - left.x, right.z - left.z);
+
+const inspectDom = (window) =>
+  window.webContents.executeJavaScript(
+    `(() => {
+      const visible = (element) => {
+        if (!element || element.hidden) {
+          return false;
+        }
+        const style = getComputedStyle(element);
+        return style.display !== "none" && style.visibility !== "hidden" && style.opacity !== "0";
+      };
+      const roleVisible = (role) => visible(document.querySelector('[data-v2-runtime-hud-role="' + role + '"]'));
+      const canvas = document.getElementById("renderCanvas");
+      const rect = canvas?.getBoundingClientRect() ?? null;
+      const npcSpawnReportText = document.body.dataset.v2NpcSpawnReport ?? null;
+      const missionAcceptancePlacementText = document.body.dataset.v2MissionAcceptancePlacement ?? null;
+      const missionAcceptanceSnapshotText = document.body.dataset.v2MissionAcceptanceSnapshot ?? null;
+      const elevatorNpcAcceptanceReportText = document.body.dataset.v2ElevatorNpcAcceptanceReport ?? null;
+      return {
+        titleHint: document.getElementById("titleStartHint")?.textContent ?? "",
+        titleVisible: visible(document.getElementById("titleOverlay")),
+        titleMessage: document.getElementById("titleMessage")?.textContent ?? "",
+        helpText: document.getElementById("helpPanel")?.textContent ?? "",
+        status: document.getElementById("statusInfo")?.textContent ?? "",
+        pointerLockId: document.pointerLockElement?.id ?? null,
+        hudRootCount: document.querySelectorAll('[data-v2-runtime-hud="root"]').length,
+        volumeRootCount: document.querySelectorAll('[data-ui="v2-settings-audio"]').length,
+        volumeValues: Array.from(
+          document.querySelectorAll('[data-ui^="v2-settings-audio-"]')
+        ).map(
+          (element) => element.value ?? ""
+        ),
+        characterSettingsRootCount: document.querySelectorAll('[data-ui="v2-settings-character"]').length,
+        portraitSelectCount: document.querySelectorAll('[data-ui="v2-settings-portrait"]').length,
+        portraitSelection: document.querySelector('[data-ui="v2-settings-portrait"]')?.value ?? null,
+        voiceSelectCount: document.querySelectorAll('[data-ui="v2-settings-voice"]').length,
+        voiceSelection: document.querySelector('[data-ui="v2-settings-voice"]')?.value ?? null,
+        runtimeSessionSeed: document.body.dataset.v2RuntimeSessionSeed ?? null,
+        playerSpawnId: document.body.dataset.v2PlayerSpawnId ?? null,
+        npcSpawnReport: npcSpawnReportText === null ? null : JSON.parse(npcSpawnReportText),
+        missionAcceptanceScenario: document.body.dataset.v2MissionAcceptanceScenario ?? null,
+        missionAcceptancePlacement: missionAcceptancePlacementText === null ? null : JSON.parse(missionAcceptancePlacementText),
+        missionAcceptanceSnapshot: missionAcceptanceSnapshotText === null ? null : JSON.parse(missionAcceptanceSnapshotText),
+        elevatorNpcAcceptanceReport: elevatorNpcAcceptanceReportText === null ? null : JSON.parse(elevatorNpcAcceptanceReportText),
+        completionGuideVisible: roleVisible("completion-guide"),
+        completionGuideText: document.querySelector('[data-v2-runtime-hud-role="completion-guide"]')?.textContent ?? "",
+        crosshairVisible: roleVisible("crosshair"),
+        fireGuideVisible: roleVisible("fire-guide"),
+        npcPromptVisible: roleVisible("npc-prompt"),
+        broadcastPromptVisible: roleVisible("broadcast-prompt"),
+        doorPromptVisible: roleVisible("door-prompt"),
+        canvasRect: rect ? { x: rect.x, y: rect.y, width: rect.width, height: rect.height } : null
+      };
+    })()`,
+    true
+  );
+
+const waitFor = async (name, window, predicate, timeoutMilliseconds) => {
+  const deadline = Date.now() + timeoutMilliseconds;
+  let latest = null;
+  while (Date.now() < deadline) {
+    latest = await inspectDom(window);
+    if (predicate(latest)) {
+      return latest;
+    }
+    await wait(100);
+  }
+  throw new Error(`${name}を${timeoutMilliseconds}ms以内に確認できませんでした: ${JSON.stringify(latest)}`);
+};
+
+const inspectScheduledMissionEvidence = (mission) => {
+  assertCondition(
+    Array.isArray(mission.activePlayerMissionDescriptors),
+    "Mission受入snapshotにactive Player Mission descriptorがありません。"
+  );
+  const descriptors = mission.activePlayerMissionDescriptors;
+  const supportedTargetKinds = new Set([
+    "none",
+    "actor",
+    "location",
+    "follower-count",
+    "brainwash-count"
+  ]);
+  const descriptorContractValid = descriptors.every(
+    (descriptor) =>
+      typeof descriptor.id === "string" &&
+      descriptor.id.length > 0 &&
+      typeof descriptor.kind === "string" &&
+      supportedTargetKinds.has(descriptor.targetKind) &&
+      (descriptor.kind === "player-follower-acquire"
+        ? descriptor.targetKind === "follower-count"
+        : descriptor.kind === "player-brainwash-target"
+          ? descriptor.targetKind === "brainwash-count"
+          : descriptor.targetKind !== "follower-count" &&
+            descriptor.targetKind !== "brainwash-count")
+  );
+  const expectedActorTargetCount = descriptors.filter(
+    (descriptor) =>
+      descriptor.targetKind === "actor"
+  ).length;
+  const expectedLocationTargetCount = descriptors.filter(
+    (descriptor) =>
+      descriptor.targetKind === "location"
+  ).length;
+  const followerCountMissionCount = descriptors.filter(
+    (descriptor) =>
+      descriptor.kind === "player-follower-acquire" &&
+      descriptor.targetKind === "follower-count"
+  ).length;
+  return Object.freeze({
+    ready:
+      descriptorContractValid &&
+      descriptors.length > 0 &&
+      mission.missionHudVisible &&
+      mission.missionHudItemCount >= descriptors.length &&
+      mission.missionTargetActorIds.length === expectedActorTargetCount &&
+      mission.missionTargetLocationIds.length === expectedLocationTargetCount,
+    descriptors,
+    expectedActorTargetCount,
+    expectedLocationTargetCount,
+    followerCountMissionCount
+  });
+};
+
+const sendKey = async (window, keyCode, holdMilliseconds = 70) => {
+  window.focus();
+  window.webContents.focus();
+  await wait(100);
+  window.webContents.sendInputEvent({ type: "keyDown", keyCode });
+  await wait(holdMilliseconds);
+  window.webContents.sendInputEvent({ type: "keyUp", keyCode });
+};
+
+const sendCanvasClick = async (window) => {
+  window.show();
+  window.moveTop();
+  window.focus();
+  window.webContents.focus();
+  const focusDeadline = Date.now() + 2_000;
+  while (!window.isFocused() && Date.now() < focusDeadline) {
+    window.moveTop();
+    window.focus();
+    window.webContents.focus();
+    await wait(100);
+  }
+  assertCondition(window.isFocused(), "Electron受入windowへfocusできません。");
+  await wait(250);
+  const snapshot = await inspectDom(window);
+  assertCondition(snapshot.canvasRect !== null, "renderCanvasの領域を取得できません。");
+  const x = Math.round(snapshot.canvasRect.x + snapshot.canvasRect.width / 2);
+  const y = Math.round(snapshot.canvasRect.y + snapshot.canvasRect.height / 2);
+  window.webContents.sendInputEvent({ type: "mouseMove", x, y });
+  window.webContents.sendInputEvent({
+    type: "mouseDown",
+    x,
+    y,
+    button: "left",
+    clickCount: 1
+  });
+  await wait(50);
+  window.webContents.sendInputEvent({
+    type: "mouseUp",
+    x,
+    y,
+    button: "left",
+    clickCount: 1
+  });
+};
+
+const ensureMissionBroadcastReady = async (window, scenario, name) => {
+  const current = await inspectDom(window);
+  if (
+    current.pointerLockId === "renderCanvas" &&
+    current.broadcastPromptVisible &&
+    current.missionAcceptanceSnapshot !== null &&
+    current.missionAcceptanceSnapshot.broadcastCandidate !== null
+  ) {
+    return current;
+  }
+  await sendCanvasClick(window);
+  return waitFor(
+    name,
+    window,
+    (snapshot) =>
+      snapshot.pointerLockId === "renderCanvas" &&
+      snapshot.broadcastPromptVisible &&
+      snapshot.missionAcceptanceSnapshot !== null &&
+      snapshot.missionAcceptanceSnapshot.scenario === scenario &&
+      snapshot.missionAcceptanceSnapshot.broadcastCandidate !== null,
+    10_000
+  );
+};
+
+const measureMovement = async (window, keyCode, holdMilliseconds) => {
+  const beforeSnapshot = await inspectDom(window);
+  const before = parsePosition(beforeSnapshot.status);
+  assertCondition(before !== null, "移動前のプレイヤー座標を取得できません。");
+  window.webContents.sendInputEvent({ type: "keyDown", keyCode });
+  await wait(holdMilliseconds);
+  window.webContents.sendInputEvent({ type: "keyUp", keyCode });
+  await wait(250);
+  const afterSnapshot = await inspectDom(window);
+  const after = parsePosition(afterSnapshot.status);
+  assertCondition(after !== null, "移動後のプレイヤー座標を取得できません。");
+  return {
+    keyCode,
+    before,
+    after,
+    horizontalDistance: horizontalDistance(before, after)
+  };
+};
+
+const waitForBrainwashSelection = async (window) => {
+  const deadline = Date.now() + 420_000;
+  const patrolKeys = ["W", "D", "S", "A"];
+  let patrolIndex = 0;
+  let nextPatrolAt = Date.now() + 8_000;
+  let nextProgressAt = Date.now();
+  let previousState = null;
+  while (Date.now() < deadline) {
+    const snapshot = await inspectDom(window);
+    const state = parseState(snapshot.status);
+    if (state !== null && state !== previousState) {
+      report.stateTimeline.push({
+        elapsedMilliseconds: Date.now() - Date.parse(report.startedAt),
+        state
+      });
+      previousState = state;
+    }
+    if (
+      state === "brainwash-in-progress" &&
+      snapshot.pointerLockId === "renderCanvas" &&
+      snapshot.completionGuideVisible &&
+      !snapshot.crosshairVisible
+    ) {
+      return snapshot;
+    }
+    if (
+      state === "brainwash-in-progress" &&
+      snapshot.pointerLockId !== "renderCanvas"
+    ) {
+      await sendCanvasClick(window);
+      await waitFor(
+        "洗脳選択のPointer Lock再取得",
+        window,
+        (relocked) => relocked.pointerLockId === "renderCanvas",
+        10_000
+      );
+      continue;
+    }
+    if (Date.now() >= nextProgressAt) {
+      process.stdout.write(
+        `[T06 Electron] 洗脳待機 state=${state} BIT-targets=${parseBitPlayerTargetCount(snapshot.status)}\n`
+      );
+      nextProgressAt = Date.now() + 15_000;
+    }
+    if (
+      Date.now() >= nextPatrolAt &&
+      (state === "normal" || state === "evade") &&
+      parseBitPlayerTargetCount(snapshot.status) === 0
+    ) {
+      const keyCode = patrolKeys[patrolIndex % patrolKeys.length];
+      patrolIndex += 1;
+      await sendKey(window, keyCode, 1_200);
+      nextPatrolAt = Date.now() + 6_000;
+    }
+    await wait(100);
+  }
+  throw new Error("通常Runtimeでbrainwash-in-progressへ420秒以内に到達できませんでした。");
+};
+
+const waitForAudioCategories = async (timeoutMilliseconds) => {
+  const deadline = Date.now() + timeoutMilliseconds;
+  while (Date.now() < deadline) {
+    const completedCategories = new Set(
+      report.audioResources.completed
+        .filter((resource) => resource.statusCode >= 200 && resource.statusCode < 300)
+        .map((resource) => resource.category)
+    );
+    if (["BGM", "SE", "VOICE"].every((category) => completedCategories.has(category))) {
+      return;
+    }
+    await wait(100);
+  }
+  throw new Error("BGM／SE／VOICEのresource load完了を確認できませんでした。");
+};
+
+const selectCompletionState = async (window, keyCode, expectedState) => {
+  await sendKey(window, keyCode);
+  return waitFor(
+    `${keyCode}による${expectedState}選択`,
+    window,
+    (snapshot) => parseState(snapshot.status) === expectedState,
+    5_000
+  );
+};
+
+app.commandLine.appendSwitch("disable-background-timer-throttling");
+app.commandLine.appendSwitch("disable-renderer-backgrounding");
+app.commandLine.appendSwitch("disable-backgrounding-occluded-windows");
+app.commandLine.appendSwitch("disable-features", "CalculateNativeWinOcclusion");
+
+let testWindow = null;
+
+ipcMain.on("t06-renderer-diagnostic", (_event, diagnostic) => {
+  report.diagnostics.renderer.push(diagnostic);
+});
+
+const run = async () => {
+  await app.whenReady();
+  testWindow = new BrowserWindow({
+    width: 1280,
+    height: 720,
+    useContentSize: true,
+    show: false,
+    webPreferences: {
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: false,
+      backgroundThrottling: false,
+      partition: `t06-acceptance-${process.pid}`,
+      preload: path.join(__dirname, "electronAcceptancePreload.cjs")
+    }
+  });
+  testWindow.setMenuBarVisibility(false);
+
+  const runtimeSession = testWindow.webContents.session;
+  runtimeSession.setPermissionCheckHandler((_webContents, permission) =>
+    permission === "pointerLock"
+  );
+  runtimeSession.setPermissionRequestHandler((_webContents, permission, callback) => {
+    callback(permission === "pointerLock");
+  });
+  runtimeSession.webRequest.onCompleted({ urls: ["<all_urls>"] }, (details) => {
+    const category = getAudioCategory(details.url);
+    if (category !== null) {
+      report.audioResources.completed.push({
+        category,
+        url: decodeURIComponent(details.url),
+        statusCode: details.statusCode,
+        fromCache: details.fromCache,
+        resourceType: details.resourceType
+      });
+    }
+  });
+  runtimeSession.webRequest.onErrorOccurred({ urls: ["<all_urls>"] }, (details) => {
+    const category = getAudioCategory(details.url);
+    if (category !== null) {
+      report.audioResources.failed.push({
+        category,
+        url: decodeURIComponent(details.url),
+        error: details.error,
+        resourceType: details.resourceType
+      });
+    }
+  });
+
+  testWindow.webContents.on("console-message", (_event, level, message, line, sourceId) => {
+    if (level >= 2) {
+      report.diagnostics.console.push({ level, message, line, sourceId });
+    }
+  });
+  testWindow.webContents.on("did-fail-load", (_event, errorCode, errorDescription, validatedUrl, isMainFrame) => {
+    report.diagnostics.load.push({ errorCode, errorDescription, validatedUrl, isMainFrame });
+  });
+  testWindow.webContents.on("render-process-gone", (_event, details) => {
+    report.diagnostics.renderProcessGone.push(details);
+  });
+  testWindow.webContents.on("unresponsive", () => {
+    report.diagnostics.unresponsive.push({ at: new Date().toISOString() });
+  });
+
+  await testWindow.loadURL(applicationUrl.toString());
+  testWindow.show();
+  testWindow.focus();
+
+  if (elevatorOnly) {
+    assertCondition(
+      applicationUrl.searchParams.get("elevatorAcceptance") ===
+        "T06-4P-2",
+      "エレベーターNPC専用受入にはelevatorAcceptance=T06-4P-2が必要です。"
+    );
+    const completed = await waitFor(
+      "エレベーターNPC専用Runtime完了",
+      testWindow,
+      (snapshot) =>
+        snapshot.elevatorNpcAcceptanceReport?.status === "passed",
+      180_000
+    );
+    const spawnReport = assertNpcSpawnReport(
+      completed,
+      "エレベーターNPC専用session"
+    );
+    const elevatorReport = completed.elevatorNpcAcceptanceReport;
+    assertCondition(
+      elevatorReport.scenario === "T06-4P-2" &&
+        elevatorReport.seed === 20260821 &&
+        spawnReport.sessionSeed === 20260821,
+      "エレベーターNPC専用受入のscenarioまたは固定seedが不正です。"
+    );
+    assertCondition(
+      elevatorReport.population.npcCount === 50 &&
+        elevatorReport.followerIds.length === 5 &&
+        elevatorReport.followCommandAcceptedIds.length === 5 &&
+        elevatorReport.ridingFollowerIds.length === 5,
+      "エレベーターNPC専用受入の通常人口またはFollow受理数が不正です。"
+    );
+    assertCondition(
+      elevatorReport.hostileActionsSuspended === true,
+      "エレベーターNPC専用受入の固定開始条件が不正です。"
+    );
+    assertCondition(
+      elevatorReport.expectedDepartureDelaySeconds === 4 &&
+        Math.abs(elevatorReport.departureDelaySeconds - 4) <= 0.051,
+      `エレベーターNPC専用受入の発車猶予が4秒ではありません: ${elevatorReport.departureDelaySeconds}`
+    );
+    assertCondition(
+      elevatorReport.maximumCommittedActorCount <= 6 &&
+        elevatorReport.maximumPassengerCount <= 6,
+      "エレベーターNPC専用受入で定員6人を超過しました。"
+    );
+    assertCondition(
+      typeof elevatorReport.autonomousScenario.npcId === "string" &&
+        elevatorReport.autonomousScenario.npcId === "npc_7" &&
+        elevatorReport.autonomousScenario.locationId === "f04-music" &&
+        typeof elevatorReport.autonomousScenario.missionId === "string" &&
+        elevatorReport.autonomousScenario.missionId.length > 0,
+      "通常人口の自律NPC開始条件が固定されていません。"
+    );
+    assertCondition(
+      elevatorReport.autonomousRidingIds.length > 0 &&
+        elevatorReport.autonomousArrivedIds.some((npcId) =>
+          elevatorReport.autonomousRidingIds.includes(npcId)
+        ),
+      "通常人口の自律NPCが乗車・到着していません。"
+    );
+    const transitionKinds = new Set(
+      elevatorReport.transitions.map(
+        (transition) =>
+          `${transition.carState}:${transition.carDoorState}`
+      )
+    );
+    assertCondition(
+      transitionKinds.has("stopped:open") &&
+        transitionKinds.has("stopped:closing") &&
+        transitionKinds.has("moving:closed") &&
+        elevatorReport.transitions.some(
+          (transition) =>
+            transition.currentStopId ===
+              elevatorReport.destinationStopId &&
+            transition.carDoorState === "open"
+        ),
+      "エレベーターNPC専用受入の開扉・closing・走行・到着遷移が不足しています。"
+    );
+    assertCondition(
+      report.diagnostics.console.length === 0 &&
+        report.diagnostics.renderer.length === 0 &&
+        report.diagnostics.load.length === 0 &&
+        report.diagnostics.renderProcessGone.length === 0 &&
+        report.diagnostics.unresponsive.length === 0,
+      "エレベーターNPC専用Electron受入に診断エラーがあります。"
+    );
+    addCheck("通常人口のPlayer・Follower・自律NPCエレベーター遷移", {
+      seed: elevatorReport.seed,
+      population: elevatorReport.population,
+      followerIds: elevatorReport.followerIds,
+      departureDelaySeconds:
+        elevatorReport.departureDelaySeconds,
+      maximumCommittedActorCount:
+        elevatorReport.maximumCommittedActorCount,
+      maximumPassengerCount:
+        elevatorReport.maximumPassengerCount,
+      autonomousRidingIds:
+        elevatorReport.autonomousRidingIds,
+      autonomousArrivedIds:
+        elevatorReport.autonomousArrivedIds,
+      transitionCount: elevatorReport.transitions.length
+    });
+    addCheck("エレベーターNPC専用Electron診断0件", {
+      console: report.diagnostics.console.length,
+      renderer: report.diagnostics.renderer.length,
+      load: report.diagnostics.load.length,
+      renderProcessGone: report.diagnostics.renderProcessGone.length,
+      unresponsive: report.diagnostics.unresponsive.length
+    });
+    report.status = "passed";
+    return;
+  }
+
+  if (missionOnly) {
+    const scenario = applicationUrl.searchParams.get("missionAcceptance");
+    assertCondition(
+      scenario === "normal" || scenario === "haigure",
+      "Mission専用受入にはmissionAcceptance=normalまたはhaigureが必要です。"
+    );
+    const loaded = await waitFor(
+      `Mission専用Runtime読込（${scenario}）`,
+      testWindow,
+      (snapshot) =>
+        snapshot.titleVisible &&
+        snapshot.missionAcceptanceScenario === scenario &&
+        snapshot.missionAcceptancePlacement !== null &&
+        snapshot.missionAcceptanceSnapshot !== null,
+      120_000
+    );
+    const missionNpcSpawnReport = assertNpcSpawnReport(
+      loaded,
+      `Mission専用${scenario} session`
+    );
+    const startedForMission = await ensureMissionBroadcastReady(
+      testWindow,
+      scenario,
+      `Mission専用Pointer Lockと放送候補（${scenario}）`,
+    );
+    const startedMissionSnapshot =
+      startedForMission.missionAcceptanceSnapshot;
+    assertCondition(
+      startedMissionSnapshot.scenario === scenario &&
+        startedMissionSnapshot.phase === "playing" &&
+        startedMissionSnapshot.pointerLockId === "renderCanvas" &&
+        startedMissionSnapshot.broadcastCandidate.primary === "gather-gym",
+      "Mission専用Runtimeの初期放送候補が不正です。"
+    );
+    addCheck(`Mission専用Pointer Lockと放送卓Ray（${scenario}）`, {
+      scenario,
+      seed: missionNpcSpawnReport.sessionSeed,
+      playerSpawnId: missionNpcSpawnReport.playerSpawnId,
+      placement: startedForMission.missionAcceptancePlacement,
+      pointerLockId: startedForMission.pointerLockId,
+      broadcastCandidate: startedMissionSnapshot.broadcastCandidate,
+      broadcastPromptVisible: startedForMission.broadcastPromptVisible,
+      npcCandidateCount: startedMissionSnapshot.npcCandidateCount,
+      doorCandidateCount: startedMissionSnapshot.doorCandidateCount
+    });
+
+    if (scenario === "normal") {
+      assertCondition(
+        startedMissionSnapshot.playerState === "normal" &&
+          startedMissionSnapshot.broadcastCandidate.secondary === "flee",
+        "未洗脳Playerのsecondary放送候補がfleeではありません。"
+      );
+      const scheduledMission = await waitFor(
+        "20秒schedulerのMission HUDとtarget配線",
+        testWindow,
+        (snapshot) => {
+          const mission = snapshot.missionAcceptanceSnapshot;
+          return mission !== null && inspectScheduledMissionEvidence(mission).ready;
+        },
+        30_000
+      );
+      const scheduledMissionSnapshot =
+        scheduledMission.missionAcceptanceSnapshot;
+      const scheduledMissionEvidence = inspectScheduledMissionEvidence(
+        scheduledMissionSnapshot
+      );
+      addCheck("20秒schedulerの右上HUDとMission target配線", {
+        missionHudItemCount:
+          scheduledMissionSnapshot.missionHudItemCount,
+        activePlayerMissionDescriptors:
+          scheduledMissionEvidence.descriptors,
+        followerCountMissionCount:
+          scheduledMissionEvidence.followerCountMissionCount,
+        expectedActorTargetCount:
+          scheduledMissionEvidence.expectedActorTargetCount,
+        expectedLocationTargetCount:
+          scheduledMissionEvidence.expectedLocationTargetCount,
+        missionTargetActorIds:
+          scheduledMissionSnapshot.missionTargetActorIds,
+        missionTargetLocationIds:
+          scheduledMissionSnapshot.missionTargetLocationIds,
+        minimapReadout:
+          scheduledMissionSnapshot.minimapReadout
+      });
+
+      await ensureMissionBroadcastReady(
+        testWindow,
+        scenario,
+        "F体育館放送前のPointer Lock再確認"
+      );
+      await sendKey(testWindow, "F");
+      const gather = await waitFor(
+        "F体育館放送と会場選択",
+        testWindow,
+        (snapshot) => {
+          const mission = snapshot.missionAcceptanceSnapshot;
+          return (
+            mission !== null &&
+            mission.lastSchoolInstruction === "gym" &&
+            mission.assemblyVenueId === "assembly-gym" &&
+            mission.broadcastMissionCount > 0
+          );
+        },
+        5_000
+      );
+      addCheck("F体育館放送とassembly-gym", {
+        lastSchoolInstruction:
+          gather.missionAcceptanceSnapshot.lastSchoolInstruction,
+        assemblyVenueId:
+          gather.missionAcceptanceSnapshot.assemblyVenueId,
+        activeNpcBroadcastMissionCount:
+          gather.missionAcceptanceSnapshot.activeNpcBroadcastMissionCount,
+        broadcastMissionCount:
+          gather.missionAcceptanceSnapshot.broadcastMissionCount
+      });
+
+      await ensureMissionBroadcastReady(
+        testWindow,
+        scenario,
+        "E逃走放送前のPointer Lock再確認"
+      );
+      await sendKey(testWindow, "E");
+      const flee = await waitFor(
+        "E逃走放送と既存放送取消",
+        testWindow,
+        (snapshot) => {
+          const mission = snapshot.missionAcceptanceSnapshot;
+          return (
+            mission !== null &&
+            mission.lastSchoolInstruction === "courtyard" &&
+            mission.assemblyVenueId === "assembly-courtyard" &&
+            mission.cancelledBroadcastMissionCount > 0 &&
+            mission.broadcastMissionCount >
+              gather.missionAcceptanceSnapshot.broadcastMissionCount
+          );
+        },
+        5_000
+      );
+      addCheck("E逃走放送とassembly-courtyard", {
+        lastSchoolInstruction:
+          flee.missionAcceptanceSnapshot.lastSchoolInstruction,
+        assemblyVenueId:
+          flee.missionAcceptanceSnapshot.assemblyVenueId,
+        activeNpcBroadcastMissionCount:
+          flee.missionAcceptanceSnapshot.activeNpcBroadcastMissionCount,
+        broadcastMissionCount:
+          flee.missionAcceptanceSnapshot.broadcastMissionCount,
+        cancelledBroadcastMissionCount:
+          flee.missionAcceptanceSnapshot.cancelledBroadcastMissionCount
+      });
+    } else {
+      const initialHaigureCount =
+        startedMissionSnapshot.npcStateCounts[
+          "brainwash-complete-haigure"
+        ] ?? 0;
+      assertCondition(
+        startedMissionSnapshot.playerState ===
+          "brainwash-complete-haigure" &&
+          startedMissionSnapshot.broadcastCandidate.secondary ===
+            "become-haigure-human" &&
+          initialHaigureCount > 0,
+        "洗脳済みPlayerのsecondary放送候補または変換対象NPCが不正です。"
+      );
+      await ensureMissionBroadcastReady(
+        testWindow,
+        scenario,
+        "Eハイグレ人間化放送前のPointer Lock再確認"
+      );
+      await sendKey(testWindow, "E");
+      const becomeGun = await waitFor(
+        "Eハイグレ人間化放送",
+        testWindow,
+        (snapshot) => {
+          const mission = snapshot.missionAcceptanceSnapshot;
+          return (
+            mission !== null &&
+            mission.lastSchoolInstruction === "courtyard" &&
+            mission.assemblyVenueId === "assembly-courtyard" &&
+            (mission.npcStateCounts[
+              "brainwash-complete-haigure"
+            ] ?? 0) < initialHaigureCount
+          );
+        },
+        5_000
+      );
+      addCheck("Eハイグレ人間化放送とNPC即時G化", {
+        initialHaigureCount,
+        finalHaigureCount:
+          becomeGun.missionAcceptanceSnapshot.npcStateCounts[
+            "brainwash-complete-haigure"
+          ] ?? 0,
+        finalGunCount:
+          becomeGun.missionAcceptanceSnapshot.npcStateCounts[
+            "brainwash-complete-gun"
+          ] ?? 0,
+        lastSchoolInstruction:
+          becomeGun.missionAcceptanceSnapshot.lastSchoolInstruction,
+        assemblyVenueId:
+          becomeGun.missionAcceptanceSnapshot.assemblyVenueId
+      });
+    }
+
+    assertCondition(
+      report.diagnostics.console.length === 0,
+      "Mission専用受入でconsole warning/errorがあります。"
+    );
+    assertCondition(
+      report.diagnostics.renderer.length === 0,
+      "Mission専用受入でrenderer error/unhandledrejectionがあります。"
+    );
+    assertCondition(
+      report.diagnostics.load.length === 0,
+      "Mission専用受入でrenderer load errorがあります。"
+    );
+    assertCondition(
+      report.diagnostics.renderProcessGone.length === 0,
+      "Mission専用受入でrender-process-goneがあります。"
+    );
+    assertCondition(
+      report.diagnostics.unresponsive.length === 0,
+      "Mission専用受入でrenderer unresponsiveがあります。"
+    );
+    addCheck(`Mission専用Electron診断0件（${scenario}）`, {
+      console: report.diagnostics.console.length,
+      renderer: report.diagnostics.renderer.length,
+      load: report.diagnostics.load.length,
+      renderProcessGone: report.diagnostics.renderProcessGone.length,
+      unresponsive: report.diagnostics.unresponsive.length
+    });
+    report.status = "passed";
+    return;
+  }
+
+  if (poolStartOnly) {
+    const autoStartedPool = await waitFor(
+      "固定プール開始専用Runtime",
+      testWindow,
+      (snapshot) =>
+        !snapshot.titleVisible &&
+        snapshot.runtimeSessionSeed === "11" &&
+        snapshot.playerSpawnId ===
+          "player-spawn-roof-pool-west-stairs" &&
+        parsePosition(snapshot.status) !== null,
+      120_000
+    );
+    const poolNpcSpawnReport = assertNpcSpawnReport(
+      autoStartedPool,
+      "固定プール開始session"
+    );
+    await sendCanvasClick(testWindow);
+    const startedForPool = await waitFor(
+      "Pointer Lock（固定プール開始専用）",
+      testWindow,
+      (snapshot) => snapshot.pointerLockId === "renderCanvas",
+      10_000
+    );
+    const poolMovement = await measureMovement(testWindow, "W", 700);
+    assertCondition(
+      poolMovement.horizontalDistance > 0.02,
+      `屋上プール開始地点からWで移動できません: ${poolMovement.horizontalDistance}`
+    );
+    assertCondition(
+      report.diagnostics.console.length === 0,
+      "固定プール開始専用受入でconsole warning/errorがあります。"
+    );
+    assertCondition(
+      report.diagnostics.renderer.length === 0,
+      "固定プール開始専用受入でrenderer error/unhandledrejectionがあります。"
+    );
+    assertCondition(
+      report.diagnostics.load.length === 0,
+      "固定プール開始専用受入でrenderer load errorがあります。"
+    );
+    assertCondition(
+      report.diagnostics.renderProcessGone.length === 0,
+      "固定プール開始専用受入でrender-process-goneがあります。"
+    );
+    assertCondition(
+      report.diagnostics.unresponsive.length === 0,
+      "固定プール開始専用受入でrenderer unresponsiveがあります。"
+    );
+    addCheck("固定プール開始地点からW実入力移動", {
+      seed: poolNpcSpawnReport.sessionSeed,
+      playerSpawnId: poolNpcSpawnReport.playerSpawnId,
+      pointerLockId: startedForPool.pointerLockId,
+      movement: poolMovement,
+      diagnostics: {
+        console: report.diagnostics.console.length,
+        renderer: report.diagnostics.renderer.length,
+        load: report.diagnostics.load.length,
+        renderProcessGone: report.diagnostics.renderProcessGone.length,
+        unresponsive: report.diagnostics.unresponsive.length
+      }
+    });
+    report.status = "passed";
+    return;
+  }
+
+  const initialTitle = await waitFor(
+    "初回タイトル読込完了",
+    testWindow,
+    (snapshot) =>
+      snapshot.titleHint === "左クリック：開始" &&
+      snapshot.titleVisible &&
+      snapshot.hudRootCount === 1 &&
+      snapshot.volumeRootCount === 1 &&
+      snapshot.characterSettingsRootCount === 1,
+    120_000
+  );
+  assertCondition(
+    JSON.stringify(initialTitle.volumeValues) === JSON.stringify(["5", "5", "5"]),
+    `VOICE／BGM／SEの既定表示が5ではありません: ${JSON.stringify(initialTitle.volumeValues)}`
+  );
+  const initialNpcSpawnReport = assertNpcSpawnReport(
+    initialTitle,
+    "初回session"
+  );
+  addCheck("初回session所有root", {
+    hudRootCount: initialTitle.hudRootCount,
+    volumeRootCount: initialTitle.volumeRootCount,
+    volumeValues: initialTitle.volumeValues,
+    characterSettingsRootCount: initialTitle.characterSettingsRootCount,
+    portraitSelectCount: initialTitle.portraitSelectCount,
+    portraitSelection: initialTitle.portraitSelection,
+    voiceSelectCount: initialTitle.voiceSelectCount,
+    voiceSelection: initialTitle.voiceSelection,
+    npcSpawn: {
+      seed: initialNpcSpawnReport.sessionSeed,
+      playerSpawnId: initialNpcSpawnReport.playerSpawnId,
+      activeBiases: initialNpcSpawnReport.activeBiases,
+      npcCount: initialNpcSpawnReport.npcCount,
+      initialBrainwashedNpcCount:
+        initialNpcSpawnReport.initialBrainwashedNpcCount,
+      npcInsideActiveBiasCount:
+        initialNpcSpawnReport.npcInsideActiveBiasCount,
+      initialBrainwashedInsideActiveBiasCount:
+        initialNpcSpawnReport.initialBrainwashedInsideActiveBiasCount
+    }
+  });
+
+  await sendCanvasClick(testWindow);
+  if (audioOnly) {
+    const startedForAudio = await waitFor(
+      "Canvas開始（音声専用）",
+      testWindow,
+      (snapshot) => !snapshot.titleVisible,
+      10_000
+    );
+    await waitForAudioCategories(30_000);
+    const successfulAudioResources = report.audioResources.completed.filter(
+      (resource) => resource.statusCode >= 200 && resource.statusCode < 300
+    );
+    const successfulAudioUrls = new Set(
+      successfulAudioResources.map((resource) => resource.url)
+    );
+    const unrecoveredAudioFailures = report.audioResources.failed.filter(
+      (resource) =>
+        resource.error !== "net::ERR_ABORTED" ||
+        !successfulAudioUrls.has(resource.url)
+    );
+    const audioConsoleDiagnostics = report.diagnostics.console.filter(
+      (diagnostic) =>
+        /BGM audio play\(\) failed|Spatial audio play\(\) failed|audio media error/i.test(
+          diagnostic.message
+        )
+    );
+    assertCondition(
+      unrecoveredAudioFailures.length === 0,
+      "音声resource load失敗があります。"
+    );
+    assertCondition(
+      audioConsoleDiagnostics.length === 0,
+      "音声再生のconsole errorがあります。"
+    );
+    assertCondition(report.diagnostics.renderer.length === 0, "renderer error/unhandledrejectionがあります。");
+    assertCondition(report.diagnostics.load.length === 0, "renderer load errorがあります。");
+    assertCondition(report.diagnostics.renderProcessGone.length === 0, "render-process-goneがあります。");
+    assertCondition(report.diagnostics.unresponsive.length === 0, "renderer unresponsiveがあります。");
+    addCheck("既定音量5のBGM／SE／VOICE実再生", {
+      titleVisible: startedForAudio.titleVisible,
+      pointerLockId: startedForAudio.pointerLockId,
+      volumeValues: startedForAudio.volumeValues,
+      completedCounts: Object.fromEntries(
+        ["BGM", "SE", "VOICE"].map((category) => [
+          category,
+          successfulAudioResources.filter(
+            (resource) => resource.category === category
+          ).length
+        ])
+      ),
+      failedCount: unrecoveredAudioFailures.length,
+      audioConsoleErrorCount: audioConsoleDiagnostics.length
+    });
+    report.status = "passed";
+    return;
+  }
+  const started = await waitFor(
+    "Canvas開始とPointer Lock",
+    testWindow,
+    (snapshot) =>
+      !snapshot.titleVisible && snapshot.pointerLockId === "renderCanvas",
+    10_000
+  );
+  addCheck("Canvas開始とPointer Lock", {
+    titleVisible: started.titleVisible,
+    pointerLockId: started.pointerLockId
+  });
+
+  const selectionSnapshot = await waitForBrainwashSelection(testWindow);
+  assertCondition(selectionSnapshot.completionGuideVisible, "選択解放時にG/N/H案内が表示されていません。");
+  assertCondition(!selectionSnapshot.crosshairVisible, "brainwash-in-progressで照準が表示されています。");
+  addCheck("brainwash-in-progress選択解放HUD", {
+    state: parseState(selectionSnapshot.status),
+    pointerLockId: selectionSnapshot.pointerLockId,
+    completionGuideVisible: selectionSnapshot.completionGuideVisible,
+    crosshairVisible: selectionSnapshot.crosshairVisible
+  });
+
+  const gunSnapshot = await selectCompletionState(
+    testWindow,
+    "G",
+    "brainwash-complete-gun"
+  );
+  assertCondition(gunSnapshot.crosshairVisible, "gun状態で照準が表示されていません。");
+  assertCondition(!gunSnapshot.fireGuideVisible, "gun状態で単独の左クリック案内が表示されています。");
+  assertCondition(
+    gunSnapshot.completionGuideVisible &&
+      gunSnapshot.completionGuideText === "G：銃あり　左クリック：発射　N：銃なし　H：ハイグレ",
+    `gun状態の下部統合案内が不正です: ${gunSnapshot.completionGuideText}`
+  );
+  addCheck("G gun HUD", {
+    crosshairVisible: gunSnapshot.crosshairVisible,
+    fireGuideVisible: gunSnapshot.fireGuideVisible,
+    completionGuideText: gunSnapshot.completionGuideText
+  });
+
+  await sendCanvasClick(testWindow);
+  let maximumBeamCount = 0;
+  const gunFireDeadline = Date.now() + 3_000;
+  while (Date.now() < gunFireDeadline) {
+    const snapshot = await inspectDom(testWindow);
+    maximumBeamCount = Math.max(maximumBeamCount, parseBeamCount(snapshot.status));
+    await wait(25);
+  }
+  assertCondition(maximumBeamCount > 0, "gun状態の左クリックでBEAM生成を確認できません。");
+  addCheck("gun左クリック実射撃", { maximumBeamCount });
+
+  const noGunSnapshot = await selectCompletionState(
+    testWindow,
+    "N",
+    "brainwash-complete-no-gun"
+  );
+  assertCondition(!noGunSnapshot.crosshairVisible, "no-gun状態で照準が表示されています。");
+  assertCondition(!noGunSnapshot.fireGuideVisible, "no-gun状態で左クリック案内が表示されています。");
+  let noGunMovement = null;
+  for (const keyCode of ["W", "D", "S", "A"]) {
+    const measured = await measureMovement(testWindow, keyCode, 700);
+    if (measured.horizontalDistance > 0.02) {
+      noGunMovement = measured;
+      break;
+    }
+  }
+  assertCondition(noGunMovement !== null, "no-gun状態で水平移動を確認できません。");
+  addCheck("N no-gun移動可とHUD", {
+    crosshairVisible: noGunSnapshot.crosshairVisible,
+    fireGuideVisible: noGunSnapshot.fireGuideVisible,
+    movement: noGunMovement
+  });
+
+  const haigureSnapshot = await selectCompletionState(
+    testWindow,
+    "H",
+    "brainwash-complete-haigure"
+  );
+  assertCondition(!haigureSnapshot.crosshairVisible, "haigure状態で照準が表示されています。");
+  assertCondition(!haigureSnapshot.fireGuideVisible, "haigure状態で左クリック案内が表示されています。");
+  const haigureMovement = await measureMovement(
+    testWindow,
+    noGunMovement.keyCode,
+    700
+  );
+  assertCondition(
+    haigureMovement.horizontalDistance <= 0.005,
+    `haigure状態で水平移動しました: ${haigureMovement.horizontalDistance}`
+  );
+  addCheck("H haigure移動停止とHUD", {
+    crosshairVisible: haigureSnapshot.crosshairVisible,
+    fireGuideVisible: haigureSnapshot.fireGuideVisible,
+    movement: haigureMovement
+  });
+
+  const gunAgainSnapshot = await selectCompletionState(
+    testWindow,
+    "G",
+    "brainwash-complete-gun"
+  );
+  assertCondition(gunAgainSnapshot.crosshairVisible, "H→G後に照準が再表示されていません。");
+  assertCondition(
+    gunAgainSnapshot.helpText.includes("R: リトライ") &&
+      gunAgainSnapshot.helpText.includes("Enter: タイトルへ戻る"),
+    "Player洗脳後の左HUDにR／Enter案内が表示されていません。"
+  );
+  addCheck("G→N→H→G連続再選択", {
+    finalState: parseState(gunAgainSnapshot.status),
+    crosshairVisible: gunAgainSnapshot.crosshairVisible,
+    helpText: gunAgainSnapshot.helpText
+  });
+
+  await sendKey(testWindow, "R");
+  const retried = await waitFor(
+    "Rリトライと新seed session自動開始",
+    testWindow,
+    (snapshot) =>
+      !snapshot.titleVisible &&
+      snapshot.pointerLockId === null &&
+      snapshot.runtimeSessionSeed !== null &&
+      snapshot.runtimeSessionSeed !== String(initialNpcSpawnReport.sessionSeed) &&
+      snapshot.hudRootCount === 1 &&
+      snapshot.volumeRootCount === 1 &&
+      snapshot.characterSettingsRootCount === 1,
+    120_000
+  );
+  const restartedNpcSpawnReport = assertNpcSpawnReport(
+    retried,
+    "Rリトライsession"
+  );
+  assertCondition(
+    restartedNpcSpawnReport.sessionSeed !== initialNpcSpawnReport.sessionSeed &&
+      restartedNpcSpawnReport.npcCount === initialNpcSpawnReport.npcCount &&
+      restartedNpcSpawnReport.initialBrainwashedNpcCount ===
+        initialNpcSpawnReport.initialBrainwashedNpcCount,
+    "Rリトライで設定snapshot維持または新seed採番に失敗しました。"
+  );
+  addCheck("Rリトライの同設定・新seed・root重複0", {
+    pointerLockId: retried.pointerLockId,
+    hudRootCount: retried.hudRootCount,
+    volumeRootCount: retried.volumeRootCount,
+    characterSettingsRootCount: retried.characterSettingsRootCount,
+    npcSpawn: {
+      seed: restartedNpcSpawnReport.sessionSeed,
+      playerSpawnId: restartedNpcSpawnReport.playerSpawnId,
+      activeBiases: restartedNpcSpawnReport.activeBiases,
+      npcCount: restartedNpcSpawnReport.npcCount,
+      initialBrainwashedNpcCount:
+        restartedNpcSpawnReport.initialBrainwashedNpcCount,
+      npcInsideActiveBiasCount:
+        restartedNpcSpawnReport.npcInsideActiveBiasCount,
+      initialBrainwashedInsideActiveBiasCount:
+        restartedNpcSpawnReport.initialBrainwashedInsideActiveBiasCount
+    }
+  });
+
+  await wait(2_000);
+  const successfulAudioResources = report.audioResources.completed.filter(
+    (resource) => resource.statusCode >= 200 && resource.statusCode < 300
+  );
+  const completedByCategory = new Set(
+    successfulAudioResources.map((resource) => resource.category)
+  );
+  for (const category of ["BGM", "SE", "VOICE"]) {
+    assertCondition(
+      completedByCategory.has(category),
+      `${category}のresource load完了を確認できません。`
+    );
+  }
+  const successfulAudioUrls = new Set(
+    successfulAudioResources.map((resource) => resource.url)
+  );
+  const unrecoveredAudioFailures = report.audioResources.failed.filter(
+    (resource) =>
+      resource.error !== "net::ERR_ABORTED" ||
+      !successfulAudioUrls.has(resource.url)
+  );
+  assertCondition(
+    unrecoveredAudioFailures.length === 0,
+    "音声resource load失敗があります。"
+  );
+  addCheck("BGM/SE/VOICE resource load", {
+    completedCounts: Object.fromEntries(
+      ["BGM", "SE", "VOICE"].map((category) => [
+        category,
+        successfulAudioResources.filter(
+          (resource) => resource.category === category
+        ).length
+      ])
+    ),
+    ignoredCompletedAbortCount:
+      report.audioResources.failed.length - unrecoveredAudioFailures.length,
+    failedCount: unrecoveredAudioFailures.length
+  });
+
+  assertCondition(report.diagnostics.console.length === 0, "console warning/errorがあります。");
+  assertCondition(report.diagnostics.renderer.length === 0, "renderer error/unhandledrejectionがあります。");
+  assertCondition(report.diagnostics.load.length === 0, "renderer load errorがあります。");
+  assertCondition(report.diagnostics.renderProcessGone.length === 0, "render-process-goneがあります。");
+  assertCondition(report.diagnostics.unresponsive.length === 0, "renderer unresponsiveがあります。");
+  addCheck("Electron診断0件", {
+    console: report.diagnostics.console.length,
+    renderer: report.diagnostics.renderer.length,
+    load: report.diagnostics.load.length,
+    renderProcessGone: report.diagnostics.renderProcessGone.length,
+    unresponsive: report.diagnostics.unresponsive.length
+  });
+
+  report.status = "passed";
+};
+
+run()
+  .catch((error) => {
+    report.status = "failed";
+    report.error = error instanceof Error ? error.stack ?? error.message : String(error);
+  })
+  .finally(async () => {
+    report.finishedAt = new Date().toISOString();
+    const exitCode = report.status === "passed" ? 0 : 1;
+    if (testWindow && !testWindow.isDestroyed()) {
+      testWindow.destroy();
+    }
+    const serializedReport = `${JSON.stringify(report, null, 2)}\n`;
+    if (reportPath !== null) {
+      fs.writeFileSync(reportPath, serializedReport, "utf8");
+    }
+    process.stdout.write(serializedReport);
+    app.exit(exitCode);
+  });

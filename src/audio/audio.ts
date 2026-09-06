@@ -35,6 +35,8 @@ export class AudioManager {
   private seGain: GainNode;
   private voiceGain: GainNode;
   private bgmAudio: HTMLAudioElement | null;
+  private bgmSource: MediaElementAudioSourceNode | null;
+  private bgmPlayRequestId: number;
   private activeSlots: SpatialSlot[];
   private sePool: SpatialSlot[];
   private voicePool: SpatialSlot[];
@@ -42,6 +44,7 @@ export class AudioManager {
   private zeroPosition: Vector3;
   private forwardAxis: Vector3;
   private forward: Vector3;
+  private disposed: boolean;
 
   constructor(camera: FreeCamera) {
     this.camera = camera;
@@ -57,14 +60,23 @@ export class AudioManager {
     this.voiceGain.connect(this.context.destination);
 
     this.bgmAudio = null;
+    this.bgmSource = null;
+    this.bgmPlayRequestId = 0;
     this.activeSlots = [];
     this.zeroPosition = Vector3.Zero();
     this.forwardAxis = new Vector3(0, 0, 1);
     this.forward = Vector3.Zero();
+    this.disposed = false;
     const sePoolSize = 32;
     const voicePoolSize = 16;
     this.sePool = this.createPool(sePoolSize, this.seGain);
     this.voicePool = this.createPool(voicePoolSize, this.voiceGain);
+  }
+
+  private assertActive() {
+    if (this.disposed) {
+      throw new Error("破棄済みのAudioManagerは使用できません。");
+    }
   }
 
   private ensureRunning() {
@@ -112,7 +124,7 @@ export class AudioManager {
         maxDistance: 1,
         active: false,
         lastUsed: 0,
-        playRequestId: 0
+        playRequestId: 0,
       };
       audio.addEventListener("ended", () => {
         this.stopSlot(slot, true);
@@ -123,7 +135,7 @@ export class AudioManager {
         }
         console.error("Spatial audio media error.", {
           src: audio.currentSrc || audio.src,
-          code: audio.error?.code ?? null
+          code: audio.error?.code ?? null,
         });
         this.stopSlot(slot, false);
       });
@@ -158,30 +170,49 @@ export class AudioManager {
   }
 
   setCategoryVolume(category: AudioCategory, volume: number) {
+    this.assertActive();
     this.getGain(category).gain.value = volume;
   }
 
   getCategoryVolume(category: AudioCategory) {
+    this.assertActive();
     return this.getGain(category).gain.value;
   }
 
   startBgm(url: string) {
+    this.assertActive();
     this.ensureRunning();
     if (!this.bgmAudio) {
       this.bgmAudio = new Audio();
       this.bgmAudio.loop = true;
-      const source = this.context.createMediaElementSource(this.bgmAudio);
-      source.connect(this.bgmGain);
+      this.bgmSource = this.context.createMediaElementSource(this.bgmAudio);
+      this.bgmSource.connect(this.bgmGain);
     }
     this.bgmAudio.src = url;
     this.bgmAudio.currentTime = 0;
-    this.bgmAudio.play();
+    this.bgmPlayRequestId += 1;
+    const playRequestId = this.bgmPlayRequestId;
+    void this.bgmAudio.play().catch((error: unknown) => {
+      if (playRequestId !== this.bgmPlayRequestId) {
+        return;
+      }
+      if (error instanceof DOMException && error.name === "AbortError") {
+        return;
+      }
+      console.error("BGM audio play() failed.", error);
+    });
   }
 
   stopBgm() {
+    this.assertActive();
+    this.stopBgmInternal();
+  }
+
+  private stopBgmInternal() {
     if (!this.bgmAudio) {
       return;
     }
+    this.bgmPlayRequestId += 1;
     this.bgmAudio.pause();
     this.bgmAudio.currentTime = 0;
   }
@@ -190,7 +221,7 @@ export class AudioManager {
     url: string,
     getPosition: () => Vector3,
     options: SpatialPlayOptions,
-    pool: SpatialSlot[]
+    pool: SpatialSlot[],
   ): SpatialHandle {
     this.ensureRunning();
     const slot = this.acquireSlot(pool);
@@ -219,32 +250,51 @@ export class AudioManager {
     });
     return {
       stop: () => {
-        this.stopSlot(slot, false);
+        this.assertActive();
+        if (slot.playRequestId === playRequestId) {
+          this.stopSlot(slot, false);
+        }
       },
-      isActive: () => slot.active,
+      isActive: () => {
+        this.assertActive();
+        return slot.active && slot.playRequestId === playRequestId;
+      },
       setBaseVolume: (volume: number) => {
-        slot.baseVolume = Math.max(0, volume);
-      }
+        this.assertActive();
+        if (slot.playRequestId === playRequestId) {
+          slot.baseVolume = Math.max(0, volume);
+        }
+      },
     };
   }
 
-  playSe(
-    url: string,
-    getPosition: () => Vector3,
-    options: SpatialPlayOptions
-  ) {
+  playSe(url: string, getPosition: () => Vector3, options: SpatialPlayOptions) {
+    this.assertActive();
     return this.playSpatial(url, getPosition, options, this.sePool);
+  }
+
+  stopAllSe() {
+    this.assertActive();
+    for (const slot of this.sePool) {
+      if (!slot.active) {
+        continue;
+      }
+      slot.playRequestId += 1;
+      this.stopSlot(slot, false);
+    }
   }
 
   playVoice(
     url: string,
     getPosition: () => Vector3,
-    options: SpatialPlayOptions
+    options: SpatialPlayOptions,
   ) {
+    this.assertActive();
     return this.playSpatial(url, getPosition, options, this.voicePool);
   }
 
   updateSpatial() {
+    this.assertActive();
     if (this.activeSlots.length === 0) {
       return;
     }
@@ -252,10 +302,8 @@ export class AudioManager {
     this.camera.getDirectionToRef(this.forwardAxis, this.forward);
     this.forward.normalize();
     const rightLength = Math.hypot(this.forward.x, this.forward.z);
-    const rightX =
-      rightLength > 0.0001 ? this.forward.z / rightLength : 1;
-    const rightZ =
-      rightLength > 0.0001 ? -this.forward.x / rightLength : 0;
+    const rightX = rightLength > 0.0001 ? this.forward.z / rightLength : 1;
+    const rightZ = rightLength > 0.0001 ? -this.forward.x / rightLength : 0;
 
     for (const handle of this.activeSlots) {
       const sourcePosition = handle.getPosition();
@@ -268,17 +316,49 @@ export class AudioManager {
         horizontalLength > 0.0001
           ? Math.max(
               -1,
-              Math.min(1, (rightX * dx + rightZ * dz) / horizontalLength)
+              Math.min(1, (rightX * dx + rightZ * dz) / horizontalLength),
             )
           : 0;
       const normalized = Math.max(
         0,
-        Math.min(1, distance / handle.maxDistance)
+        Math.min(1, distance / handle.maxDistance),
       );
       const inverse = 1 / (1 + normalized);
       const volume = Math.max(0, Math.min(1, (inverse - 0.5) / 0.5));
       handle.pan.pan.value = pan;
       handle.gain.gain.value = volume * handle.baseVolume;
     }
+  }
+
+  dispose(): Promise<void> {
+    this.assertActive();
+    this.disposed = true;
+
+    this.stopBgmInternal();
+    if (this.bgmAudio) {
+      this.bgmAudio.removeAttribute("src");
+      this.bgmAudio.load();
+      this.bgmAudio = null;
+    }
+    this.bgmSource?.disconnect();
+    this.bgmSource = null;
+
+    for (const slot of [...this.sePool, ...this.voicePool]) {
+      slot.playRequestId += 1;
+      this.stopSlot(slot, false);
+      slot.audio.pause();
+      slot.audio.currentTime = 0;
+      slot.audio.removeAttribute("src");
+      slot.audio.load();
+      slot.onEnded = undefined;
+      slot.source.disconnect();
+      slot.pan.disconnect();
+      slot.gain.disconnect();
+    }
+    this.activeSlots.length = 0;
+    this.bgmGain.disconnect();
+    this.seGain.disconnect();
+    this.voiceGain.disconnect();
+    return this.context.close();
   }
 }

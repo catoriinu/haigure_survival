@@ -17,6 +17,7 @@ export type GroundShadowHandle = {
 
 export type GroundShadowSyncState = {
   positionX: number;
+  positionY: number;
   positionZ: number;
   width: number;
   depth: number;
@@ -26,7 +27,7 @@ export type GroundShadowSyncState = {
   layerMask: number;
 };
 
-type GroundShadowManager = {
+export type GroundShadowManager = {
   createGroundShadow: (
     name: string,
     kind: GroundShadowKind
@@ -36,6 +37,7 @@ type GroundShadowManager = {
     state: GroundShadowSyncState
   ) => void;
   disposeGroundShadow: (handle: GroundShadowHandle | null) => void;
+  dispose: () => void;
 };
 
 const shadowTextureSize = 256;
@@ -148,7 +150,10 @@ const createShadowMaterial = (
   return material;
 };
 
-export const createGroundShadowManager = (scene: Scene): GroundShadowManager => {
+export const createGroundShadowManager = (
+  scene: Scene,
+  alphaIndex: number
+): GroundShadowManager => {
   const ellipseTexture = createShadowTexture(
     scene,
     "groundShadowEllipseTexture",
@@ -195,6 +200,7 @@ export const createGroundShadowManager = (scene: Scene): GroundShadowManager => 
     mesh.isPickable = false;
     mesh.isVisible = false;
     mesh.renderingGroupId = groundShadowRenderingGroupId;
+    mesh.alphaIndex = alphaIndex;
     mesh.visibility = 1;
     return { mesh, kind };
   };
@@ -203,7 +209,11 @@ export const createGroundShadowManager = (scene: Scene): GroundShadowManager => 
     handle: GroundShadowHandle,
     state: GroundShadowSyncState
   ) => {
-    handle.mesh.position.set(state.positionX, groundShadowY, state.positionZ);
+    handle.mesh.position.set(
+      state.positionX,
+      state.positionY + groundShadowY,
+      state.positionZ
+    );
     handle.mesh.scaling.set(state.width, 1, state.depth);
     handle.mesh.rotation.y = state.yaw;
     handle.mesh.visibility = Math.max(0, Math.min(1, state.visibility));
@@ -218,9 +228,19 @@ export const createGroundShadowManager = (scene: Scene): GroundShadowManager => 
     handle.mesh.dispose();
   };
 
+  const dispose = () => {
+    ellipseMaterial.dispose(false, false);
+    bitMaterial.dispose(false, false);
+    bitCircleMaterial.dispose(false, false);
+    ellipseTexture.dispose();
+    bitTexture.dispose();
+    bitCircleTexture.dispose();
+  };
+
   return {
     createGroundShadow,
     syncGroundShadow,
-    disposeGroundShadow
+    disposeGroundShadow,
+    dispose
   };
 };

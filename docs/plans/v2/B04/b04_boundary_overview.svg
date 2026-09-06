@@ -1,0 +1,52 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1400" height="900" viewBox="0 0 1400 900">
+  <rect width="1400" height="900" fill="#f5f7fa"/>
+  <text x="70" y="64" font-family="sans-serif" font-size="32" font-weight="700" fill="#263238">B04 学校外周・道路・世界境界 俯瞰寸法図</text>
+  <text x="70" y="100" font-family="sans-serif" font-size="19" fill="#455a64">Blender XY / 上が北 / 表示面 Z=-0.30m / BND_WorldLimit Z=-0.60..24.00m</text>
+
+  <rect x="170" y="155" width="1010" height="650" fill="#4c5354" stroke="#263238" stroke-width="4"/>
+  <rect x="210" y="195" width="930" height="570" fill="#d6d2c5" stroke="#607d8b" stroke-width="3"/>
+  <rect x="228" y="213" width="894" height="534" fill="#789b65" stroke="#37474f" stroke-width="5"/>
+
+  <line x1="170" y1="830" x2="1180" y2="830" stroke="#263238" stroke-width="2"/>
+  <line x1="170" y1="820" x2="170" y2="840" stroke="#263238" stroke-width="2"/>
+  <line x1="1180" y1="820" x2="1180" y2="840" stroke="#263238" stroke-width="2"/>
+  <text x="575" y="864" font-family="sans-serif" font-size="22" fill="#263238">92.4m  (X=-23.8..68.6)</text>
+
+  <line x1="1250" y1="155" x2="1250" y2="805" stroke="#263238" stroke-width="2"/>
+  <line x1="1240" y1="155" x2="1260" y2="155" stroke="#263238" stroke-width="2"/>
+  <line x1="1240" y1="805" x2="1260" y2="805" stroke="#263238" stroke-width="2"/>
+  <text x="1280" y="535" transform="rotate(90 1280 535)" font-family="sans-serif" font-size="22" fill="#263238">76.4m  (Y=-19.7..56.7)</text>
+
+  <line x1="170" y1="135" x2="210" y2="135" stroke="#263238" stroke-width="2"/>
+  <text x="178" y="126" font-family="sans-serif" font-size="17" fill="#263238">道路 3.5m</text>
+  <line x1="210" y1="135" x2="228" y2="135" stroke="#607d8b" stroke-width="2"/>
+  <text x="206" y="114" font-family="sans-serif" font-size="17" fill="#455a64">歩道 1.5m</text>
+
+  <rect x="265" y="240" width="310" height="330" fill="#eceff1" stroke="#546e7a" stroke-width="3"/>
+  <text x="330" y="405" font-family="sans-serif" font-size="26" fill="#37474f">西側校舎</text>
+  <line x1="265" y1="570" x2="265" y2="690" stroke="#d32f2f" stroke-width="4"/>
+  <line x1="245" y1="570" x2="285" y2="570" stroke="#d32f2f" stroke-width="3"/>
+  <line x1="245" y1="690" x2="285" y2="690" stroke="#d32f2f" stroke-width="3"/>
+  <text x="295" y="625" font-family="sans-serif" font-size="22" fill="#b71c1c">7.3m</text>
+  <text x="295" y="650" font-family="sans-serif" font-size="17" fill="#b71c1c">校舎南端Y=-7.0</text>
+  <text x="295" y="674" font-family="sans-serif" font-size="17" fill="#b71c1c">塀内面Y=-14.3</text>
+
+  <rect x="255" y="790" width="24" height="24" fill="#4c5354"/>
+  <text x="290" y="810" font-family="sans-serif" font-size="18" fill="#263238">道路 trim</text>
+  <rect x="445" y="790" width="24" height="24" fill="#d6d2c5"/>
+  <text x="480" y="810" font-family="sans-serif" font-size="18" fill="#263238">歩道 wall</text>
+  <rect x="640" y="790" width="24" height="24" fill="#789b65"/>
+  <text x="675" y="810" font-family="sans-serif" font-size="18" fill="#263238">既存塀内</text>
+
+  <text x="760" y="260" font-family="sans-serif" font-size="20" fill="#263238">塀外面</text>
+  <text x="760" y="290" font-family="monospace" font-size="20" fill="#263238">X=-18.8..63.6</text>
+  <text x="760" y="320" font-family="monospace" font-size="20" fill="#263238">Y=-14.7..51.7</text>
+  <text x="760" y="375" font-family="sans-serif" font-size="20" fill="#263238">歩道外端</text>
+  <text x="760" y="405" font-family="monospace" font-size="20" fill="#263238">X=-20.3..65.1</text>
+  <text x="760" y="435" font-family="monospace" font-size="20" fill="#263238">Y=-16.2..53.2</text>
+  <text x="760" y="490" font-family="sans-serif" font-size="20" fill="#263238">道路外端 / WorldLimit</text>
+  <text x="760" y="520" font-family="monospace" font-size="20" fill="#263238">X=-23.8..68.6</text>
+  <text x="760" y="550" font-family="monospace" font-size="20" fill="#263238">Y=-19.7..56.7</text>
+  <text x="760" y="605" font-family="sans-serif" font-size="18" fill="#b71c1c">外周BIT飛行帯・塀越え遷移なし</text>
+  <text x="760" y="635" font-family="sans-serif" font-size="18" fill="#b71c1c">両NavMesh・全スポーンは塀内に維持</text>
+</svg>

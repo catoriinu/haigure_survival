@@ -1,499 +1,342 @@
-Babylon.js ブラウザFPS
-ステージデータ仕様書（完全版 / v1）
-# 1. 本仕様の目的
+# HAIGURE SURVIVAL 旧T02 ステージJSON仕様書（V2廃止済み）
 
-本仕様は、Babylon.js 製 FPS 視点ゲームにおける ステージ構築・生成・調整を目的とした JSON データ構造を定義する。
+更新日: 2026-07-19
+文書状態: 旧T02履歴（V2実行契約では廃止済み）
+基準実装（履歴）: 旧`src/world/stageJson.ts`（V2移行で削除済み）
 
-本設計は以下の制作フローを前提とする。
+> [!CAUTION]
+> 本書をV2の実行契約、実装要件、データ作成要件として参照してはならない。V2ではステージJSON、JSON文字マップ、セルナビゲーションを廃止し、これらへの互換処理も実装しない。
 
-1. 人間がステージの超概要（形・意味）を書く
-2. AIがその意図をもとに具体化（配置・装飾）する
-3. 人間が最終調整（遊びやすさ・見た目）を行う
+## 1. 文書の位置付け
 
-このフローを破綻させないため、
-データは 役割ごとに厳密に分離されている。
+本書は、旧T02で採用していたステージ定義JSONの仕様を履歴として保存するものである。以下に記載する`schemaVersion: 2`、`StageDefinitionV2`、`procedural-grid`、旧GLB用JSON、文字マップ、セル座標、セルナビゲーションはすべて廃止済みであり、V2の要件ではない。
 
-# 2. 全体構造（トップレベル）
-{
-  "meta": {},
-  "cellPhysics": {},
-  "mainMap": [],
-  "semantics": {},
-  "generationRules": {},
-  "entities": [],
-  "decals": [],
-  "gameplay": {},
-  "overrides": {}
-}
+V2のステージ実行契約は、現行の[V2ステージランタイム仕様書](./spec_stage_runtime_v2.md)を正本とする。V2はGLBの3D meshes／markers／volumes、事前ベイク済みRecast navmesh、TypeScriptの非空間カタログを使用し、対象ステージを学校のみに限定する。既存8ステージはV2対象外である。
 
-# 2.1 meta（メタ情報）
+以下の旧T02仕様は、当時の設計と実装を追跡する目的でのみ残す。
 
-meta はステージ全体の前提情報をまとめる。
+- `procedural-grid`: JSONの文字グリッドから床、壁、天井、衝突、鏡を生成する。
+- `glb`: 規約準拠GLBから表示形状と衝突形状を読み、JSONは平面ナビゲーション、スポーン、ゾーン、ステージ設定を担当する。
 
-- name: ステージ名（必須）
-- description: 説明文（任意）
-- size: ベースマップのサイズ（任意、単位はセル）
-- mapScale: ベースマップ1セルを何セルに拡大するかを指定する（必須）
-  - x, z は1以上の整数
-  - 例: { "x": 2, "z": 2 } は ASCII 1文字を 2x2 セルに展開する
-  - mainMap/semantics/markers/zones の座標はベースマップ単位で記述し、mapScale で拡大して配置される
+GLB資産自体の縮尺、軸、命名、衝突規約は[ステージ資産仕様書](./spec_stage_assets_v2.md)を正本とする。旧JSON形式の互換読込や変換フォールバックは提供しない。
 
-# 3. 設計思想（最重要）
-## 3.1 データの役割分担
-区分	役割
-mainMap / cellPhysics	物理的な骨格（通行・高さ）
-semantics	セルに付与される「意味」
-generationRules	AIに渡す設計図（意図の保存形式）
-entities	AIが生成した配置結果（成果物）
-decals	見た目専用の貼り物（成果物）
-gameplay	ゲーム進行用の注釈
-overrides	最終例外（最小限）
+## 2. 旧T02の配置と登録（履歴）
 
-# 3.2 Rules / Entities / Decals の思想
+- 通常ステージ定義は`public/stage/<ファイル名>.json`へUTF-8（BOMなし）で配置する。
+- `src/world/stageSelection.ts`の`STAGE_CATALOG`へID、初期ラベル、定義パスを登録する。
+- 定義パスとGLBパスは`import.meta.env.BASE_URL`から解決できる相対パスとする。
+- JSONを配置しただけではタイトルの選択肢へ追加されない。
 
-- generationRules
-→ AIが具体化するための「意図の保存形式」
-→ 最終成果物ではない
-→ 本プロジェクトでは 常に残す
+旧T02時点の専用IDは次の3件だった。
 
-- entities / decals
-→ AIが生成した 成果物
-→ 人間が最終的に直接編集する対象
-
-# 4. 座標系の共通ルール
-
-- 原点：左上
-- 右方向：+X
-- 下方向：+Z
-- 単位：セル
-- 回転：rotY は度（degree）
-
-# 5. cellPhysics（物理辞書）
-## 5.1 役割
-
-ASCII記号と 物理特性（通行・高さ） の対応表。
-見た目は一切持たない。
-
-## 5.2 定義例
-```
-"cellPhysics": {
-  " ": { "solid": true,  "heightCells": 0, "noRender": true }
-  ".": { "solid": false, "heightCells": 0 },
-  "#": { "solid": true,  "heightCells": 3 },
-  "$": { "solid": true,  "heightCells": 6 },
-  "&": { "solid": true,  "heightCells": 12 },
-  "~": { "solid": true,  "heightCells": 0 }
-}
-```
-
-## 5.3 補足
-### 5.3.1 空白セル（' '）について
-
-本仕様では、半角スペース（' '）を 進行不能かつ描画不要なセルとして使用できる。
-このセルは、以下の用途を想定する。
-
-- ステージ外部の虚無領域
-- 意図的に切り落としたマップ範囲
-- 描画を行わず、進行不能の境界を作りたい領域
-
-空白セルは床として扱われず、進行不能の不可視セルとして扱う。
-壁/コリジョンは生成されるが描画しない。
-天井生成・decals・entities 配置の対象にもならない。
-
-### 5.3.2 noRender について
-
-noRender: true を指定したセルは、壁面の描画を行わない。
-コリジョンは生成するため、見えない壁として機能する。
-
-# 6. mainMap（ステージ骨格）
-## 6.1 役割
-
-- ステージの形状・通路・壁・外形を定義
-- 物理記号のみを使用する
-
-## 6.2 例
-```
-"mainMap": [
-  "..........",
-  "..$$$$....",
-  "..$..$....",
-  "..$$$$....",
-  ".........."
-]
-```
-
-# 7. semantics（意味レイヤー）
-## 7.1 役割
-
-セルに「意味」を付与する。
-見た目・配置方針の基点。
-
-## 7.2 チャンネル（v1固定）
-
-- env：環境（屋内 / 屋外）
-- zone：用途（道路 / 倉庫 / ロビー 等）
-- env は必須、zone は省略可
-- 各チャンネルの行数/列数は mainMap と一致させる（mapScale で拡大前のサイズ）
-
-## 7.3 定義
-```
-"semantics": {
-  "channels": {
-    "env": [
-      "IIIIIIIIII",
-      "IIIIIIIIII",
-      "IIIIIIIIII",
-      "IIIIIIIIII",
-      "IIIIIIIIII"
-    ],
-    "zone": [
-      "LLLLLLLLLL",
-      "LLLLLLLLLL",
-      "LLLLLLLLLL",
-      "LLLLLLLLLL",
-      "LLLLLLLLLL"
-    ]
-  },
-  "brief": {
-    "env": { "I": "屋内", "O": "屋外" },
-    "zone": { "L": "ロビー" }
-  }
-}
-```
-
-# 8. generationRules（AI生成用設計図）
-## 8.1 役割
-
-- AIに渡す 具体化の方針
-- 人間が意図を保存するための構造
-- 本プロジェクトでは 常に保持
-
-## 8.2 適用順
-
-1. env
-2. zone
-（後勝ち・上書き）
-
-## 8.3 定義例
-- ceiling は null を許容し、天井なしを表す
-- sky.color は #RRGGBB 形式で指定する
-```
-"generationRules": {
-  "env": {
-    "I": {
-      "floor": { "tileId": "floor_indoor" },
-      "obstacle": { "tileId": "wall_indoor" },
-      "ceiling": {
-        "heightCells": 7,
-        "collision": true,
-        "style": { "tileId": "ceiling_basic" }
-      }
-    },
-    "O": {
-      "floor": { "tileId": "floor_outdoor" },
-      "obstacle": { "tileId": "wall_outdoor" },
-      "ceiling": null,
-      "sky": { "color": "#87CEEB" }
-    }
-  },
-  "zone": {
-    "L": {
-      "entity": {
-        "allow": ["table", "chair"],
-        "density": "medium"
-      }
-    }
-  }
-}
-```
-
-# 9. entities（配置成果物）
-## 9.1 役割
-
-- AIが生成した小物・オブジェクト
-- 最終調整の主対象
-
-## 9.2 例
-```
-"entities": [
-  { "kind": "table", "x": 4, "z": 3, "rotY": 90 },
-  { "kind": "chair", "x": 5, "z": 3 }
-]
-```
-
-# 10. decals（貼り物）
-## 10.1 役割
-
-- 見た目専用
-- 物理・当たり判定に影響しない
-- 床・壁・天井を同一概念で扱う
-
-## 10.2 DecalDef
-```
-{
-  "face": "floor" | "wall" | "ceiling",
-  "type": "cell" | "rect",
-  "x": number,
-  "z": number,
-  "w"?: number,
-  "h"?: number,
-  "wallDir"?: "N" | "E" | "S" | "W",
-  "texture"?: string,
-  "tileId"?: string,
-  "color"?: string
-}
-```
-
-## 11. gameplay（ゲーム進行注釈）
-
-### 11.1 役割と設計思想
-
-`gameplay` セクションは、ステージ固有の **ゲーム進行・演出・制御に関わる注釈情報**を定義するための領域である。
-
-本セクションは以下の方針で設計されている。
-
-- **物理（mainMap / cellPhysics）とは分離**する
-- **見た目（entities / decals）とも分離**する
-- ゲームの都合（開始・クリア・安全地帯・出現・イベント）のみを扱う
-- ステージごとに異なる「ルールの例外」や「進行条件」を、JSON内に明示的に残す
-
-これにより、
-ステージ構造や見た目を壊さずに、ゲーム進行のみをピンポイントで調整できる。
-
-### 11.2 配置制約について（重要）
-
-`gameplay` 内に定義される各要素（markers / zones / spawners / triggers）は、
-**JSON上では配置セルの種別（床・壁等）による制約を持たない**。
-
-- 床セル上であること
-- 壁内部に埋まっていないこと
-- 到達可能であること
-
-といった妥当性検証は、**コード側の責務**とする。
-
-JSONは「意図を表すデータ」であり、
-実行時の安全性や補正はエンジンが担保する。
-
-### 11.3 構成要素一覧
-
-"gameplay" セクションは以下の要素から構成される。
-
-- markers
-- zones
-- spawners
-- triggers
-- options
-
-それぞれの役割は明確に分離されており、
-**用途が被らないように使い分けることが重要**である。
-
-### 11.3.1 options（進行オプション）
-
-ステージ固有の進行オプションを指定する。
-
-- skipAssembly: true の場合、全滅時の整列シーンを即時完了扱いにする（フェードアウト/インを挟む）
-
-#### OptionsDef
-```
-{
-  "skipAssembly": boolean
-}
-```
-
-## 11.4 markers（静的な点）
-
-### 役割
-
-`markers` は、ステージ上の **固定された重要地点**を表す。
-
-- ゲーム開始位置
-- ゴール地点
-- チェックポイント
-- 宝・注目地点 など
-
-markers に定義された要素は、
-**基本的に生成・消滅しない静的な存在**である。
-
-### 使うべきケース
-
-- プレイヤー開始位置（spawn）
-- クリア地点（goal）
-- 固定配置の重要地点
-
-### 使わないケース
-
-- 敵やアイテムが出現・再出現する場合（→ spawners）
-
-### MarkerDef
-```
-{
-  "id": "string",
-  "type": "spawn | goal | checkpoint | loot | poi",
-  "x": number,
-  "z": number,
-  "rotY"?: number,
-  "tags"?: string[],
-  "props"?: object
-}
-```
-
-## 11.5 zones（持続的な領域効果）
-
-### 役割
-
-`zones` は、**範囲内に居る間ずっと効果が続く領域**を表す。
-
-- 敵スポーン禁止エリア
-- 敵侵入禁止エリア
-- 戦闘禁止エリア
-- 危険地帯 など
-
-zones は「入った瞬間」ではなく、
-**範囲に存在している間の状態制御**を目的とする。
-
-### 使うべきケース
-
-- スポーン周辺の安全地帯
-- 敵が湧いてはいけない領域
-- 常時効果が必要なエリア
-
-### ZoneDef
-```
-{
-  "id": "string",
-  "type": "safeZone | noEnemySpawn | noEnemyEnter | noCombat | hazard",
-  "x": number,
-  "z": number,
-  "w": number,
-  "h": number,
-  "tags"?: string[],
-  "props"?: object
-}
-```
-
-## 11.6 spawners（出現管理）
-
-### 役割
-
-`spawners` は、**敵・NPC・アイテムなどが「生まれる」地点や範囲**を定義する。
-
-- 同時出現数の制御
-- 再出現の有無
-- ウェーブ管理
-
-など、**出現ロジックを伴う要素**を扱う。
-
-### 使うべきケース
-
-- 敵が一定条件で湧く
-- 同時出現数を制限したい
-- 倒された後に再出現する
-
-### 使わないケース
-
-- 最初から固定で置いてある敵（→ entities）
-
-### SpawnerDef
-
-```
-{
-  "id": "string",
-  "type": "enemy | npc | item",
-  "x": number,
-  "z": number,
-  "radius"?: number,
-  "maxAlive"?: number,
-  "respawn"?: { "cooldownSec": number } | null,
-  "tags"?: string[],
-  "props"?: object
-}
-```
-
-## 11.7 triggers（イベントの契機）
-
-### 役割
-
-`triggers` は、**特定の条件が成立した瞬間にイベントを発生させるための要素**である。
-
-- エリアに入ったとき
-- エリアを出たとき
-- 操作・接触があったとき
-
-など、「きっかけ」をJSONで明示する。
-
-### 使うべきケース
-
-- 扉を開く
-- ボス戦を開始する
-- BGMを切り替える
-- ゴール演出を開始する
-
-### TriggerDef
-```
-{
-  "id": "string",
-  "type": "enter | leave | interact",
-  "x": number,
-  "z": number,
-  "w": number,
-  "h": number,
-  "event": "string",
-  "once"?: boolean,
-  "tags"?: string[],
-  "props"?: object
-}
-```
-
-## 11.8 各要素の使い分け指針（重要）
-
-| やりたいこと | 使う要素 |
+| ID | 専用処理 |
 |---|---|
-| 開始・ゴール・固定地点 | markers |
-| 範囲内で常時効果 | zones |
-| 敵・アイテムの出現管理 | spawners |
-| 何かが起きるきっかけ | triggers |
+| `arena_trap_room` | トラップ光線システム |
+| `labyrinth_dynamic` | `D`ゾーンを使う動的ビームシステム |
+| `arena_roulette` | ルーレット進行とタイトル設定制限 |
 
-**迷った場合の判断基準：**
+## 3. Union型
 
-1. 「何かが生まれるか？」→ spawners
-2. 「入った瞬間に起きるか？」→ triggers
-3. 「居る間ずっと効くか？」→ zones
-4. それ以外 → markers
+```ts
+type StageDefinitionV2 =
+  | ProceduralGridStageDefinitionV2
+  | GlbStageDefinitionV2;
+```
 
----
+両形式は次の共通領域を持つ。
 
-## 11.9 本章のまとめ
+```ts
+type StageDefinitionCommonV2 = {
+  schemaVersion: 2;
+  meta: {
+    name: string;
+    description?: string;
+  };
+  gameplay: {
+    markers: StageMarker[];
+    zones: StageZone[];
+    options: {
+      skipAssembly: boolean;
+    };
+  };
+  authoring?: {
+    symbols?: {
+      env?: Record<string, string>;
+      zone?: Record<string, string>;
+    };
+    zoneRules?: Record<string, unknown>;
+  };
+};
+```
 
-- `gameplay` は **ゲーム進行専用の注釈レイヤー**
-- 物理・見た目・AI生成とは責務を分離する
-- JSONでは自由に書き、妥当性はコード側で検証する
-- 小さな変更で大きな挙動調整ができることを最優先とする
+`meta.description`はタイトルのステージ名へ使用する。BGMは`meta.name`と同名の素材を選ぶ。
 
+旧形式の`meta.size`、`entities`、`gameplay.spawners`、`gameplay.triggers`、`overrides`はv2契約に含めない。
 
-# 12. 配置制約について（重要）
+## 4. procedural-grid形式
 
-- gameplay の配置は JSON上では制約しない
-- 妥当性検証（床上か等）は コード側責務
-- JSONは「意図」を表すデータとする
+```ts
+type ProceduralGridStageDefinitionV2 = StageDefinitionCommonV2 & {
+  kind: "procedural-grid";
+  grid: {
+    cellSize: number;
+    mapScale: { x: number; z: number };
+    cellPhysics: Record<string, StageCellPhysicsDef>;
+    mainMap: string[];
+    zoneMap?: string[];
+  };
+  rendering: {
+    environmentMap: string[];
+    environmentRules: Record<string, StageEnvRule>;
+    decals: StageDecal[];
+  };
+};
+```
 
-# 13. overrides（例外）
+### 4.1 座標
 
-- ピンポイントの物理・高さ変更用
-- 多用しない
-- 増えたら設計を見直す
+- JSON原点は`mainMap`左上。
+- Xは右、Zは下へ増加する。
+- 読込時に`mainMap`、`environmentMap`、`zoneMap`の各行を左右反転する。
+- マーカー、ゾーン、デカールにも同じX反転を適用する。
+- `E`と`W`の壁方向はX反転時に入れ替える。
+- 内部ワールドではグリッド全体の中央を原点とし、列をBabylon `+X`、行を`+Z`へ配置する。
 
-# 14. 運用ガイド（要約）
+### 4.2 セル寸法と展開
 
-1. 骨格を mainMap で作る
-2. 意味を semantics で与える
-3. 意図を generationRules に書く
-4. AIで entities / decals を生成
-5. 人間が entities / decals を直接調整
-6. 例外は最小限 overrides
+`grid.cellSize`は展開後の1内部セルのBabylonワールド寸法である。既存8ステージは`0.3333333333333333`を使用する。
 
-# 15. 本仕様の最終方針まとめ
+`mapScale`は1文字を内部セルへ複製する倍率である。
 
-- 人間が理解しやすい
-- AIが誤解しにくい
-- ピンポイント修正が容易
-- 将来拡張で破綻しない
+- 内部列数: `mainMap[0].length * mapScale.x`
+- 内部行数: `mainMap.length * mapScale.z`
+- ベースセル幅: `cellSize * mapScale.x`
+- ベースセル奥行き: `cellSize * mapScale.z`
+
+`mapScale.x/z`は1以上の整数とする。
+
+### 4.3 物理グリッド
+
+```ts
+type StageCellPhysicsDef = {
+  solid: boolean;
+  heightCells: number;
+  noRender?: boolean;
+};
+```
+
+- `mainMap`は1行以上で、全行を同じ文字数にする。
+- `mainMap`に現れる全記号を`cellPhysics`へ定義する。
+- `solid: false`は床、`solid: true`は壁とする。
+- `heightCells`へ`cellSize`を掛けた値を壁高とする。
+- `solid: true`かつ`heightCells: 0`は、定義内最大の`heightCells`を使用する。
+- `noRender: true`は壁表示を省略するが、衝突は生成する。
+- 外周を壁または不可視solidセルで閉じる。
+
+### 4.4 環境と天井
+
+`rendering.environmentMap`は`mainMap`と同じベース寸法にする。`O`は屋外床、それ以外は屋内床として扱う。
+
+`rendering.environmentRules`の最初のルールにある`ceiling`をステージ全体の天井へ使用する。`ceiling: null`なら天井を生成しない。`O.sky.color`はBabylonの背景色へ使用する。
+
+対応済み床`tileId`:
+
+| tileId | 表示 |
+|---|---|
+| `floor_arena_amber` | 茶系アリーナ床 |
+| `floor_labyrinth_amber` | 紺系迷宮床 |
+| その他／未指定 | 既定の紫床 |
+
+### 4.5 意味ゾーン
+
+`grid.zoneMap`は任意で、指定時は`mainMap`と同じベース寸法にする。
+
+- `D`: `labyrinth_dynamic`の動的ビーム候補床セル。
+- `L`: 制作上の汎用屋内領域。旧T02ランタイムでは処理していなかった。
+
+上下左右に連結した`D`床セルを1つのビームセットとして扱う。
+
+### 4.6 デカール
+
+v2で描画するデカールは壁面鏡である。
+
+```ts
+type StageDecal = {
+  face: "floor" | "wall" | "ceiling";
+  type: "cell" | "rect";
+  x: number;
+  z: number;
+  w?: number;
+  h?: number;
+  wallDir?: "N" | "E" | "S" | "W";
+  reflective?: {
+    kind: "mirror";
+    tint: string;
+    amount: number;
+    blur: number;
+  };
+};
+```
+
+鏡は`face: "wall"`、`reflective.kind: "mirror"`、`wallDir`を必須とする。
+
+## 5. glb形式
+
+```ts
+type GlbStageDefinitionV2 = StageDefinitionCommonV2 & {
+  kind: "glb";
+  asset: {
+    path: string;
+  };
+  navigation: {
+    cellSizeMeters: number;
+    originMeters: { x: number; y: number };
+    cellPhysics: Record<string, StageCellPhysicsDef>;
+    mainMap: string[];
+    zoneMap?: string[];
+  };
+  environment: {
+    skyColor?: string;
+  };
+};
+```
+
+### 5.1 GLBパス
+
+`asset.path`はBASE_URL相対で記述する。
+
+```json
+"asset": {
+  "path": "stage-assets/v2/T01/t01_glb_collision_course.glb"
+}
+```
+
+ローダーはAssetContainerの外側に管理親を作成し、0.25倍を適用する。glTF管理ルートは変更しない。
+
+### 5.2 平面ナビゲーション座標
+
+GLB用JSONの水平座標はBlender資産原点・メートル基準とする。
+
+- `originMeters`: ナビゲーションセル`(x=0, z=0)`中心のBlender X/Y座標。
+- `cellSizeMeters`: 1セルのBlenderメートル寸法。
+- JSON列: Blender `+X`へ増加。
+- JSON行: Blender `+Y`へ増加。
+- JSON列はBabylon `-X`、JSON行はBabylon `-Z`へ変換する。
+- 距離は0.25倍に変換する。
+- GLB形式ではJSON列の左右反転を行わない。
+
+本平面グリッドはT02時点の既存ゲームシステムを接続するための構造だった。当時は`layerId`、`floorY`、複数階、階段リンクをT04で導入する予定としていたが、この設計は採用せず、現行V2は3D NavMeshを使用する。
+
+### 5.3 GLBメッシュ
+
+- 頂点を持つ作者メッシュはすべて`VIS_`または`COL_`で始める。
+- `VIS_`: 表示、有効、衝突無効。
+- `COL_`: 有効、非表示、衝突有効。
+- 規約外の作者メッシュ名は読込エラーとする。
+
+## 6. ゲームプレイ共通領域
+
+### 6.1 マーカー
+
+```ts
+type StageMarker = {
+  id: string;
+  type: "spawn" | "goal" | "checkpoint" | "loot" | "poi";
+  x: number;
+  z: number;
+  rotY?: number;
+  tags?: string[];
+  props?: Record<string, unknown>;
+};
+```
+
+全ステージに`id: "spawn_player"`かつ`type: "spawn"`のマーカーを1件置く。
+
+対応済みタグ:
+
+| タグ | 動作 |
+|---|---|
+| `random_spawnable` | 敵出現禁止セルを除く床からランダム開始 |
+| `random_floor` | 全床セルからランダム開始 |
+| `look_at_center` | `rotY`よりステージ中心方向を優先 |
+
+### 6.2 ゾーン
+
+```ts
+type StageZone = {
+  id: string;
+  type: "safeZone" | "noEnemySpawn" | "noEnemyEnter" | "noCombat" | "hazard";
+  x: number;
+  z: number;
+  w: number;
+  h: number;
+  tags?: string[];
+  props?: Record<string, unknown>;
+};
+```
+
+- 全ステージに`id: "assembly_area"`を1件置く。
+- `noEnemySpawn`はビットの初期・追加スポーン候補から除外する。
+- `noEnemyEnter`、`noCombat`、`hazard`は旧T02ランタイムでは処理していなかった。
+
+### 6.3 オプション
+
+- `skipAssembly: false`: 全滅後に`assembly_area`へ経路移動する。
+- `skipAssembly: true`: 整列移動を省略して即時配置する。
+
+## 7. 制作注釈
+
+`authoring.symbols`は環境・ゾーン記号の人間向け説明を保持する。`authoring.zoneRules`は制作意図を保持できたが、旧T02ランタイムでは処理していなかった。
+
+制作注釈はゲームプレイ効果を自動生成しない。
+
+## 8. 読込・切替・破棄
+
+1. `loadStageDefinition`がJSONを取得する。
+2. `schemaVersion`と`kind`を検査する。
+3. 非同期`buildStageContext`がグリッド、描画資源、衝突資源を構築する。
+4. 新コンテキスト完成後に旧コンテキストを破棄して切り替える。
+5. 競合して古くなったロード結果は利用せず、そのコンテキストを即時破棄する。
+
+取得失敗、未対応版、未知の`kind`、GLB命名違反はエラーとする。旧形式読込、組込みグリッドへの代替、未知形式の推測変換は行わない。
+
+`disposeStageContext`は次をまとめて破棄する。
+
+- procedural-gridの床、壁、天井、コライダー、Material、Texture、反射資源。
+- GLBのAssetContainer、管理親、glTFルート、作者Mesh、Material、Texture。
+
+Babylon.jsがGLBのPBR Material用に生成する`EnvironmentBRDFTexture`はScene共有資源とし、StageContextからは破棄しない。非同期RGBD展開を含むライフサイクルと最終破棄はSceneへ委ねる。
+
+## 9. 旧T02時点の8ステージ（履歴）
+
+次の8件は旧T02で使用していたJSONステージであり、V2移行時に`public/stage`から削除した。個別に3D資産化されるまで、V2のカタログや動作保証には含めない。
+
+| ファイル | kind | 内部グリッド | 主な特徴 |
+|---|---|---:|---|
+| `laboratory.json` | procedural-grid | 17×56 | 屋内、敵出現禁止領域 |
+| `city_center.json` | procedural-grid | 112×116 | 屋外、2×2展開、高壁 |
+| `arena.json` | procedural-grid | 27×27 | 屋内アリーナ |
+| `arena_trap_room.json` | procedural-grid | 27×27 | トラップ専用ID |
+| `arena_roulette.json` | procedural-grid | 27×27 | ルーレット専用ID |
+| `arena_mirror_house.json` | procedural-grid | 27×27 | 壁面鏡4枚 |
+| `labyrinth.json` | procedural-grid | 76×64 | 大型迷路 |
+| `labyrinth_dynamic.json` | procedural-grid | 76×64 | `D`ゾーン付き大型迷路 |
+
+T02移行時に`laboratory.json`の過剰な最終`L`行を削除し、全定義のマップ寸法を一致させた。
+
+T01テストコースは検証専用のglb定義であり、旧T02の通常ステージカタログには登録されていなかった。
+
+## 10. 旧T02作成チェックリスト（履歴）
+
+以下は旧JSONを作成していた当時のチェックリストである。現行V2の資産制作や実装検証には使用せず、[V2ステージランタイム仕様書](./spec_stage_runtime_v2.md)と[ステージ資産仕様書](./spec_stage_assets_v2.md)に従う。
+
+- [ ] UTF-8（BOMなし）のJSONとして解析できる。
+- [ ] `schemaVersion: 2`と既知の`kind`を持つ。
+- [ ] `mainMap`が空でなく、全行幅が同じ。
+- [ ] 使用記号をすべて`cellPhysics`へ定義している。
+- [ ] `zoneMap`と`environmentMap`が必要なマップ寸法と一致する。
+- [ ] `spawn_player`と`assembly_area`が各1件ある。
+- [ ] `skipAssembly`を明示している。
+- [ ] procedural-gridは外周、天井、環境、鏡が意図どおりである。
+- [ ] glbは資産原点、メートル寸法、`VIS_`／`COL_`命名を満たす。
+- [ ] タイトルから開始し、切替後に旧資源がSceneへ残らない。

@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" href="data:," />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' ws: wss:; media-src 'self' data: blob:; worker-src 'self' blob:; object-src 'none'; base-uri 'self'"
+    />
+    <title>T04-3B 実学校動的統合fixture</title>
+    <link rel="stylesheet" href="./style.css" />
+  </head>
+  <body>
+    <main>
+      <aside class="panel">
+        <p class="eyebrow">HAIGURE SURVIVAL v2</p>
+        <h1>T04-3B 実学校動的統合fixture</h1>
+        <p id="summary" class="summary" data-state="running">
+          実学校資産を読み込み、動的統合を検証しています。
+        </p>
+        <div class="controls">
+          <button id="run-validation" type="button">全検証を再実行</button>
+        </div>
+        <dl id="metrics" class="metrics"></dl>
+        <ol id="check-results" class="check-results" aria-live="polite"></ol>
+      </aside>
+    </main>
+    <script type="module" src="./schoolIntegrationMain.ts"></script>
+  </body>
+</html>
