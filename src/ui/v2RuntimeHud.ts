@@ -69,6 +69,33 @@ const BROADCAST_COLOR = "#d98cff";
 const BROADCAST_PRIMARY_COLOR = NPC_FOLLOW_COLOR;
 const BROADCAST_SECONDARY_COLOR = NPC_IDLE_COLOR;
 const FEEDBACK_ANIMATION_DURATION_MS = 180;
+const GUIDE_INACTIVE_COLOR = "#f5f5f5";
+const PLAYER_MODE_COLORS = Object.freeze({
+  gun: NPC_FOLLOW_COLOR,
+  "no-gun": NPC_IDLE_COLOR,
+  haigure: DOOR_COLOR
+});
+type PlayerMode = keyof typeof PLAYER_MODE_COLORS;
+
+const resolvePlayerMode = (
+  state: V2RuntimeHudFrame["playerState"]
+): PlayerMode | null => {
+  switch (state) {
+    case "brainwash-complete-gun":
+      return "gun";
+    case "brainwash-complete-no-gun":
+      return "no-gun";
+    case "brainwash-in-progress":
+    case "brainwash-complete-haigure":
+    case "brainwash-complete-haigure-formation":
+      return "haigure";
+    case "normal":
+    case "evade":
+    case "hit-a":
+    case "hit-b":
+      return null;
+  }
+};
 
 const applyStyles = (
   element: HTMLElement,
@@ -176,7 +203,7 @@ const createGuide = (
   applyStyles(guide, {
     position: "fixed",
     left: "50%",
-    transform: "translateX(-50%)",
+    translate: "-50% 0",
     padding: "5px 8px",
     border: "1px solid rgba(245, 245, 245, 0.82)",
     borderRadius: "3px",
@@ -265,7 +292,26 @@ export const createV2RuntimeHudController = ({
   const completionGuide = createGuide(
     document,
     "completion-guide",
-    "G：銃あり　左クリック：発射　N：銃なし　H：ハイグレ"
+    ""
+  );
+  completionGuide.style.whiteSpace = "pre";
+  const completionOptions = ([
+    ["gun", "G：銃あり 左クリック：発射"],
+    ["no-gun", "N：銃なし"],
+    ["haigure", "H：ハイグレポーズ"]
+  ] as const).map(([mode, text]) => {
+    const label = document.createElement("span");
+    label.dataset.v2RuntimeHudMode = mode;
+    label.textContent = text;
+    label.style.color = GUIDE_INACTIVE_COLOR;
+    return { mode, label };
+  });
+  completionGuide.append(
+    completionOptions[0].label,
+    document.createTextNode("  "),
+    completionOptions[1].label,
+    document.createTextNode("  "),
+    completionOptions[2].label
   );
 
   const crosshair = createCrosshair(document);
@@ -289,6 +335,7 @@ export const createV2RuntimeHudController = ({
   let currentBroadcastTargetId: string | null = null;
   let currentBroadcastOption: "primary" | "secondary" | null = null;
   let currentDoorTargetId: string | null = null;
+  let currentPlayerMode: PlayerMode | null = null;
   let feedbackAnimationRevision = 0;
   const globalViewport = new Viewport(0, 0, 0, 0);
   const projectedPosition = Vector3.Zero();
@@ -308,12 +355,12 @@ export const createV2RuntimeHudController = ({
     setElementHidden(fireGuide, true);
   };
 
-  const clearMarkerFeedback = (marker: TargetMarker): void => {
-    if (marker.root.style.animation.length > 0) {
-      marker.root.style.removeProperty("animation");
+  const clearElementFeedback = (element: HTMLElement): void => {
+    if (element.style.animation.length > 0) {
+      element.style.removeProperty("animation");
     }
-    if (marker.root.dataset.v2RuntimeHudFeedback !== undefined) {
-      delete marker.root.dataset.v2RuntimeHudFeedback;
+    if (element.dataset.v2RuntimeHudFeedback !== undefined) {
+      delete element.dataset.v2RuntimeHudFeedback;
     }
   };
 
@@ -322,23 +369,47 @@ export const createV2RuntimeHudController = ({
     currentBroadcastTargetId = null;
     currentBroadcastOption = null;
     currentDoorTargetId = null;
-    clearMarkerFeedback(npcMarker);
-    clearMarkerFeedback(broadcastMarker);
-    clearMarkerFeedback(doorMarker);
+    currentPlayerMode = null;
+    clearElementFeedback(npcMarker.root);
+    clearElementFeedback(broadcastMarker.root);
+    clearElementFeedback(doorMarker.root);
+    clearElementFeedback(completionGuide);
   };
 
-  const pulseMarker = (marker: TargetMarker): void => {
+  const pulseElement = (element: HTMLElement): void => {
     feedbackAnimationRevision += 1;
     const animationName =
       feedbackAnimationRevision % 2 === 0
         ? "v2-runtime-target-feedback-even"
         : "v2-runtime-target-feedback-odd";
-    marker.root.style.animation = "none";
-    void marker.root.offsetWidth;
-    marker.root.style.animation =
+    element.style.animation = "none";
+    void element.offsetWidth;
+    element.style.animation =
       `${animationName} ${FEEDBACK_ANIMATION_DURATION_MS}ms linear 1`;
-    marker.root.dataset.v2RuntimeHudFeedback =
+    element.dataset.v2RuntimeHudFeedback =
       String(feedbackAnimationRevision);
+  };
+
+  const updatePlayerMode = (frame: V2RuntimeHudFrame): void => {
+    const nextMode = resolvePlayerMode(frame.playerState);
+    if (nextMode === currentPlayerMode) {
+      return;
+    }
+    if (nextMode !== null) {
+      const color = PLAYER_MODE_COLORS[nextMode];
+      completionGuide.style.color = color;
+      completionGuide.style.borderColor = color;
+      completionGuide.dataset.v2RuntimeHudMode = nextMode;
+      for (const option of completionOptions) {
+        option.label.style.color = option.mode === nextMode
+          ? color
+          : GUIDE_INACTIVE_COLOR;
+      }
+      if (currentPlayerMode !== null) {
+        pulseElement(completionGuide);
+      }
+    }
+    currentPlayerMode = nextMode;
   };
 
   const projectTarget = (
@@ -444,7 +515,7 @@ export const createV2RuntimeHudController = ({
       const nextNpcTargetId =
         broadcastCandidate === null ? npcCandidate?.npcId ?? null : null;
       if (nextNpcTargetId !== currentNpcTargetId) {
-        clearMarkerFeedback(npcMarker);
+        clearElementFeedback(npcMarker.root);
         currentNpcTargetId = nextNpcTargetId;
       }
       if (npcCandidate && broadcastCandidate === null) {
@@ -468,7 +539,7 @@ export const createV2RuntimeHudController = ({
           transformationMatrix
         );
         if (commandFeedback) {
-          pulseMarker(npcMarker);
+          pulseElement(npcMarker.root);
         }
       } else {
         setElementHidden(npcMarker.root, true);
@@ -476,7 +547,7 @@ export const createV2RuntimeHudController = ({
       const nextBroadcastTargetId =
         broadcastCandidate?.consoleId ?? null;
       if (nextBroadcastTargetId !== currentBroadcastTargetId) {
-        clearMarkerFeedback(broadcastMarker);
+        clearElementFeedback(broadcastMarker.root);
         currentBroadcastTargetId = nextBroadcastTargetId;
         currentBroadcastOption = null;
       }
@@ -508,7 +579,7 @@ export const createV2RuntimeHudController = ({
           transformationMatrix
         );
         if (broadcastFeedback) {
-          pulseMarker(broadcastMarker);
+          pulseElement(broadcastMarker.root);
         }
       } else {
         setElementHidden(broadcastMarker.root, true);
@@ -516,7 +587,7 @@ export const createV2RuntimeHudController = ({
       const doorCandidate = doorCandidates[0];
       const nextDoorTargetId = doorCandidate?.door.id ?? null;
       if (nextDoorTargetId !== currentDoorTargetId) {
-        clearMarkerFeedback(doorMarker);
+        clearElementFeedback(doorMarker.root);
         currentDoorTargetId = nextDoorTargetId;
       }
       if (doorCandidate) {
@@ -533,12 +604,13 @@ export const createV2RuntimeHudController = ({
               event.doorId === doorCandidate.door.id
           )
         ) {
-          pulseMarker(doorMarker);
+          pulseElement(doorMarker.root);
         }
       } else {
         setElementHidden(doorMarker.root, true);
       }
 
+      updatePlayerMode(frame);
       setElementHidden(
         completionGuide,
         !frame.playerCompletionUnlocked

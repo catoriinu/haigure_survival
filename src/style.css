@@ -35,16 +35,21 @@ body {
   position: absolute;
   top: 12px;
   left: 204px;
-  padding: 6px 8px;
-  border: 1px solid #111111;
-  background: rgba(0, 0, 0, 0.55);
+  box-sizing: border-box;
+  max-width: calc(100vw - 216px);
+  padding: 10px 12px 12px;
+  border: 1px solid rgba(245, 245, 245, 0.48);
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.72);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.48);
   color: #f5f5f5;
   font-family: "IBM Plex Mono", "Fira Code", ui-monospace, monospace;
-  font-size: 14px;
-  letter-spacing: 0.02em;
+  font-size: 13px;
+  letter-spacing: 0.04em;
+  line-height: 1.5;
   z-index: 10;
   pointer-events: none;
-  white-space: pre;
+  white-space: pre-wrap;
 }
 
 #statusInfo,
@@ -102,14 +107,14 @@ body {
 @keyframes v2-runtime-target-feedback-odd {
   0%,
   100% {
-    transform: scale(1);
+    scale: 1;
     filter: brightness(1);
     box-shadow: 0 0 8px currentColor;
     outline: 0 solid transparent;
     outline-offset: 0;
   }
   50% {
-    transform: scale(1.35);
+    scale: 1.35;
     filter: brightness(2.8);
     box-shadow:
       0 0 14px 5px currentColor,
@@ -122,14 +127,14 @@ body {
 @keyframes v2-runtime-target-feedback-even {
   0%,
   100% {
-    transform: scale(1);
+    scale: 1;
     filter: brightness(1);
     box-shadow: 0 0 8px currentColor;
     outline: 0 solid transparent;
     outline-offset: 0;
   }
   50% {
-    transform: scale(1.35);
+    scale: 1.35;
     filter: brightness(2.8);
     box-shadow:
       0 0 14px 5px currentColor,
