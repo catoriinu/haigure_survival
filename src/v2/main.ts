@@ -42,6 +42,7 @@ import {
   createV2RuntimeHudController
 } from "../ui/v2RuntimeHud";
 import { createV2MissionHudController } from "../ui/v2MissionHud";
+import { createV2PlayerStatusHud } from "../ui/v2PlayerStatusHud";
 import { createV2MinimapController } from "../ui/v2Minimap";
 import {
   createSchoolStageDynamicRuntime,
@@ -743,6 +744,7 @@ const initializeRuntime = async () => {
       stage: ownedStage,
       playerSpawn,
       input: ownedInput,
+      dashMode: V2_DEBUG_MODE ? "unlimited" : "stamina",
       eyeHeightScale: settingsSnapshot.display.eyeHeightScale
     });
     const playerController = ownedPlayer;
@@ -1089,6 +1091,9 @@ let ownedRuntimeHud: ReturnType<
 let ownedMissionHud: ReturnType<
   typeof createV2MissionHudController
 > | null = null;
+let ownedPlayerStatusHud: ReturnType<
+  typeof createV2PlayerStatusHud
+> | null = null;
 let ownedPerformanceStressWorkload: ReturnType<typeof createV2PerformanceStressWorkload> | null = null;
 let ownedMinimap: ReturnType<
   typeof createV2MinimapController
@@ -1121,6 +1126,7 @@ const deactivateRuntimeSynchronously = () => {
   releaseDynamicOwner("observer");
   ownedRuntimeHud?.clear();
   ownedMissionHud?.clear();
+  ownedPlayerStatusHud?.clear();
   ownedMinimap?.clear();
   ownedVoiceRuntime?.stopAll();
   ownedAudio?.stopBgm();
@@ -1142,6 +1148,7 @@ const disposeRuntimeSynchronously = () => {
   deactivateRuntimeSynchronously();
   ownedRuntimeHud?.dispose();
   ownedMissionHud?.dispose();
+  ownedPlayerStatusHud?.dispose();
   ownedMinimap?.dispose();
   releaseDynamicOwnerIfAcquired("hud");
   ownedPlayerCharacterVisual?.dispose();
@@ -1354,6 +1361,11 @@ const runtimeHud = createV2RuntimeHudController({
   camera
 });
 ownedRuntimeHud = runtimeHud;
+const playerStatusHud = createV2PlayerStatusHud({
+  host: document.body,
+  staminaGauge
+});
+ownedPlayerStatusHud = playerStatusHud;
 const missionHud = settingsSnapshot.features.missionEnabled
   ? createV2MissionHudController({ host: document.body })
   : null;
@@ -2629,20 +2641,26 @@ engine.runRenderLoop(() => {
     ) {
       survival.releaseAssemblyPlayerControl();
     }
+    let survivalFrame = survival.getFrame();
+    const dashContext = {
+      gameplayActive: started && survivalFrame.phase === "playing",
+      playerState: survivalFrame.playerState
+    };
     const playerFrame = frameDiagnostics
       ? frameDiagnostics.measure("player", () =>
           player.update(
             delta,
             started && survival.canPlayerMove(),
-            horizontalSpeedScale
+            horizontalSpeedScale,
+            dashContext
           )
         )
       : player.update(
           delta,
           started && survival.canPlayerMove(),
-          horizontalSpeedScale
+          horizontalSpeedScale,
+          dashContext
         );
-    let survivalFrame = survival.getFrame();
     if (started) {
       elapsedSeconds += delta;
       survivalFrame = frameDiagnostics
@@ -2795,6 +2813,17 @@ engine.runRenderLoop(() => {
       doorCandidates,
       feedback: interactionFeedback
     });
+    playerStatusHud.update({
+      active: started,
+      frame: survivalFrame,
+      stamina: playerFrame.stamina
+    });
+    characterVisuals.updateNoGunRestraint(
+      started && survivalFrame.phase === "playing"
+        ? survivalFrame.noGunRestrainedTargetIds
+        : [],
+      elapsedSeconds
+    );
     frameDiagnostics?.finishSection("runtime-hud", presentationSectionStartedAt);
     if (missionHud !== null && survivalFrame.mission !== null) {
       presentationSectionStartedAt = frameDiagnostics?.beginSection("mission-hud") ?? 0;

@@ -7,6 +7,7 @@ import {
   areAllV2HumansBrainwashed,
   canV2SurvivalPlayerMove,
   cloneV2AlarmFrame,
+  collectV2NoGunRestrainedTargetIds,
   createV2ExecutionBitPositions,
   selectV2ExecutionAudienceIds,
   selectV2PlayerBlockedNpcIds
@@ -256,6 +257,42 @@ export const runSurvivalRulesTests =
             Object.isFrozen(noGun),
           detail:
             `noGun=${noGun.join(",")} / gun=${gun.join(",")}`
+        };
+      }
+    ),
+    executeTest(
+      "銃なし拘束表示は近接対象と捕獲対象を重複なく統合し、解除時に捕獲対象を除く",
+      () => {
+        const playerBlockedNpcIds = Object.freeze(["npc-near", "npc-both"]);
+        const captures = Object.freeze([
+          Object.freeze({ npcId: "captor-a", targetId: "npc-both" }),
+          Object.freeze({ npcId: "captor-b", targetId: "player" }),
+          Object.freeze({ npcId: "captor-c", targetId: "npc-captured" }),
+          Object.freeze({ npcId: "captor-d", targetId: "player" })
+        ]);
+        const restrained = collectV2NoGunRestrainedTargetIds(
+          playerBlockedNpcIds,
+          captures
+        );
+        const released = collectV2NoGunRestrainedTargetIds(
+          playerBlockedNpcIds,
+          Object.freeze([])
+        );
+        const empty = collectV2NoGunRestrainedTargetIds(
+          Object.freeze([]),
+          Object.freeze([])
+        );
+        return {
+          ok:
+            restrained.join("|") === "npc-near|npc-both|player|npc-captured" &&
+            released.join("|") === "npc-near|npc-both" &&
+            empty.length === 0 &&
+            Object.isFrozen(restrained) &&
+            Object.isFrozen(released) &&
+            Object.isFrozen(empty),
+          detail:
+            `restrained=${restrained.join(",")} / ` +
+            `released=${released.join(",")} / empty=${empty.length}`
         };
       }
     ),

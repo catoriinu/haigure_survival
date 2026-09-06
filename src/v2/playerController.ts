@@ -17,13 +17,19 @@ import type {
   StageSpatialSession
 } from "../world/stageSpatialContext";
 import type { V2PlayerInput } from "./playerInput";
+import {
+  createV2PlayerDashController,
+  V2_PLAYER_DASH_SPEED_MULTIPLIER,
+  type V2PlayerDashFrameContext,
+  type V2PlayerDashMode,
+  type V2PlayerStaminaSnapshot
+} from "./playerStamina";
 
 export const V2_PLAYER_BASE_EYE_HEIGHT = 1 / 3;
 export const V2_PLAYER_MIN_EYE_HEIGHT_SCALE = 0.5;
 export const V2_PLAYER_MAX_EYE_HEIGHT_SCALE = 1.5;
 
 const PLAYER_MOVE_SPEED = 0.02 * Math.sqrt(10);
-const PLAYER_DASH_SPEED_MULTIPLIER = 2;
 const PLAYER_MOVE_INERTIA_AT_60_FPS = 0.9;
 const PLAYER_MOVE_STOP_EPSILON = 0.00001;
 const PLAYER_GRAVITY = 2.4525;
@@ -39,6 +45,7 @@ export type V2PlayerControllerOptions = Readonly<{
   stage: StageSpatialSession;
   playerSpawn: StagePlayerSpawn;
   input: V2PlayerInput;
+  dashMode: V2PlayerDashMode;
   eyeHeightScale?: number;
 }>;
 
@@ -46,13 +53,18 @@ export type V2PlayerFrame = Readonly<{
   footPosition: Vector3;
   eyePosition: Vector3;
   verticalState: PlayerVerticalState;
+  stamina: V2PlayerStaminaSnapshot | null;
 }>;
 
 export type V2PlayerController = {
   update(
     delta: number,
     allowMove: boolean,
-    horizontalSpeedScale: number
+    horizontalSpeedScale: number,
+    dashContext: Pick<
+      V2PlayerDashFrameContext,
+      "gameplayActive" | "playerState"
+    >
   ): V2PlayerFrame;
   getFootPosition(): Vector3;
   getEyePosition(): Vector3;
@@ -124,6 +136,7 @@ export const createV2PlayerController = ({
   stage,
   playerSpawn,
   input,
+  dashMode,
   eyeHeightScale: initialEyeHeightScale = 1
 }: V2PlayerControllerOptions): V2PlayerController => {
   assertEyeHeightScale(initialEyeHeightScale);
@@ -165,6 +178,7 @@ export const createV2PlayerController = ({
     moveStopEpsilon: PLAYER_MOVE_STOP_EPSILON,
     collisionEpsilon: Engine.CollisionsEpsilon
   });
+  const dash = createV2PlayerDashController(dashMode);
   const height = createPlayerHeightController(scene, {
     gravity: PLAYER_GRAVITY,
     maxStepHeight: PLAYER_MAX_STEP_HEIGHT,
@@ -242,6 +256,7 @@ export const createV2PlayerController = ({
     assertActive();
     input.reset();
     motion.reset();
+    dash.reset();
     collisionMesh.position.copyFrom(spawnFootPosition);
     collisionMesh.computeWorldMatrix(true);
     resyncHeightOrThrow("player_spawnへの再配置");
@@ -301,14 +316,17 @@ export const createV2PlayerController = ({
   camera.inputs.removeByType("FreeCameraKeyboardMoveInput");
   resetToSpawn();
 
-  const buildFrame = (): V2PlayerFrame => ({
+  const buildFrame = (
+    stamina: V2PlayerStaminaSnapshot | null
+  ): V2PlayerFrame => ({
     footPosition: getFootPosition(),
     eyePosition: getEyePosition(),
-    verticalState: height.getState()
+    verticalState: height.getState(),
+    stamina
   });
 
   return {
-    update: (delta, allowMove, horizontalSpeedScale) => {
+    update: (delta, allowMove, horizontalSpeedScale, dashContext) => {
       assertActive();
       assertDelta(delta);
       if (typeof allowMove !== "boolean") {
@@ -337,11 +355,20 @@ export const createV2PlayerController = ({
         );
       }
 
-      const moveSpeed = input.isDashPressed()
-        ? PLAYER_MOVE_SPEED * PLAYER_DASH_SPEED_MULTIPLIER
+      const moveAxes = input.getMoveAxes();
+      const dashFrame = dash.update({
+        delta,
+        gameplayActive: dashContext.gameplayActive,
+        playerState: dashContext.playerState,
+        dashPressed: input.isDashPressed(),
+        moving:
+          allowMove && (moveAxes.moveX !== 0 || moveAxes.moveZ !== 0)
+      });
+      const moveSpeed = dashFrame.active
+        ? PLAYER_MOVE_SPEED * V2_PLAYER_DASH_SPEED_MULTIPLIER
         : PLAYER_MOVE_SPEED;
       const requestedDisplacement = motion.update(
-        input.getMoveAxes(),
+        moveAxes,
         movementYaw,
         delta,
         allowMove,
@@ -364,7 +391,7 @@ export const createV2PlayerController = ({
       }
 
       syncCameraPosition();
-      return buildFrame();
+      return buildFrame(dashFrame.stamina);
     },
     getFootPosition: () => {
       assertActive();

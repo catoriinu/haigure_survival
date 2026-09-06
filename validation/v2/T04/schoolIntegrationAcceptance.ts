@@ -397,7 +397,8 @@ const createTraversalFixturePlayer = (
       return Object.freeze({
         footPosition: position.clone(),
         eyePosition: getEyePosition(),
-        verticalState: Object.freeze({ ...verticalState })
+        verticalState: Object.freeze({ ...verticalState }),
+        stamina: null
       });
     },
     getFootPosition: () => {

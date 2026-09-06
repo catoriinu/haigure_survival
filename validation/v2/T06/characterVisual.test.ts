@@ -5,6 +5,7 @@ import {
   Engine,
   FreeCamera,
   Material,
+  Mesh,
   MeshBuilder,
   NullEngine,
   RawTexture,
@@ -26,6 +27,7 @@ import { createV2PortraitAssetCatalogFromPublicPaths } from "../../../src/v2/v2P
 import {
   V2_TRANSPARENT_ALPHA_INDEX_SPATIAL,
   V2_TRANSPARENT_ALPHA_INDEX_NPC_CHARACTER,
+  V2_TRANSPARENT_ALPHA_INDEX_NPC_RESTRAINT,
   V2_TRANSPARENT_ALPHA_INDEX_PLAYER_CHARACTER
 } from "../../../src/v2/v2TransparentRenderingOrder";
 import { BLENDER_METERS_TO_WORLD_UNITS } from "../../../src/world/worldUnits";
@@ -388,6 +390,245 @@ export const runCharacterVisualTests = async (): Promise<
         if (!runtimeDisposed) {
           runtime.dispose();
         }
+        scene.dispose();
+        engine.dispose();
+      }
+    }),
+    executeTest("銃なし拘束表示の追随・再利用・解除・破棄", async () => {
+      const engine = new NullEngine();
+      const scene = new Scene(engine);
+      const runtime = await createV2CharacterVisualRuntime({
+        scene,
+        showGroundShadows: false,
+        orientationMode: "upright",
+        includeNoGunTouchBlendFrames: false,
+        assignments: Object.freeze([
+          Object.freeze({
+            actorId: "player",
+            voiceProfileId: "01",
+            portraitDirectory: V2_DEFAULT_PORTRAIT_DIRECTORY
+          }),
+          Object.freeze({
+            actorId: "npc-001",
+            voiceProfileId: "02",
+            portraitDirectory: V2_DEFAULT_PORTRAIT_DIRECTORY
+          }),
+          Object.freeze({
+            actorId: "npc-002",
+            voiceProfileId: "03",
+            portraitDirectory: V2_DEFAULT_PORTRAIT_DIRECTORY
+          })
+        ])
+      });
+      let runtimeDisposed = false;
+      try {
+        const player = runtime.createSprite(
+          "player",
+          "fixture-restraint-player"
+        );
+        const firstNpc = runtime.createSprite(
+          "npc-001",
+          "fixture-restraint-first"
+        );
+        const disposableNpc = runtime.createSprite(
+          "npc-002",
+          "fixture-restraint-disposable"
+        );
+        player.sprite.isVisible = true;
+        firstNpc.sprite.isVisible = true;
+        disposableNpc.sprite.isVisible = true;
+        firstNpc.sprite.position.copyFromFloats(1, 2, 3);
+        disposableNpc.sprite.position.copyFromFloats(-1, 4, -3);
+        runtime.setFacingYaw(Math.PI / 3);
+        runtime.updateNoGunRestraint(
+          Object.freeze(["player", "npc-001"]),
+          0
+        );
+
+        const playerBand = scene.getMeshByName(
+          "fixture-restraint-player_noGunRestraint"
+        );
+        const firstBand = scene.getMeshByName(
+          "fixture-restraint-first_noGunRestraint"
+        );
+        const restraintHeight = 0.3 * BLENDER_METERS_TO_WORLD_UNITS;
+        const expectedFirstY =
+          firstNpc.sprite.position.y - firstNpc.height / 2 + restraintHeight / 2;
+        assert(
+          playerBand === null &&
+            firstBand !== null &&
+            firstBand.isVisible &&
+            firstBand.position.equalsWithEpsilon(
+              new Vector3(1, expectedFirstY, 3),
+              0.000001
+            ) &&
+            firstBand.scaling.equalsWithEpsilon(
+              new Vector3(firstNpc.width, restraintHeight, 1),
+              0.000001
+            ) &&
+            firstBand.rotation.x === 0 &&
+            Math.abs(firstBand.rotation.y - Math.PI / 3) <= 0.000001 &&
+            firstBand.rotation.z === 0 &&
+            firstBand.alphaIndex === V2_TRANSPARENT_ALPHA_INDEX_NPC_RESTRAINT,
+          "拘束表示のPlayer除外、位置、寸法、upright yawが不正です。"
+        );
+
+        const firstMaterial = firstBand.material;
+        const firstTexture =
+          firstMaterial instanceof StandardMaterial
+            ? firstMaterial.diffuseTexture
+            : null;
+        const restraintMeshCount = scene.meshes.filter((mesh) =>
+          mesh.name.endsWith("_noGunRestraint")
+        ).length;
+        firstNpc.sprite.position.copyFromFloats(2, 2.5, 4);
+        runtime.setFacingYaw(Math.PI / 2);
+        runtime.updateNoGunRestraint(Object.freeze(["npc-001"]), 0.5);
+        const reusedBand = scene.getMeshByName(
+          "fixture-restraint-first_noGunRestraint"
+        );
+        const expectedMovedY =
+          firstNpc.sprite.position.y - firstNpc.height / 2 + restraintHeight / 2;
+        assert(
+          reusedBand === firstBand &&
+            scene.meshes.filter((mesh) =>
+              mesh.name.endsWith("_noGunRestraint")
+            ).length === restraintMeshCount &&
+            firstBand.position.equalsWithEpsilon(
+              new Vector3(2, expectedMovedY, 4),
+              0.000001
+            ) &&
+            Math.abs(firstBand.rotation.y - Math.PI / 2) <= 0.000001,
+          "拘束Planeを再利用せず、補間済みSprite位置・yawへ追随しません。"
+        );
+
+        runtime.updateNoGunRestraint(Object.freeze([]), 1);
+        assert(!firstBand.isVisible, "対象解除後も拘束表示が残りました。");
+
+        runtime.updateNoGunRestraint(Object.freeze(["npc-002"]), 1.5);
+        const disposableBand = scene.getMeshByName(
+          "fixture-restraint-disposable_noGunRestraint"
+        );
+        assert(
+          disposableBand !== null &&
+            disposableBand.isVisible &&
+            disposableBand.material === firstMaterial,
+          "拘束表示が共有Materialを使用していません。"
+        );
+        disposableNpc.dispose();
+        assert(
+          disposableBand.isDisposed(),
+          "Character record破棄で拘束Planeを破棄しません。"
+        );
+
+        runtime.dispose();
+        runtimeDisposed = true;
+        assert(
+          firstBand.isDisposed() &&
+            firstMaterial !== null &&
+            !scene.materials.includes(firstMaterial) &&
+            firstTexture !== null &&
+            !scene.textures.includes(firstTexture),
+          "Runtime破棄で拘束Plane・共有Material・gradient Textureを破棄しません。"
+        );
+        return "Player除外、feet追随、0.075高、再利用、解除、record/runtime破棄";
+      } finally {
+        if (!runtimeDisposed) {
+          runtime.dispose();
+        }
+        scene.dispose();
+        engine.dispose();
+      }
+    }),
+    executeTest("camera-facing拘束表示は俯角でもSprite足元へ一致", async () => {
+      const engine = new NullEngine();
+      const scene = new Scene(engine);
+      const camera = new FreeCamera(
+        "fixture-restraint-camera-facing-camera",
+        new Vector3(0, 1.2, -3),
+        scene
+      );
+      camera.setTarget(new Vector3(0, 0.4, 0));
+      scene.activeCamera = camera;
+      const runtime = await createV2CharacterVisualRuntime({
+        scene,
+        showGroundShadows: false,
+        orientationMode: "camera-facing",
+        includeNoGunTouchBlendFrames: false,
+        assignments: Object.freeze([
+          Object.freeze({
+            actorId: "npc-camera-facing",
+            voiceProfileId: "01",
+            portraitDirectory: V2_DEFAULT_PORTRAIT_DIRECTORY
+          })
+        ])
+      });
+      try {
+        const handle = runtime.createSprite(
+          "npc-camera-facing",
+          "fixture-restraint-camera-facing"
+        );
+        handle.sprite.position.copyFromFloats(0.5, 1, 2);
+        handle.sprite.isVisible = true;
+        handle.syncPresentation();
+        runtime.updateNoGunRestraint(
+          Object.freeze(["npc-camera-facing"]),
+          0
+        );
+        const band = scene.getMeshByName(
+          "fixture-restraint-camera-facing_noGunRestraint"
+        );
+        assert(band !== null, "camera-facing拘束Planeがありません。");
+        const restraintHeight = 0.3 * BLENDER_METERS_TO_WORLD_UNITS;
+        const initialCameraUp = camera
+          .getDirection(Vector3.Up())
+          .normalize();
+        const initialSpriteFoot = handle.sprite.position.subtract(
+          initialCameraUp.scale(handle.height / 2)
+        );
+        const initialBandBottom = band.position.subtract(
+          initialCameraUp.scale(restraintHeight / 2)
+        );
+        const initialBandPosition = band.position.clone();
+        assert(
+          band.billboardMode === Mesh.BILLBOARDMODE_ALL &&
+            band.rotation.equals(Vector3.Zero()) &&
+            initialBandBottom.equalsWithEpsilon(
+              initialSpriteFoot,
+              0.000001
+            ),
+          "俯角cameraでSprite足元と拘束帯下端が一致しません。"
+        );
+
+        camera.position.copyFromFloats(2.5, 1.2, -1.5);
+        camera.setTarget(new Vector3(0, 0.4, 0));
+        camera.getViewMatrix(true);
+        runtime.updateNoGunRestraint(
+          Object.freeze(["npc-camera-facing"]),
+          0.5
+        );
+        const turnedCameraUp = camera
+          .getDirection(Vector3.Up())
+          .normalize();
+        const turnedSpriteFoot = handle.sprite.position.subtract(
+          turnedCameraUp.scale(handle.height / 2)
+        );
+        const turnedBandBottom = band.position.subtract(
+          turnedCameraUp.scale(restraintHeight / 2)
+        );
+        assert(
+          !band.position.equalsWithEpsilon(initialBandPosition, 0.000001) &&
+            band.billboardMode === Mesh.BILLBOARDMODE_ALL &&
+            band.rotation.equals(Vector3.Zero()) &&
+            turnedBandBottom.equalsWithEpsilon(
+              turnedSpriteFoot,
+              0.000001
+            ),
+          "camera yaw変更後に拘束帯がSpriteのview平面へ追随しません。"
+        );
+        return "俯角・yaw変更後ともcamera up上のSprite足元と帯下端が一致";
+      } finally {
+        runtime.dispose();
         scene.dispose();
         engine.dispose();
       }

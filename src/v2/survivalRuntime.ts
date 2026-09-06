@@ -124,6 +124,7 @@ import {
   V2_PLAYER_BLOCK_RADIUS,
   areAllV2HumansBrainwashed,
   canV2SurvivalPlayerMove,
+  collectV2NoGunRestrainedTargetIds,
   createV2ExecutionBitPositions,
   selectV2ExecutionAudienceIds,
   selectV2PlayerBlockedNpcIds
@@ -242,6 +243,7 @@ export type V2SurvivalFrame = Readonly<{
   alarmTriggerCount: number;
   alarm: V2AlarmFrame;
   captureCount: number;
+  noGunRestrainedTargetIds: readonly string[];
   executionVariant: V2ExecutionVariant | null;
   executionPlayerRole: V2ExecutionPlayerRole | null;
   executionPendingTargetIds: readonly string[];
@@ -1775,6 +1777,17 @@ constructionDependencies: V2SurvivalConstructionDependencies = Object.freeze({})
     const executionFrame = executionSystem.getFrame();
     const currentAssemblyVenue =
       frozenAssemblyVenue ?? getInstructionAssemblyVenue();
+    // 表示用の近接拘束は現在状態から求め、操作切替前の対象を表示へ持ち越さない。
+    const noGunRestrainedTargetIds = phase === "playing"
+      ? collectV2NoGunRestrainedTargetIds(
+          selectV2PlayerBlockedNpcIds(
+            playerStateSnapshot.state,
+            player.getFootPosition(),
+            npcFrameView.targets
+          ),
+          npcFrameView.captures
+        )
+      : Object.freeze([]);
     return Object.freeze({
       phase,
       assemblyVenueId: currentAssemblyVenue.id,
@@ -1796,6 +1809,7 @@ constructionDependencies: V2SurvivalConstructionDependencies = Object.freeze({})
       alarmTriggerCount,
       alarm: alarmFrame,
       captureCount: npcFrameView.captures.length,
+      noGunRestrainedTargetIds,
       executionVariant:
         executionFrame.candidate?.variant ?? null,
       executionPlayerRole:

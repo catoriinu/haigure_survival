@@ -84,6 +84,17 @@ export const selectV2PlayerBlockedNpcIds = (
       )
     : Object.freeze([]);
 
+export const collectV2NoGunRestrainedTargetIds = (
+  playerBlockedNpcIds: readonly string[],
+  captures: readonly Readonly<{ targetId: string }>[]
+): readonly string[] => {
+  const targetIds = new Set(playerBlockedNpcIds);
+  for (const capture of captures) {
+    targetIds.add(capture.targetId);
+  }
+  return Object.freeze([...targetIds]);
+};
+
 export const selectV2ExecutionAudienceIds = (
   orderedHumanIds: readonly string[],
   targetIds: readonly string[]

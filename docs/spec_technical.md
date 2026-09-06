@@ -64,6 +64,16 @@ V2性能計測は`src/v2/performanceDiagnostics.ts`の同一collectorを使用�
 - 解禁後の下部操作案内は「G：銃あり 左クリック：発射  N：銃なし  H：ハイグレポーズ」とし、群内は半角1空白、群間は半角2空白を維持する。現在の群と枠はgunが黄緑`#9cff57`、no-gunが水色`#61e8ff`、progress／haigureが黄色`#ffd166`、他の群は白`#f5f5f5`にする。
 - 下部操作案内のモード変更時は同行・扉と共通の180ms発光を使う。同一モードの連続更新と初回表示では再発光せず、非表示時に残光を解除する。中央配置の`translate`と発光の`scale`を分離し、発光中もパネルの中心を保つ。
 
+### 0.4 V2ダッシュ体力と銃なし拘束表示
+
+- 通常モードのダッシュは`src/v2/playerStamina.ts`がV1最終仕様を保持する。最大15.0を150段階で管理し、移動入力を伴うShiftで0.1秒ごとに1段階消費、非消費時は0.2秒ごとに1段階回復する。0のままShiftと移動を保持すると回復しない。洗脳系状態は満タンを維持する。倍率は2倍で、デバッグモードは体力制限なしとする。
+- 体力の更新は`playing`中に限り、他フェーズでは消費・回復timerをリセットする。`createV2PlayerController`の`dashMode`と`update`のゲーム進行・Player状態を必須入力とし、旧Runtimeを参照しない。新sessionとPlayerのspawn resetで体力を初期化する。
+- `src/ui/v2PlayerStatusHud.ts`は通常モードの`playing`中だけ左の体力ゲージを表示する。通常色は`#f5f5f5`、洗脳系状態はV1と同じ`#ff66b5`。高さ800px以下ではミニマップ右の現在位置表示の下へ縮小配置し、操作説明への重なりを避ける。タイトル・終了・session破棄時に消す。
+- `V2SurvivalFrame.noGunRestrainedTargetIds`は現在Player銃なしの近接拘束とNPCの`captures[].targetId`を重複除去して公開する。拘束する側のNPCや通常被弾による移動停止は対象へ含めず、表示側で距離を再判定しない。
+- NPC拘束は`v2CharacterVisualRuntime`が補間済み足元へ高さ0.3mの赤い帯を描画する。幅はCharacter画像、向きはupright時に水平yawへ合わせる。camera-facing時はカメラの上方向とbillboardを使い、Spriteと同じview平面の下端へ合わせる。下端alpha約0.96から上端0への共有グラデーション、2秒周期の明滅を使用する。alpha cutoffと深度書込・小さなdepth biasでCharacter、壁、ガラスの前後関係を保つ。帯MeshをActor、共有Material／TextureをCharacter Runtimeが破棄する。
+- Player拘束は画面下辺40pxの赤いグラデーションを2秒周期で明滅させる。通常・デバッグ共通で、拘束解除と`playing`終了時に消す。既存の拘束距離・時間・移動可否は変更しない。
+- タイトルの機能名は「アラーム床」とし、保存fieldは従来の`features.alarmEnabled`を維持する。
+
 以下の第1～16節はv1.3.1／旧T02時点の実装を追跡する付録として残す。V2実装との不一致は本節、`docs/spec_stage_runtime_v2.md`、`docs/spec_stage_assets_v2.md`を優先する。
 
 ## 1. v1.3.1／旧T02実装付録の位置付け
