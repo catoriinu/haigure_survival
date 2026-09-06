@@ -17,6 +17,7 @@ import {
 } from "../world/stageLocationAssets";
 import type { StageSpatialQueries } from "../world/stageSpatialQueries";
 import { BLENDER_METERS_TO_WORLD_UNITS } from "../world/worldUnits";
+import { formatV2LocationDisplayName } from "../v2/locationDisplay";
 import type { V2MinimapActorSnapshot } from "../v2/survivalRuntime";
 
 const MINIMAP_SIZE_CSS_PX = 180;
@@ -924,7 +925,10 @@ export const createV2MinimapController = ({
           .sort((left, right) => left.id.localeCompare(right.id))
       );
 
-      const readoutText = `${floorMap.displayName} ${playerAreaHit.area.displayName}`;
+      const readoutText = formatV2LocationDisplayName(
+        floorMap.displayName,
+        playerAreaHit.area.displayName
+      );
       frame = freezeFrame({
         floorId,
         floorColor: V2_MINIMAP_FLOOR_COLORS[floorId],

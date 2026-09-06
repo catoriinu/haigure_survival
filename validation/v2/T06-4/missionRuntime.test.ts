@@ -6,6 +6,7 @@ import type {
   StageMissionLocation
 } from "../../../src/world/stageLocationAssets";
 import type { V2CharacterState } from "../../../src/v2/combatTypes";
+import { formatV2LocationDisplayName } from "../../../src/v2/locationDisplay";
 import {
   createV2MissionRuntime,
   type V2MissionElevatorSnapshot,
@@ -825,6 +826,26 @@ export const runMissionRuntimeTests = async (): Promise<
       );
       fixture.runtime.dispose();
       return `active=${active.length} / kind・Actor・Location重複なし`;
+    }),
+    executeTest("階範囲Locationは上下階とも階表示を重複しない", () => {
+      const cases = Object.freeze([
+        ["3F", "3F-4F 北東階段", "3F-4F 北東階段"],
+        ["4F", "3F-4F 北東階段", "3F-4F 北東階段"],
+        ["1F", "1F-2F 体育館西階段", "1F-2F 体育館西階段"],
+        ["2F", "1F-2F 体育館西階段", "1F-2F 体育館西階段"],
+        ["4F", "4F-屋上 北西階段", "4F-屋上 北西階段"],
+        ["屋上", "4F-屋上 北西階段", "4F-屋上 北西階段"],
+        ["12F", "12F-13F 東階段", "12F-13F 東階段"],
+        ["屋上", "屋上プールサイド", "屋上プールサイド"],
+        ["屋上", "校舎屋上", "校舎屋上"],
+        ["3F", "美術室", "3F 美術室"]
+      ] as const);
+      const results = cases.map(([floor, location, expected]) => {
+        const actual = formatV2LocationDisplayName(floor, location);
+        assert(actual === expected, `${floor}/${location}: ${actual}`);
+        return actual;
+      });
+      return results.join(" | ");
     }),
     executeTest("Player LocationはArea進入で完了し階表示", () => {
       const fixture = createMissionFixture({

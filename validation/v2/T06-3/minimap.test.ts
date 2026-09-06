@@ -694,12 +694,22 @@ export const runV2MinimapTests = ({
       rawBoundaryAreaIds,
       rawBoundaryAreaId,
       floorId: boundaryFrame?.floorId ?? null,
+      readout: boundaryFrame?.readout ?? null,
       markerResolved:
         boundaryFrame?.actorMarkers.some(
           (marker) => marker.id === markerId
         ) ?? false
     });
   });
+  checks.push(
+    createT063Check(
+      "階段Areaの現在位置は階範囲を重複表示しない",
+      boundaryResults[1]?.floorId === "f02" &&
+        boundaryResults[1].readout === "2F-3F 北東階段",
+      `floor=${boundaryResults[1]?.floorId ?? "なし"}` +
+        `/readout=${boundaryResults[1]?.readout ?? "なし"}`
+    )
+  );
   const commonF03F04Boundary = findAdjacentFloorBoundary(
     locationAssets,
     "area-common-f03",
