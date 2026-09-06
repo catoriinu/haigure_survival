@@ -198,7 +198,8 @@ body {
 }
 
 #titleStartHint,
-#titleMessage {
+#titleMessage,
+#startupDiagnosticsMessage {
   grid-area: 1 / 1;
   margin: 0;
 }
@@ -246,6 +247,38 @@ body {
   display: none;
   white-space: pre-line;
   text-align: center;
+}
+
+#startupDiagnosticsMessage {
+  display: none;
+  max-width: min(80vw, 960px);
+  color: #ffd37a;
+  font-family: "IBM Plex Mono", "Fira Code", ui-monospace, monospace;
+  font-size: 16px;
+  letter-spacing: 0.04em;
+  line-height: var(--title-status-line-height);
+  overflow-wrap: anywhere;
+  text-align: center;
+  white-space: pre-wrap;
+}
+
+#titleStatusSlot[data-startup-diagnostics-state] > #titleStartHint,
+#titleStatusSlot[data-startup-diagnostics-state] > #titleMessage {
+  visibility: hidden;
+  width: 0;
+  min-width: 0;
+  height: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+#titleStatusSlot[data-startup-diagnostics-state] > #startupDiagnosticsMessage {
+  display: block;
+}
+
+#titleStatusSlot[data-startup-diagnostics-state="failed"]
+  > #startupDiagnosticsMessage {
+  color: #ff8b8b;
 }
 
 .title-message__status {
@@ -1138,7 +1171,8 @@ body {
 
 #titleOverlay[data-title-layout="compact"] #titleMode,
 #titleOverlay[data-title-layout="compact"] #titleStartHint,
-#titleOverlay[data-title-layout="compact"] #titleMessage {
+#titleOverlay[data-title-layout="compact"] #titleMessage,
+#titleOverlay[data-title-layout="compact"] #startupDiagnosticsMessage {
   font-size: 16px;
 }
 
@@ -1168,7 +1202,8 @@ body {
 
 #titleOverlay[data-title-layout="stacked"] #titleMode,
 #titleOverlay[data-title-layout="stacked"] #titleStartHint,
-#titleOverlay[data-title-layout="stacked"] #titleMessage {
+#titleOverlay[data-title-layout="stacked"] #titleMessage,
+#titleOverlay[data-title-layout="stacked"] #startupDiagnosticsMessage {
   font-size: 12px;
 }
 
