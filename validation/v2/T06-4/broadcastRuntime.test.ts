@@ -783,6 +783,137 @@ export const runBroadcastRuntimeTests = async (): Promise<
       host.remove();
       return "0件非表示、単一panel、同行人数・候補現在地・階付きLocation・結果を表示";
     }),
+    executeTest("右上HUDの要素再利用・小数期限・同秒内更新・再表示", () => {
+      const host = document.createElement("div");
+      document.body.appendChild(host);
+      const hud = createV2MissionHudController({ host });
+      const observer = new MutationObserver(() => undefined);
+      try {
+        const mission = Object.freeze({
+          id: "hud-reuse",
+          kind: "player-follower-acquire" as const,
+          source: "normal" as const,
+          playerCondition: "unbrainwashed" as const,
+          state: "active" as const,
+          assignee: Object.freeze({ kind: "player" as const }),
+          target: Object.freeze({
+            kind: "follower-count" as const,
+            acquiredCount: 1,
+            requiredCount: 2,
+            candidateLocationDisplayName: "候補の現在地：2F 図書室"
+          }),
+          title: "Followerを増やす",
+          targetDisplayName: "Follower 2人",
+          startedAtSeconds: 20,
+          deadlineAtSeconds: 140.5,
+          terminalAtSeconds: null,
+          terminalReason: null
+        }) satisfies V2MissionView;
+        const earlier = Object.freeze({ ...mission, id: "hud-earlier", startedAtSeconds: 19 });
+        const updateMissions = (elapsed: number, missions: readonly V2MissionView[]) =>
+          hud.update({ mode: "missions", frame: createHudFrame(elapsed, missions) });
+        updateMissions(20.2, [mission, earlier]);
+        const root = host.querySelector<HTMLElement>('[data-v2-mission-hud="root"]')!;
+        const item = root.querySelector<HTMLElement>('[data-v2-mission-id="hud-reuse"]')!;
+        const earlierItem = root.querySelector<HTMLElement>('[data-v2-mission-id="hud-earlier"]')!;
+        const title = item.querySelector<HTMLElement>('[data-v2-mission-hud-role="mission-title"]')!;
+        const meta = item.querySelector<HTMLElement>('[data-v2-mission-hud-role="mission-meta"]')!;
+        const order = () => Array.from(root.querySelectorAll<HTMLElement>(
+          '[data-v2-mission-hud-role="mission-item"]'
+        )).map((element) => element.dataset.v2MissionId).join(",");
+        const initialOrder = order();
+        assert(meta.textContent?.includes("失敗まで 121秒") === true, "小数期限のceilが不正です。");
+        observer.observe(root, { subtree: true, childList: true, attributes: true, characterData: true });
+        updateMissions(20.3, [{ ...mission, target: { ...mission.target } }, { ...earlier }]);
+        assert(
+          observer.takeRecords().length === 0 &&
+            root.querySelector('[data-v2-mission-id="hud-reuse"]') === item &&
+            item.querySelector('[data-v2-mission-hud-role="mission-title"]') === title &&
+            item.querySelector('[data-v2-mission-hud-role="mission-meta"]') === meta,
+          "同じ表示値で要素を作り直すかDOMを書き換えています。"
+        );
+        updateMissions(20.6, [mission, earlier]);
+        assert(meta.textContent?.includes("失敗まで 120秒") === true, "同じ整数秒内のceil境界を反映しません。");
+        const progressed = Object.freeze({
+          ...mission,
+          target: Object.freeze({
+            ...mission.target,
+            acquiredCount: 2,
+            requiredCount: 3,
+            candidateLocationDisplayName: "候補の現在地：3F 美術室"
+          })
+        });
+        updateMissions(20.6, [progressed, earlier]);
+        assert(
+          title.textContent === "新しい同行者を3人同行させる" &&
+            meta.textContent === "同行 2 / 3　失敗まで 120秒\n候補の現在地：3F 美術室",
+          "同秒内の人数・目標人数・候補現在地を更新しません。"
+        );
+        const completed = Object.freeze({
+          ...earlier, state: "completed" as const, terminalAtSeconds: 21,
+          terminalReason: "follower-count-reached" as const
+        });
+        updateMissions(21, [progressed, completed]);
+        assert(
+          order() === initialOrder &&
+            root.querySelector('[data-v2-mission-id="hud-earlier"]') === earlierItem &&
+            earlierItem.dataset.v2MissionState === "completed" &&
+            earlierItem.style.color === "rgb(156, 255, 87)",
+          "完了時の要素・順序維持または完了色が不正です。"
+        );
+        const failed = Object.freeze({
+          ...progressed, state: "failed" as const, terminalAtSeconds: 22,
+          terminalReason: "deadline" as const
+        }) satisfies V2MissionView;
+        updateMissions(22, [failed, completed]);
+        assert(
+          order() === initialOrder &&
+            root.querySelector('[data-v2-mission-id="hud-reuse"]') === item &&
+            item.dataset.v2MissionState === "failed" && item.style.color === "rgb(255, 119, 119)",
+          "失敗時の要素・順序維持または失敗色が不正です。"
+        );
+        updateMissions(25, [failed]);
+        assert(order() === mission.id && earlierItem.parentElement === null, "消失Missionがlistに残っています。");
+        const resultFrame = createHudFrame(26, []);
+        hud.update({ mode: "results", frame: resultFrame });
+        const resultRows = Array.from(root.querySelectorAll<HTMLElement>('[data-v2-mission-hud-role="result-row"]'));
+        observer.takeRecords();
+        hud.update({ mode: "results", frame: { ...resultFrame } });
+        assert(observer.takeRecords().length === 0, "同じ結果でDOMを再生成または書き換えています。");
+        hud.update({ mode: "results", frame: {
+          ...resultFrame,
+          playerMissionResults: {
+            unbrainwashed: { completed: 1, failed: 2 },
+            brainwashed: { completed: 3, failed: 4 }
+          }
+        } });
+        assert(
+          resultRows[0].textContent === "未洗脳時　完了 1　失敗 2" &&
+            resultRows[1].textContent === "洗脳済み時　完了 3　失敗 4" &&
+            root.querySelector('[data-v2-mission-hud-role="result-row"]') === resultRows[0],
+          "結果行を再使用しながら件数を更新しません。"
+        );
+        hud.clear();
+        assert(root.hidden && root.childElementCount === 0, "clear後にrootの子が残っています。");
+        observer.takeRecords();
+        hud.update({ mode: "hidden", frame: resultFrame });
+        assert(observer.takeRecords().length === 0, "hidden継続時にDOMを書き換えています。");
+        updateMissions(20.2, [mission]);
+        assert(
+          !root.hidden && order() === mission.id &&
+            root.querySelector('[data-v2-mission-id="hud-reuse"]') !== item &&
+            root.querySelector('[data-v2-mission-hud-role="result-row"]') === null,
+          "再表示時に前回のMission要素または結果が残っています。"
+        );
+        updateMissions(26, []);
+        assert(root.hidden && root.childElementCount === 0, "Mission 0件でrootが空になりません。");
+        return "要素同一性、同値DOM変異0、小数期限、同秒内進捗、完了・失敗・消失、結果再利用、clear";
+      } finally {
+        observer.disconnect();
+        hud.dispose();
+        host.remove();
+      }
+    }),
     executeTest("右上HUDの残り時間・完了4秒・取消非表示", () => {
       const host = document.createElement("div");
       document.body.appendChild(host);

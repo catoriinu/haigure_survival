@@ -123,6 +123,15 @@ const createMissionText = (
   });
 };
 
+const resolveMissionStatusColor = (mission: V2MissionView) =>
+  mission.state === "completed"
+    ? "#9cff57"
+    : mission.state === "failed"
+      ? "#ff7777"
+      : mission.source === "situation"
+        ? "#ffca66"
+        : "#f5f5f5";
+
 const createMissionItem = (
   document: Document,
   mission: V2MissionView,
@@ -132,14 +141,7 @@ const createMissionItem = (
   item.dataset.v2MissionHudRole = "mission-item";
   item.dataset.v2MissionId = mission.id;
   item.dataset.v2MissionState = mission.state;
-  const statusColor =
-    mission.state === "completed"
-      ? "#9cff57"
-      : mission.state === "failed"
-        ? "#ff7777"
-        : mission.source === "situation"
-          ? "#ffca66"
-          : "#f5f5f5";
+  let statusColor = resolveMissionStatusColor(mission);
   applyStyles(item, {
     display: "grid",
     gap: "2px",
@@ -168,7 +170,26 @@ const createMissionItem = (
     whiteSpace: "pre-line"
   });
   item.replaceChildren(title, meta);
-  return item;
+  return {
+    element: item,
+    update: (nextMission: V2MissionView, nextElapsedSeconds: number) => {
+      const nextText = createMissionText(nextMission, nextElapsedSeconds);
+      if (title.textContent !== nextText.title) {
+        title.textContent = nextText.title;
+      }
+      if (meta.textContent !== nextText.meta) {
+        meta.textContent = nextText.meta;
+      }
+      if (item.dataset.v2MissionState !== nextMission.state) {
+        item.dataset.v2MissionState = nextMission.state;
+      }
+      const nextStatusColor = resolveMissionStatusColor(nextMission);
+      if (statusColor !== nextStatusColor) {
+        item.style.color = nextStatusColor;
+        statusColor = nextStatusColor;
+      }
+    }
+  };
 };
 
 export const createV2MissionHudController = ({
@@ -214,7 +235,10 @@ export const createV2MissionHudController = ({
   });
   host.appendChild(root);
   let disposed = false;
+  let visibleMode: V2MissionHudUpdate["mode"] = "hidden";
   let displayOrderIds: readonly string[] = Object.freeze([]);
+  const missionItemsById = new Map<string, ReturnType<typeof createMissionItem>>();
+  let resultRows: readonly [HTMLElement, HTMLElement] | null = null;
 
   const assertActive = () => {
     if (disposed) {
@@ -223,11 +247,27 @@ export const createV2MissionHudController = ({
   };
 
   const clear = () => {
+    if (visibleMode === "hidden") {
+      return;
+    }
     displayOrderIds = Object.freeze([]);
+    missionItemsById.clear();
     list.replaceChildren();
     root.replaceChildren();
     root.hidden = true;
     root.style.display = "none";
+    visibleMode = "hidden";
+  };
+
+  const show = (mode: "missions" | "results") => {
+    if (visibleMode === mode) {
+      return;
+    }
+    heading.textContent = mode === "missions" ? "ミッション" : "ミッション結果";
+    root.replaceChildren(heading, list);
+    root.hidden = false;
+    root.style.display = "grid";
+    visibleMode = mode;
   };
 
   return {
@@ -238,32 +278,36 @@ export const createV2MissionHudController = ({
         return;
       }
       if (mode === "results") {
-        displayOrderIds = Object.freeze([]);
-        heading.textContent = "ミッション結果";
-        const createResultRow = (
-          label: string,
-          result: Readonly<{ completed: number; failed: number }>
-        ) => {
-          const row = document.createElement("div");
-          row.dataset.v2MissionHudRole = "result-row";
-          row.textContent = `${label}　完了 ${result.completed}　失敗 ${result.failed}`;
-          applyStyles(row, {
-            color: "#f5f5f5",
-            fontSize: "13px",
-            lineHeight: "1.5"
-          });
-          return row;
-        };
-        list.replaceChildren(
-          createResultRow("未洗脳時", frame.playerMissionResults.unbrainwashed),
-          createResultRow("洗脳済み時", frame.playerMissionResults.brainwashed)
-        );
-        root.replaceChildren(heading, list);
-        root.hidden = false;
-        root.style.display = "grid";
+        if (resultRows === null) {
+          const createResultRow = () => {
+            const row = document.createElement("div");
+            row.dataset.v2MissionHudRole = "result-row";
+            applyStyles(row, {
+              color: "#f5f5f5",
+              fontSize: "13px",
+              lineHeight: "1.5"
+            });
+            return row;
+          };
+          resultRows = [createResultRow(), createResultRow()];
+        }
+        const { unbrainwashed, brainwashed } = frame.playerMissionResults;
+        const unbrainwashedText = `未洗脳時　完了 ${unbrainwashed.completed}　失敗 ${unbrainwashed.failed}`;
+        const brainwashedText = `洗脳済み時　完了 ${brainwashed.completed}　失敗 ${brainwashed.failed}`;
+        if (resultRows[0].textContent !== unbrainwashedText) {
+          resultRows[0].textContent = unbrainwashedText;
+        }
+        if (resultRows[1].textContent !== brainwashedText) {
+          resultRows[1].textContent = brainwashedText;
+        }
+        if (visibleMode !== "results") {
+          displayOrderIds = Object.freeze([]);
+          missionItemsById.clear();
+          list.replaceChildren(...resultRows);
+        }
+        show("results");
         return;
       }
-      heading.textContent = "ミッション";
       const selectedMissions = selectVisibleMissions(frame.playerMissions);
       if (selectedMissions.length === 0) {
         clear();
@@ -272,6 +316,7 @@ export const createV2MissionHudController = ({
       const selectedById = new Map(
         selectedMissions.map((mission) => [mission.id, mission] as const)
       );
+      const previousOrderIds = displayOrderIds;
       const displayedMissionDisappeared = displayOrderIds.some(
         (missionId) => !selectedById.has(missionId)
       );
@@ -288,21 +333,33 @@ export const createV2MissionHudController = ({
             .map((mission) => mission.id)
         ]);
       }
-      const missions = displayOrderIds.map((missionId) => {
+      for (const missionId of missionItemsById.keys()) {
+        if (!selectedById.has(missionId)) {
+          missionItemsById.delete(missionId);
+        }
+      }
+      const items = displayOrderIds.map((missionId) => {
         const mission = selectedById.get(missionId);
         if (!mission) {
           throw new Error(`表示中Missionが選択結果にありません: ${missionId}`);
         }
-        return mission;
+        let item = missionItemsById.get(missionId);
+        if (item) {
+          item.update(mission, frame.elapsedSeconds);
+        } else {
+          item = createMissionItem(document, mission, frame.elapsedSeconds);
+          missionItemsById.set(missionId, item);
+        }
+        return item.element;
       });
-      list.replaceChildren(
-        ...missions.map((mission) =>
-          createMissionItem(document, mission, frame.elapsedSeconds)
-        )
-      );
-      root.replaceChildren(heading, list);
-      root.hidden = false;
-      root.style.display = "grid";
+      if (
+        visibleMode !== "missions" ||
+        previousOrderIds.length !== displayOrderIds.length ||
+        previousOrderIds.some((missionId, index) => missionId !== displayOrderIds[index])
+      ) {
+        list.replaceChildren(...items);
+      }
+      show("missions");
     },
     clear: () => {
       assertActive();
@@ -311,6 +368,7 @@ export const createV2MissionHudController = ({
     dispose: () => {
       assertActive();
       clear();
+      resultRows = null;
       disposed = true;
       root.remove();
     }
