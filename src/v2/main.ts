@@ -62,6 +62,7 @@ import {
   readV2PerformanceScenario,
   V2_PERFORMANCE_TARGET_FRAME_INTERVAL_MS
 } from "./performanceDiagnostics";
+import { V2_DEBUG_MODE } from "./debugMode";
 import {
   createV2PerformanceStressWorkload,
   type V2StressInput
@@ -148,8 +149,7 @@ import {
 
 const V2_GAMEPLAY_BASE_HELP_TEXT =
   "操作説明\n" +
-  "WASD: 移動  Shift: ダッシュ\n" +
-  "F: 主操作  E: 副操作  C: 扉";
+  "WASD: 移動  Shift: ダッシュ";
 const EMPTY_NPC_COMMAND_CANDIDATES: ReturnType<
   V2SurvivalRuntime["getNpcCommandCandidates"]
 > = Object.freeze([]);
@@ -286,6 +286,7 @@ const minimapCanvas = document.getElementById(
 const minimapReadout = document.getElementById("minimapReadout") as HTMLDivElement;
 const statusInfo = document.getElementById("statusInfo") as HTMLDivElement;
 const helpPanel = document.getElementById("helpPanel") as HTMLDivElement;
+helpPanel.dataset.debugMode = String(V2_DEBUG_MODE);
 const staminaGauge = document.getElementById("staminaGauge") as HTMLDivElement;
 const titleOverlay = document.getElementById("titleOverlay") as HTMLDivElement;
 const titleCenterBlock = document.getElementById("titleCenterBlock") as HTMLDivElement;
@@ -1840,7 +1841,7 @@ if (rampValidationTarget) {
   player.placeAt(placement.start, placement.end);
   started = true;
   titleOverlay.style.display = "none";
-  statusInfo.style.display = "block";
+  statusInfo.style.display = V2_DEBUG_MODE ? "block" : "none";
   helpPanel.style.display = "block";
   helpPanel.textContent =
     `箱山登坂検証 ${rampValidationTarget}\n` +
@@ -2367,7 +2368,7 @@ const startPlay = (requestPointerLock: boolean) => {
   if (!started) {
     started = true;
     titleOverlay.style.display = "none";
-    statusInfo.style.display = "block";
+    statusInfo.style.display = V2_DEBUG_MODE ? "block" : "none";
     helpPanel.style.display = "block";
     helpPanel.textContent = V2_GAMEPLAY_BASE_HELP_TEXT;
   }
@@ -2378,11 +2379,13 @@ const startPlay = (requestPointerLock: boolean) => {
 
 const updateGameplayHelp = (frame: ReturnType<typeof survival.getFrame>) => {
   if (
-    performanceScenario?.profile === "fixed-4200" ||
-    runtimeStressScenario !== null ||
-    rampValidationTarget !== null ||
-    elevatorNpcAcceptanceScenario !== null ||
-    schoolVisualAcceptanceScenario !== null
+    V2_DEBUG_MODE && (
+      performanceScenario?.profile === "fixed-4200" ||
+      runtimeStressScenario !== null ||
+      rampValidationTarget !== null ||
+      elevatorNpcAcceptanceScenario !== null ||
+      schoolVisualAcceptanceScenario !== null
+    )
   ) {
     return;
   }
@@ -2396,6 +2399,12 @@ const updateGameplayHelp = (frame: ReturnType<typeof survival.getFrame>) => {
     nextText += "\nEnter: タイトルへ戻る";
   } else if (frame.phase === "execution-complete") {
     nextText += "\nR: リプレイ  Enter: タイトルへ戻る";
+  }
+  if (!V2_DEBUG_MODE) {
+    const unbrainwashedNpcCount = frame.npcHudCounts.unbrainwashed;
+    nextText += `\nNPC内訳 未洗脳者 ${unbrainwashedNpcCount}人  ` +
+      `洗脳済み ${frame.npcCount - unbrainwashedNpcCount}人\n` +
+      `ビット ${frame.bitCount}体`;
   }
   if (helpPanel.textContent !== nextText) {
     helpPanel.textContent = nextText;
@@ -2478,7 +2487,7 @@ if (performanceScenario) {
   if (performanceScenario.profile === "fixed-4200") {
     started = true;
     titleOverlay.style.display = "none";
-    statusInfo.style.display = "block";
+    statusInfo.style.display = V2_DEBUG_MODE ? "block" : "none";
     helpPanel.style.display = "block";
   }
   document.body.dataset.v2PerformanceContext = JSON.stringify({
@@ -2506,7 +2515,7 @@ if (performanceScenario) {
 if (runtimeStressScenario) {
   started = true;
   titleOverlay.style.display = "none";
-  statusInfo.style.display = "block";
+  statusInfo.style.display = V2_DEBUG_MODE ? "block" : "none";
   helpPanel.style.display = "block";
   helpPanel.textContent =
     `実学校stress ${runtimeStressScenario.profile}\n` +
@@ -2519,7 +2528,7 @@ if (runtimeStressScenario) {
 if (schoolVisualAcceptanceScenario) {
   started = true;
   titleOverlay.style.display = "none";
-  statusInfo.style.display = "block";
+  statusInfo.style.display = V2_DEBUG_MODE ? "block" : "none";
   helpPanel.style.display = "block";
   helpPanel.textContent =
     `学校Visual受入 ${schoolVisualAcceptanceScenario.id}\n` +
@@ -2541,7 +2550,7 @@ if (elevatorNpcAcceptanceScenario) {
   }
   started = true;
   titleOverlay.style.display = "none";
-  statusInfo.style.display = "block";
+  statusInfo.style.display = V2_DEBUG_MODE ? "block" : "none";
   helpPanel.style.display = "block";
   helpPanel.textContent =
     `エレベーターNPC受入 ${elevatorNpcAcceptanceScenario.id}\n` +

@@ -48,6 +48,19 @@ V2性能計測は`src/v2/performanceDiagnostics.ts`の同一collectorを使用�
 
 検証入口は`validation/v2/T07/runPerformance.mjs`、`comparePerformance.mjs`、`runRetainedHeap.mjs`、`runRegression.mjs`、`runStartupUi.mjs`、独立fixtureの`measurementRunner.mjs`とし、引数と証拠構成は`validation/v2/T07/README.md`を正本とする。変更前後ではruntime、端末・GPU・電源、1920×1080、DPR、seed、視点、人口、描画条件、素材fingerprint、入力request hash、計測器を一致させる。source identityは変更前・変更後の各3回内で固定し、両群の差分が対象の製品変更であることを照合する。
 
+2026-09-06のユーザー訂正以降、新しいbuildと試験はWeb版だけを対象とする。上記のElectron計測はT07実施済み履歴の条件を表し、今後の受入条件には使用しない。Web buildは`npm run build:renderer`を使用する。
+
+### 0.3 V2プレイ中HUDとデバッグ表示
+
+`src/v2/debugMode.ts`の`V2_DEBUG_MODE`で詳細診断表示を切り替える。通常のテストプレイとcommitは`false`とし、画面上の設定や永続化項目は設けない。
+
+- 通常モードでは詳細診断を非表示にし、ミニマップ下（左12px・上204px）へ操作説明を表示する。末尾に「NPC内訳 未洗脳者 n人  洗脳済み n人」「ビット n体」を加える。
+- 未洗脳者は`frame.npcHudCounts.unbrainwashed`、洗脳済みは`frame.npcCount`との差で求め、hit-a／hit-b／progressを含む洗脳済み系状態を数える。戦闘用`brainwashedNpcCount`の定義は変更しない。
+- ビットは`frame.bitCount`を使用し、出現演出開始から通常人口として数える。未出現の増援と、カーペット射撃の一時僚機は含めない。
+- デバッグモードではミニマップ下に詳細診断、左下に操作説明を表示する。非表示時も詳細テキストの更新を維持し、既存QAが状態を読み取れるようにする。
+- F／E／Cは成立した対象のHUDに表示し、操作説明へ常設しない。G／N／Hは解禁時だけ、R／Enterは現在フェーズに応じて表示する。
+- 操作説明と詳細診断はMission HUDと同じ明るい境界線、角丸、半透明背景、影、文字の調子を使用する。高さ400px以下では通常操作説明の文字と余白を縮め、解禁後の6行表示を下部のPlayer操作表示より上へ収める。
+
 以下の第1～16節はv1.3.1／旧T02時点の実装を追跡する付録として残す。V2実装との不一致は本節、`docs/spec_stage_runtime_v2.md`、`docs/spec_stage_assets_v2.md`を優先する。
 
 ## 1. v1.3.1／旧T02実装付録の位置付け
