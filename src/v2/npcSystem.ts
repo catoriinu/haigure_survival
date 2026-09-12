@@ -1770,7 +1770,8 @@ class SchoolV2NpcSystem implements V2NpcSystem {
       deltaSeconds,
       playerFrameTarget,
       currentTargetSightNpcIds,
-      threatenedIds
+      threatenedIds,
+      capturedTargetIds
     );
     const locationMissionNpcIds = new Set<string>();
     for (let npcIndex = 0; npcIndex < this.npcs.length; npcIndex += 1) {
@@ -4410,7 +4411,8 @@ class SchoolV2NpcSystem implements V2NpcSystem {
     deltaSeconds: number,
     playerTarget: V2HumanTargetSnapshot,
     currentTargetSightNpcIds: ReadonlySet<string>,
-    threatenedNpcIds: ReadonlySet<string>
+    threatenedNpcIds: ReadonlySet<string>,
+    capturedTargetIds: ReadonlySet<string>
   ) {
     const playerElevatorTraversal = this.playerElevatorTraversal;
     const continuingPlayerElevatorTraversal =
@@ -4549,6 +4551,10 @@ class SchoolV2NpcSystem implements V2NpcSystem {
     for (let npcIndex = 0; npcIndex < this.npcs.length; npcIndex += 1) {
       const npc = this.npcs[npcIndex];
       if (npc.command.mode === "follow") {
+        if (capturedTargetIds.has(npc.id)) {
+          this.clearNavigationAgent(npc);
+          continue;
+        }
         this.updateFollowMovement(
           npc,
           followerCount,
@@ -4907,7 +4913,11 @@ class SchoolV2NpcSystem implements V2NpcSystem {
         continue;
       }
       const target = targetsById.get(npc.capture.targetId);
-      if (!target || !this.isTargetable(npc, target)) {
+      if (
+        !target || !this.isTargetable(npc, target) ||
+        Vector3.DistanceSquared(npc.footPosition, target.footPosition) >
+          V2_NPC_CAPTURE_RADIUS * V2_NPC_CAPTURE_RADIUS
+      ) {
         this.releaseCaptureImmediately(npc);
         continue;
       }

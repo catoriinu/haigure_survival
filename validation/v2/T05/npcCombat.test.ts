@@ -1327,6 +1327,106 @@ const testCapturedNpcHasNoNearestVisiblePriority = async () => {
   }
 };
 
+const testFollowerCaptureMovement = async () => {
+  const fixture = await createNpcFixture(3, 2);
+  try {
+    startNoGunCaptureOfNpc(fixture);
+    const nearPlayer = createPlayerTarget(new Vector3(0, 0, -0.4));
+    assert(fixture.system.requestCommand("npc_2", "follow", createNpcCommandQuery(nearPlayer)),
+      "拘束対象への同行指示が受理されません。");
+    assert(fixture.system.getFrameView().captures.length === 0,
+      "同行指示の受理時に既存拘束が解除されません。");
+    for (let i = 0; i < 20 && fixture.system.getFrameView().captures.length === 0; i += 1) {
+      fixture.system.update(0.05, nearPlayer, EMPTY_ALARM_TARGET_EVENTS);
+    }
+    assert(fixture.system.getFrameView().captures.some(c => c.targetId === "npc_2"),
+      "同行中のNPCを再捕獲できません。");
+    const before = fixture.system.getFrameView().targets.find(t => t.id === "npc_2")!.footPosition.clone();
+    const movingPlayer = createPlayerTarget(new Vector3(0, 0, -1.5));
+    for (let i = 0; i < 20; i += 1) fixture.system.update(0.05, movingPlayer, EMPTY_ALARM_TARGET_EVENTS);
+    const during = fixture.system.getFrameView();
+    assert(during.targets.find(t => t.id === "npc_2")!.footPosition.equals(before),
+      "捕獲中の同行NPCが捕獲者から離れて移動しました。");
+    fixture.system.setVisibleNpcIds(["npc_2"]);
+    for (let i = 0; i < 10; i += 1) fixture.system.update(0.05, movingPlayer, EMPTY_ALARM_TARGET_EVENTS);
+    assert(fixture.system.getFrameView().captures.length === 0 &&
+      !fixture.system.getFrameView().targets.find(t => t.id === "npc_2")!.footPosition.equals(before),
+      "捕獲者の非表示後に拘束解除と同行再開ができません。");
+    return "同行指示で解除、再捕獲中は停止、捕獲者除去後に同行再開";
+  } finally { fixture.dispose(); }
+};
+
+const testRescuedCapturerResumesMission = async () => {
+  const fixture = await createNpcFixture(3, 2);
+  try {
+    startNoGunCaptureOfNpc(fixture);
+    const destination = { position: new Vector3(2, 0, 0), polygonRef: 1 };
+    fixture.system.assignLocationMission("npc_1", {
+      missionId: "救助後の復帰", locationId: "元の目的地", source: "normal", destination
+    });
+    const player = createPlayerTarget(new Vector3(0, 0, -0.4));
+    const before = fixture.system.getFrameView().targets.find(t => t.id === "npc_1")!.footPosition.clone();
+    assert(fixture.system.requestCommand("npc_2", "follow", createNpcCommandQuery(player)),
+      "拘束中の相手を同行指示で救助できません。");
+    assert(fixture.system.getFrameView().captures.length === 0,
+      "救助直後に捕獲が残っています。");
+    // 新たな視認による再捕獲と、保持済みMissionへの復帰を分離する。
+    fixture.setSightBlocked(true);
+    for (let i = 0; i < 10; i += 1) fixture.system.update(0.05, player, EMPTY_ALARM_TARGET_EVENTS);
+    const frame = fixture.system.getFrameView();
+    const capturer = frame.tracking.find(t => t.npcId === "npc_1")!;
+    assert(capturer.locationMission?.state === "moving" &&
+      frame.targets.find(t => t.id === "npc_1")!.footPosition.x > before.x &&
+      frame.tracking.find(t => t.npcId === "npc_2")!.commandMode === "follow",
+      "救助後に捕獲者のMission移動と対象の同行状態へ復帰しません。");
+    return "同行指示で救助し、捕獲者は保持していたMission移動へ復帰";
+  } finally { fixture.dispose(); }
+};
+
+const testCaptureDistanceRelease = async () => {
+  const fixture = await createNpcFixture(3, 2);
+  try {
+    const player = startNoGunCaptureOfNpc(fixture);
+    // 配置APIは捕獲も解除するため、外部移動だけが起きた状態を再現する。
+    const target = (fixture.system as unknown as NpcRuntimeTestAccess).npcs[2];
+    target.footPosition.set(0, 0, 2);
+    fixture.system.update(0, player, EMPTY_ALARM_TARGET_EVENTS);
+    assert(fixture.system.getFrameView().captures.length === 0,
+      "接触距離外に離れた相手の捕獲状態が残っています。");
+    return "接触距離外の捕獲は次の論理更新で解除";
+  } finally { fixture.dispose(); }
+};
+
+const testMultipleCaptureDistanceRelease = async () => {
+  const fixture = await createNpcFixture(3, 2);
+  const player = createPlayerTarget(new Vector3(4, 0, 4));
+  try {
+    fixture.system.setCompletedBrainwashedNpcsState("brainwash-complete-no-gun");
+    fixture.system.placeNpcs([
+      { id: "npc_0", footPosition: new Vector3(0.2, 0, 0), formation: false },
+      { id: "npc_1", footPosition: new Vector3(-0.2, 0, 0), formation: false },
+      { id: "npc_2", footPosition: Vector3.Zero(), formation: false }
+    ]);
+    fixture.system.update(0, player, EMPTY_ALARM_TARGET_EVENTS);
+    const npcs = (fixture.system as unknown as NpcRuntimeTestAccess).npcs;
+    npcs[0].footPosition.x = V2_NPC_CAPTURE_RADIUS;
+    npcs[1].footPosition.x = -V2_NPC_CAPTURE_RADIUS;
+    fixture.system.update(0.2, player, EMPTY_ALARM_TARGET_EVENTS);
+    assert(fixture.system.getFrameView().captures.length === 2,
+      "接触距離の境界で複数捕獲を維持できません。");
+    npcs[0].footPosition.x = V2_NPC_CAPTURE_RADIUS + 0.001;
+    fixture.system.update(0, player, EMPTY_ALARM_TARGET_EVENTS);
+    const remaining = fixture.system.getFrameView().captures;
+    assert(remaining.length === 1 && remaining[0].npcId === "npc_1",
+      "距離外の捕獲者だけを解除できません。");
+    npcs[1].footPosition.x = -V2_NPC_CAPTURE_RADIUS - 0.001;
+    fixture.system.update(0, player, EMPTY_ALARM_TARGET_EVENTS);
+    assert(fixture.system.getFrameView().captures.length === 0,
+      "最後の捕獲者が離れた後も拘束が残りました。");
+    return "境界内2件、1人離脱で1件、全員離脱で0件";
+  } finally { fixture.dispose(); }
+};
+
 const testNpcCaptureTargetImmediateReleasePaths = async () => {
   const impactFixture = await createNpcFixture(3, 2);
   const visibilityFixture = await createNpcFixture(3, 2);
@@ -4349,6 +4449,18 @@ export const runNpcCombatTests = async () =>
     executeTest(
       "NPC capture対象hit時の即終了",
       testCaptureEndsWithoutBreakawayWhenTargetIsHit
+    ),
+    executeTest(
+      "同行NPCの捕獲停止・解除・再開", testFollowerCaptureMovement
+    ),
+    executeTest(
+      "距離外の捕獲解除", testCaptureDistanceRelease
+    ),
+    executeTest(
+      "同行による救助後の捕獲者Mission復帰", testRescuedCapturerResumesMission
+    ),
+    executeTest(
+      "複数捕獲の距離境界・個別解除", testMultipleCaptureDistanceRelease
     ),
     executeTest(
       "NPC capture対象の被弾・非表示即解除",
