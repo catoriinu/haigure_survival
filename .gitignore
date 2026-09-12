@@ -3,6 +3,7 @@ dist
 dist-electron
 release
 *.code-workspace
+!/.vscode/fps_survival20251226.code-workspace
 *.log
 gpt_image/
 public/audio/bgm/**

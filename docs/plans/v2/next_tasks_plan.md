@@ -328,8 +328,8 @@ B03-3Aの承認済み「Wave 0」は、PR #41統合を表す既存の全体順�
 - T05-2VはV1相当のテーパ・後端フェード・先端球・軌跡光球・壁着弾反射光球・キャラクター命中演出と、`StageCatalogEntry.worldBoundaryMode`、`StageSpatialContext.worldBoundary`、`BND_WorldLimit`退出点での0.2秒非着弾フェードを所有する。非学校fixtureを`required`にし、B04前の学校と既存非対応fixtureは`unsupported`を維持する。学校バイナリ資産を編集しない。
 - B03-3Bは学校生成正本、`.blend`、GLB、両NavMesh生成元、カタログhashの単一担当として、体育館構造と西側校舎延長を所有する。
 - B03-3CはB03-3B統合後の同じ学校バイナリを単一担当として、資産仕様7.9節の個別扉・エレベーター可動部、20室variant、NavMeshタイルを所有する。
-- T04-3Aは`src/world`、`DynamicStageSpatialActiveSet`／`DynamicStageSpatialSnapshot`／`DynamicStageSpatialVariants`、扉・エレベーター状態機械、資産仕様7.9節の厳格分類、タイルNavMesh、`validation/v2/T04/`と`vite.t04.config.mts`の動的空間専用fixtureを所有し、学校バイナリ、`validation/v2/T05/`、実学校NPC統合を編集しない。
-- T05-3は`V2PlayerAction`、`drainPressedActions()`、NPC指示、Follow・Leave、局所分離、haigure時間停止、同期射撃、`validation/v2/T05/`と`vite.t05.config.mts`のNPC指示専用fixtureを所有し、`src/world`の動的空間、`validation/v2/T04/`、扉・エレベーター統合を編集しない。共有fixture indexはT04-3Bの統合担当が更新する。
+- T04-3Aは`src/world`、`DynamicStageSpatialActiveSet`／`DynamicStageSpatialSnapshot`／`DynamicStageSpatialVariants`、扉・エレベーター状態機械、資産仕様7.9節の厳格分類、タイルNavMesh、`validation/v2/T04/`と`validation/v2/T04/vite.config.mts`の動的空間専用fixtureを所有し、学校バイナリ、`validation/v2/T05/`、実学校NPC統合を編集しない。
+- T05-3は`V2PlayerAction`、`drainPressedActions()`、NPC指示、Follow・Leave、局所分離、haigure時間停止、同期射撃、`validation/v2/T05/`と`validation/v2/T05/vite.config.mts`のNPC指示専用fixtureを所有し、`src/world`の動的空間、`validation/v2/T04/`、扉・エレベーター統合を編集しない。共有fixture indexはT04-3Bの統合担当が更新する。
 - B04はB03-3C後の学校生成正本、`.blend`、GLB、両NavMesh、カタログhashの単一担当として、歩道・道路と`BND_WorldLimit`を所有し、学校カタログの`worldBoundaryMode`を`required`へ切り替えた。確定成果には外周BIT飛行帯を設けず、`StageSpatialContext.worldBoundary`は非null、外周BIT経路は0件とする。
 - T05-4は`src/v2/combatTypes.ts`、`src/v2/npcSystem.ts`、`src/v2/bitSystem.ts`とT05標的選択fixtureを所有し、`persistent`／`nearest-visible`、独立した決定的50%抽選、既存強制標的との優先順位を実装する。学校バイナリ、`src/world`、T04 fixtureを編集しない。
 - T04-3BはB03-3C、B04、T04-3A、T05-3、T05-4を入力として、実学校の部屋抽選、扉・エレベーター、標的選択個性を含む全陣営NPC利用・回避・追跡、動的視線・ビーム・BITを統合し、PR #59で完了した。

@@ -3,9 +3,9 @@ import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { defineConfig, type Plugin } from "vite";
 
-import { SCHOOL_STAGE } from "./src/world/stageCatalog";
+import { SCHOOL_STAGE } from "../../../src/world/stageCatalog";
 
-const repositoryRoot = fileURLToPath(new URL(".", import.meta.url));
+const repositoryRoot = fileURLToPath(new URL("../../..", import.meta.url));
 const allowedAssets = new Map<string, string>([
   [
     `/${SCHOOL_STAGE.glbUrl}`,

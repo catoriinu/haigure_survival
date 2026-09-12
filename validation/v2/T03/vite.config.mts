@@ -3,7 +3,7 @@ import { fileURLToPath } from "node:url";
 import { resolve } from "node:path";
 import { defineConfig, type Plugin } from "vite";
 
-const repositoryRoot = fileURLToPath(new URL(".", import.meta.url));
+const repositoryRoot = fileURLToPath(new URL("../../..", import.meta.url));
 const assetUrlPath = "/t01_glb_collision_course.glb";
 const assetSourcePath = resolve(
   repositoryRoot,

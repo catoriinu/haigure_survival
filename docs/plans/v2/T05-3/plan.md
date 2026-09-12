@@ -109,7 +109,7 @@ Follow中はNPCがプレイヤーを視認できる限り追従し、見失っ�
 - 推奨リーズニング: Ultra
 - Ultra判断: 推奨。既存AI、洗脳状態、haigure時間、被弾、視線、局所分離、射撃予約が相互作用する。
 - 開始条件: T05-2Vが`develop`へ統合済みであること。
-- 所有範囲: `V2PlayerAction`、`drainPressedActions()`、NPC指示状態、候補選択、Follow・Leave、局所分離、同期射撃、`validation/v2/T05/`と`vite.t05.config.mts`のNPC指示・同期射撃専用fixture。
+- 所有範囲: `V2PlayerAction`、`drainPressedActions()`、NPC指示状態、候補選択、Follow・Leave、局所分離、同期射撃、`validation/v2/T05/`と`validation/v2/T05/vite.config.mts`のNPC指示・同期射撃専用fixture。
 - 非所有範囲: `src/world`の動的空間、扉・エレベーター状態機械、`validation/v2/T04/`、学校バイナリ、共有fixture index。共有fixture indexの更新が必要な場合はT04-3Bの統合担当が行う。
 - 対象外: 実学校の扉・エレベーター利用、入力購読、操作UI。これらはT04-3BとT06が担当する。
 - 並行可否: B03-3BまたはB03-3C、およびT04-3Aと並行できる。T05-2Vが先に完了してB03-3Bが継続している場合も、学校バイナリを編集しないため開始できる。
@@ -151,7 +151,7 @@ Followは速度0.3、0.8m局所分離、1.0m停止／1.2m再開、最終視認�
 
 T05-3単独commit時点ではT05共有`main.ts`と共有fixture indexを変更せず、`npc-command.html`、専用entry、専用fixtureを追加してViteを複数entry化した。専用fixtureは強化後の実ブラウザ初回・画面ボタン再実行とも16/16 PASSで、Leaveの`waitingForPathCount=1`、候補抽出、Follow／Leave、被弾、haigure、12体Follower、局所分離、同期射撃、実beam完了、全消去経路を確認した。既存の学校Stage用Survival lifecycleへRuntime黒箱checkを追加し、active camera候補1件、公開APIのFollow、player gun予約、`assembly`への実phase遷移、active beam 0件、phase guard、dispose後の参照拒否とScene資源baseline復帰を確認した。既存T05 fixtureは253/253 PASS、通常Webは学校scene・NPC 50体・BIT 20体の起動、Electronはbuild済みアプリのscene表示と終了を確認した。ブラウザconsole、Babylon Logger、unhandled rejectionはwarning／error 0件だった。
 
-`npm run typecheck:v2`、`npm run typecheck:t05`、`npm run build:t05`、`npm run build`はすべてPASSした。通常buildでは既存の大容量chunkに対するVite CLI advisoryだけが出力された。`git diff --check`、UTF-8 BOM、競合marker、ローカルユーザーディレクトリ絶対パス、TypeScriptの型・構文・括弧整合を確認し、対象外の`docs/plan.md`、`docs/plans/v2/next_tasks_plan.md`、`validation/v2/T04/`、`vite.t04.config.mts`、`src/world`、学校資産に差分がないことを確認した。
+`npm run typecheck:v2`、`npm run typecheck:t05`、`npm run build:t05`、`npm run build`はすべてPASSした。通常buildでは既存の大容量chunkに対するVite CLI advisoryだけが出力された。`git diff --check`、UTF-8 BOM、競合marker、ローカルユーザーディレクトリ絶対パス、TypeScriptの型・構文・括弧整合を確認し、対象外の`docs/plan.md`、`docs/plans/v2/next_tasks_plan.md`、`validation/v2/T04/`、`validation/v2/T04/vite.config.mts`、`src/world`、学校資産に差分がないことを確認した。
 
 T04-3Bへの引き渡しは、エレベーター定員拒否時に`cancelNpcFollow(npcId)`を呼ぶ契約とし、実学校の扉・エレベーター統合は実装していない。T06への引き渡しは、`V2PlayerInput.drainPressedActions()`の`npc-follow`／`npc-leave`を消費し、`getNpcCommandCandidates()`の先頭候補を明示IDで`requestNpcCommand()`へ渡すこと、候補・`commandMode`・一時gun・同期射撃phaseを操作UIへ表示することとする。`door-toggle`の実配送、highlight、promptもT06／T04-3Bへ残した。
 

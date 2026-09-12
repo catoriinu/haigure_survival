@@ -2,7 +2,7 @@ import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { defineConfig } from "vite";
 
-const repositoryRoot = fileURLToPath(new URL(".", import.meta.url));
+const repositoryRoot = fileURLToPath(new URL("../../..", import.meta.url));
 
 export default defineConfig({
   root: resolve(repositoryRoot, "validation/v2/T06-6A"),

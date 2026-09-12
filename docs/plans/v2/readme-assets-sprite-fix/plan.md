@@ -132,3 +132,34 @@ developとmainを比べてREADMEについて修正をしたい。この修正は
 #### 結果
 
 画像218枚、合計394,784,426バイトを削除した。前回のZIP計測では該当画像の圧縮データは約392.79 MBであり、変更をcommit・pushした後のソースZIPは約10.5 MBとなる見込み。ローカル削除完了後、ユーザーからcommit・pushの追加承認を受けた。commitメッセージは「chore: 検証画像を削除して保存先をGit管理から除外」とし、既存PR #86のheadブランチへ反映する。ローカル専用のAGENTS.mdと無関係な未追跡物はcommit対象に含めない。既存のimages配下216パスと新規保存先の任意拡張子についてディレクトリ単位の無視を確認し、削除一覧一致・対象外変更なし・既存未追跡物のハッシュ一致・UTF-8（BOMなし）・git diff --checkを確認した。検証画像以外の実装変更はないためbuild・実画面確認は再実行していない。過去計画の画像パスと確認記録は履歴として残し、画像本体を削除した旨を個別計画READMEへ明記した。
+
+### 最上位の設定ファイル整理（2026-09-12）
+
+#### プロンプト
+
+> [vite.b05.config.mts](https://github.com/catoriinu/haigure_survival/blob/codex/v2-readme-assets-sprite-fix/vite.b05.config.mts) とかの最上位ディレクトリに露出しているファイルは、最上位にある理由が十分なファイル以外は適切なディレクトリに移動してください。testsとか作っていいです。
+
+#### 範囲・完了条件
+
+- 現在の作業ブランチのまま、Git管理中の最上位ファイルを整理する。ゲーム仕様・資産・既存未追跡物は変更しない。追加承認により今回の変更をcommit・pushまで行う。
+- 検証用Vite設定14件は既存の `validation/v2/<タスク>/vite.config.mts`、V2専用TypeScript設定は `src/v2/tsconfig.json`、Electron専用設定は `electron/tsconfig.json`、エディター用workspaceは `.vscode/fps_survival20251226.code-workspace` へ移す。
+- 最上位には `README.md`、`package.json`、`package-lock.json`、`index.html`、通常Webの `vite.config.mts`、各TypeScript設定が継承する `tsconfig.json`、`.gitignore`、`.gitattributes` を残す。自動検出・通常起動・依存管理・Git規則の入口に限定する。ローカルのAGENTS.md、Codex設定、使用中のログは移動しない。
+- npmコマンド名、検証の入口・素材・出力先・ポートを維持し、参照先だけを更新する。旧ファイルの互換用ラッパーは残さない。
+- 既存のElectronビルド不要という指定に従い、Electronの出力生成・実行は行わず、設定の解決結果と型検査のみを確認する。
+
+#### ステップ
+
+- [x] 最上位一覧と参照元を確認し、移動前のVite設定・生成対象素材・TypeScript設定の解決結果を保存。
+- [x] 対象17ファイルを移動し、相対パス・npmコマンド・監査・回帰実行器・現行文書を更新。検証ディレクトリにREADMEを追加。過去の実行結果を記録した旧パスは履歴として維持。
+- [x] 全14設定の移動前後比較、型検査、代表的な検証ビルド・HTTP読込、差分・文字コード・未追跡物保全を確認。
+- [x] 結果と最上位に残す理由を記録。
+
+#### 結果
+
+- Git管理対象の最上位ファイルを25件から8件へ整理した。検証Vite設定14件、専用TypeScript設定2件、workspace 1件を担当ディレクトリへ移した。
+- Vite設定14件の解決結果（入口・publicDir・cacheDir・出力先・ポート・plugin処理）とplugin出力素材のバイト数・SHA-256、TypeScript設定2件のコンパイラー設定・対象ソースが移動前後で一致した。workspaceの参照先もリポジトリ全体のまま一致した。
+- `npm run typecheck:v2`（依存監査を含む）、`tsc -p electron/tsconfig.json --noEmit`、`npm run build:b05`、`npm run build:t04` が成功。検証ビルドの出力先だけ独立した調査用ディレクトリに指定し、既存distを上書きしていない。Electronのビルド・実行や、ゲーム挙動の全回帰は実施していない。
+- B05を新設定から起動し、HTML・main.ts・学校GLBのHTTP応答、JavaScript／GLBのContent-TypeとglTF署名を確認。最初の確認はサーバー終了時にViteの依存事前処理が中断されたため、HTTP検証専用の起動で事前処理を無効にし、同じ応答と正常終了を再確認した。この検証専用指定はリポジトリの設定へ追加していない。
+- 起動中だったT06検証サーバーは対象作業木を確認して新しい設定パスで再起動し、従来どおり `http://127.0.0.1:5181/` の配信を確認して維持した。
+- 実行コード・package.json・READMEに旧設定パスが残っていないこと、回帰実行器の構文、差分検査、UTF-8（BOMなし）、既存未追跡物4件のハッシュ一致を確認した。新配置と最上位に残す理由は `validation/README.md` に記載した。追加指示「コミットメッセージ考えてコミットしてプッシュしてください。」を受け、この整理を「chore: 最上位の設定ファイルを用途別ディレクトリへ整理」の1コミットとして現在の作業ブランチへpushする。
+- commit前の確認で最上位のworkspaceファイルが再作成されていた。ローカルの内容は保全し、Gitの追跡だけを解除する。Gitで管理するworkspaceは移動先の .vscode/ に統一する。

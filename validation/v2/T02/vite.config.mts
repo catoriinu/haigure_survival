@@ -1,11 +1,11 @@
 import { readFile } from "node:fs/promises";
-import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { resolve } from "node:path";
 import { defineConfig, type Plugin } from "vite";
 
-import { SCHOOL_STAGE } from "./src/world/stageCatalog";
+import { SCHOOL_STAGE } from "../../../src/world/stageCatalog";
 
-const repositoryRoot = fileURLToPath(new URL(".", import.meta.url));
+const repositoryRoot = fileURLToPath(new URL("../../..", import.meta.url));
 const allowedAssets = new Map<string, string>([
   [
     `/${SCHOOL_STAGE.glbUrl}`,
@@ -23,7 +23,11 @@ const allowedAssets = new Map<string, string>([
 if (SCHOOL_STAGE.roomVariantNavmesh.mode === "required") {
   allowedAssets.set(
     `/${SCHOOL_STAGE.roomVariantNavmesh.url}`,
-    resolve(repositoryRoot, "public", SCHOOL_STAGE.roomVariantNavmesh.url)
+    resolve(
+      repositoryRoot,
+      "public",
+      SCHOOL_STAGE.roomVariantNavmesh.url
+    )
   );
 }
 
@@ -33,13 +37,10 @@ const contentTypeForPath = (path: string) =>
     : "application/octet-stream";
 
 const allowlistedStageAssets = (): Plugin => ({
-  name: "t06-3-allowlisted-stage-assets",
+  name: "t02-allowlisted-3d-stage-assets",
   configureServer(server) {
     server.middlewares.use(async (request, response, next) => {
-      const pathname = new URL(
-        request.url ?? "/",
-        "http://127.0.0.1"
-      ).pathname;
+      const pathname = new URL(request.url ?? "/", "http://127.0.0.1").pathname;
       const sourcePath = allowedAssets.get(pathname);
       if (!sourcePath) {
         next();
@@ -62,21 +63,21 @@ const allowlistedStageAssets = (): Plugin => ({
 });
 
 export default defineConfig({
-  root: resolve(repositoryRoot, "validation/v2/T06-3"),
+  root: resolve(repositoryRoot, "validation/v2/T02"),
   publicDir: false,
   base: "./",
-  cacheDir: resolve(repositoryRoot, "node_modules/.vite-t06-3"),
+  cacheDir: resolve(repositoryRoot, "node_modules/.vite-t02"),
   plugins: [allowlistedStageAssets()],
   optimizeDeps: {
     exclude: ["recast-navigation"]
   },
   server: {
-    port: 5184,
+    port: 5177,
     strictPort: true
   },
   build: {
     target: "es2022",
-    outDir: resolve(repositoryRoot, "dist/t06-3-validation"),
+    outDir: resolve(repositoryRoot, "dist/t02-validation"),
     emptyOutDir: true,
     chunkSizeWarningLimit: 5000
   }
