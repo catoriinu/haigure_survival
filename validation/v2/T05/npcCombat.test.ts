@@ -63,6 +63,7 @@ import type { V2NpcTraversalState } from "../../../src/v2/npcTraversal";
 import { createV2PlanarSpatialIndex } from "../../../src/v2/planarSpatialIndex";
 import type { V2TargetNavigationAreaSnapshot } from "../../../src/v2/pursuitNavigation";
 import { BLENDER_METERS_TO_WORLD_UNITS } from "../../../src/world/worldUnits";
+import { getV2NpcPatrolDistanceMeters } from "../../../src/v2/npcPatrolPolicy";
 import type { V2CharacterVisualRuntime } from "../../../src/v2/v2CharacterVisualRuntime";
 import { createDefaultV2CharacterVisualRuntime } from "../characterVisualFixture";
 import {
@@ -117,6 +118,9 @@ type NpcRuntimeTestAccess = {
     navigationAgentCleared: boolean;
     navigationBehavior: string;
     wanderWaitSeconds: number;
+    unseenTargetSeconds: number;
+    patrolDirectionAngle: number | null;
+    patrolDistanceMeters: number;
     targetSelectionPersonality: "persistent" | "nearest-visible" | null;
     restSlot: Readonly<{
       position: Vector3;
@@ -265,7 +269,7 @@ const createNpcSpawnRandom = (npcCount: number) => {
   );
 };
 
-const createNpcFixture = async (
+export const createNpcFixture = async (
   npcCount: number,
   initialBrainwashedNpcCount: number,
   boundaryExtent = 5,
@@ -599,7 +603,7 @@ const createNpcFixture = async (
   });
 };
 
-const createPlayerTarget = (
+export const createPlayerTarget = (
   footPosition: Vector3,
   state: V2CharacterState = "normal"
 ): V2HumanTargetSnapshot => {
@@ -4115,7 +4119,9 @@ const testBrainwashedSearchRecovery = async () => {
           formation: false
         }
       ]);
-      fixture.system.update(0, nearPlayer, EMPTY_ALARM_TARGET_EVENTS);
+      for (let i = 0; i < 20 && fixture.system.getFrameView().captures.length === 0; i += 1) {
+      fixture.system.update(0.05, nearPlayer, EMPTY_ALARM_TARGET_EVENTS);
+    }
       assert(
         fixture.system.getFrameView().targets[0].state === expectedState &&
           fixture.system.getFrameView().tracking[0].targetId === "player",
@@ -4232,8 +4238,99 @@ const testPlanarSpatialIndexPreservesSourceOrder = () => {
   return "cell走査順に依存せず、rebuild後も同じ出力配列へ入力順で返す";
 };
 
+const testNpcMissionCombatAndPatrol = async () => {
+  for (const stateRoll of [0.1, 0.6]) {
+    const fixture = await createNpcFixture(1, 1, 30, false, null, stateRoll);
+    try {
+      fixture.system.placeNpcs([{ id: "npc_0", footPosition: Vector3.Zero(), formation: false }]);
+      const actor = (fixture.system as unknown as NpcRuntimeTestAccess).npcs[0];
+      const destination = fixture.navigation.projectPoint(new Vector3(5, 0, 0), 1)!;
+      fixture.system.assignLocationMission("npc_0", {
+        missionId: "巡回回帰", source: "normal", locationId: "目的地", destination
+      });
+      const hidden = createPlayerTarget(new Vector3(20, 0, 20));
+      fixture.system.update(20, hidden, EMPTY_ALARM_TARGET_EVENTS);
+      assert(actor.unseenTargetSeconds === 20, "Mission中の無遭遇時間を計測できません。");
+      assert(actor.navigationBehavior === "mission", "Missionに徘徊を重ねました。");
+      const visible = createPlayerTarget(actor.footPosition.add(new Vector3(0, 0, -0.5)));
+      fixture.system.update(0.2, visible, EMPTY_ALARM_TARGET_EVENTS);
+      const combat = fixture.system.getFrameView().tracking[0];
+      assert(combat.targetId === "player" && combat.locationMission?.state === "paused",
+        `Mission中の戦闘移行に失敗: ${JSON.stringify(combat)}`);
+      assert(actor.unseenTargetSeconds === 0, "視認で無遭遇時間がリセットされません。");
+      fixture.system.update(0.2, createPlayerTarget(visible.footPosition, "brainwash-complete-gun"), EMPTY_ALARM_TARGET_EVENTS);
+      const resumed = fixture.system.getFrameView().tracking[0];
+      assert(resumed.targetId === null && resumed.locationMission?.state === "moving" &&
+        actor.navigationBehavior === "mission", "標的洗脳後にMissionへ復帰しません。");
+      for (let tick = 0; tick < 10; tick += 1) {
+        fixture.system.update(0.2, hidden, EMPTY_ALARM_TARGET_EVENTS);
+      }
+      const paths = fixture.getPathfindRecords();
+      assert(paths[paths.length - 1].destination.equals(destination.position),
+        "中断したMissionの目的地を失いました。");
+    } finally { fixture.dispose(); }
+  }
+  return "銃あり／なしともMission中断、視認リセット、標的洗脳後に同じ目的地へ復帰";
+};
+
+const testEmptySightPreservesWanderPath = async () => {
+  const fixture = await createNpcFixture(1, 1, 30, false, null, 0.1);
+  try {
+    const access = fixture.system as unknown as NpcRuntimeTestAccess;
+    access.random = () => 0.5;
+    access.npcs[0].wanderWaitSeconds = 0;
+    const player = createPlayerTarget(new Vector3(29, 0, 29));
+    const start = access.npcs[0].footPosition.clone();
+    for (let tick = 0; tick < 120; tick += 1) fixture.system.update(1 / 60, player, []);
+    assert(fixture.getPathfindCount() === 1, `空振り索敵で短経路を再計算しました: ${fixture.getPathfindCount()}`);
+    assert(Vector3.Distance(start, access.npcs[0].footPosition) > 0.38, "継続経路の移動が途切れました。");
+    return "2秒の空振り索敵を経ても経路計算1回、既存経路を連続移動";
+  } finally { fixture.dispose(); }
+};
+
+const testNpcPatrolBoundaries = async () => {
+  for (const [seconds, meters] of [[0, 0], [19.999, 0], [20, 16], [50, 32], [80, 48], [800, 48]]) {
+    assert(getV2NpcPatrolDistanceMeters(seconds) === meters, `${seconds}秒の距離が${meters}mではありません。`);
+  }
+  const fixture = await createNpcFixture(1, 1, 30, false, null, 0.1);
+  try {
+    const access = fixture.system as unknown as NpcRuntimeTestAccess;
+    const actor = access.npcs[0];
+    const player = createPlayerTarget(new Vector3(29, 0, 29));
+    actor.unseenTargetSeconds = 80;
+    actor.patrolDirectionAngle = 0;
+    actor.patrolDistanceMeters = 20;
+    access.random = () => 0.5;
+    const start = actor.footPosition.clone();
+    const goal = access.createWanderDestination(actor, player)!;
+    assert(goal.position.x > start.x, "方向を引き継いだ短距離候補になりません。");
+    assert(Vector3.Distance(goal.position, start) < 3, "一回の経路を長距離にしました。");
+    actor.patrolDistanceMeters = 48;
+    access.createWanderDestination(actor, player);
+    assert(actor.patrolDistanceMeters === 0, "累積距離上限で方向維持を終了しません。");
+    fixture.system.placeNpcs([{ id: "npc_0", footPosition: new Vector3(29.8, 0, 0), formation: false }]);
+    actor.unseenTargetSeconds = 80;
+    actor.patrolDirectionAngle = 0;
+    const awayFromWall = access.createWanderDestination(actor, player)!;
+    assert(awayFromWall.position.x < actor.footPosition.x,
+      "方向候補が壁で失敗しても方向を変えません。");
+    fixture.system.setAiSuspended(true);
+    fixture.system.update(1, player, []);
+    assert(actor.unseenTargetSeconds === 80, "AI停止中に無遭遇時間を加算しました。");
+    fixture.system.setAiSuspended(false);
+    fixture.system.prepareExecutionRoles([{ npcId: "npc_0", role: "audience" }]);
+    const before = actor.unseenTargetSeconds;
+    fixture.system.update(1, player, EMPTY_ALARM_TARGET_EVENTS);
+    assert(actor.unseenTargetSeconds === before, "行動不能の演出中に加算しました。");
+    return "20／50／80秒の距離勾配、48m上限、方向継続、壁で転向、AI・演出中停止";
+  } finally { fixture.dispose(); }
+};
+
 export const runNpcCombatTests = async () =>
   Object.freeze(await Promise.all([
+    executeTest("索敵空振りで徘徊経路を破棄しない", testEmptySightPreservesWanderPath),
+    executeTest("通常Missionの戦闘優先・同一目的地復帰", testNpcMissionCombatAndPatrol),
+    executeTest("無遭遇巡回の境界・短経路・演出停止", testNpcPatrolBoundaries),
     executeTest("NPC初期状態・楕円体snapshot", testInitialStatesAndHitShape),
     executeTest(
       "NPC標的選択個性の洗脳完了時一回割当",

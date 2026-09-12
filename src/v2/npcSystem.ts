@@ -79,6 +79,7 @@ import {
 } from "./npcTraversal";
 import type { V2PlayerGunFireEvent } from "./playerCombatSystem";
 import { createV2FollowerFireDirection } from "./followerFireDirection";
+import { getV2NpcPatrolDistanceMeters, V2_NPC_PATROL_TUNING } from "./npcPatrolPolicy";
 import type { V2CharacterVisualRuntime } from "./v2CharacterVisualRuntime";
 
 const NPC_SEARCH_SPEED = 0.2;
@@ -595,6 +596,9 @@ type NpcRuntime = {
   lastState: V2CharacterState;
   wanderDestination: NavigationLocation | null;
   wanderWaitSeconds: number;
+  unseenTargetSeconds: number;
+  patrolDirectionAngle: number | null;
+  patrolDistanceMeters: number;
   restSlot: NavigationLocation | null;
   restSlotAreaId: string | null;
   restSlotKey: string | null;
@@ -1298,6 +1302,9 @@ class SchoolV2NpcSystem implements V2NpcSystem {
           lastState: initialState,
           wanderDestination: null,
           wanderWaitSeconds: this.nextWanderWait(),
+          unseenTargetSeconds: 0,
+          patrolDirectionAngle: null,
+          patrolDistanceMeters: 0,
           restSlot: null,
           restSlotAreaId: null,
           restSlotKey: null,
@@ -1433,6 +1440,16 @@ class SchoolV2NpcSystem implements V2NpcSystem {
         npc.personalityRetargetCooldownSeconds - deltaSeconds
       );
       const previousState = npc.lastState;
+      if (
+        (previousState === "brainwash-complete-gun" ||
+          previousState === "brainwash-complete-no-gun") &&
+        npc.sprite.isVisible && npc.capture === null &&
+        !this.aiSuspended &&
+        !this.hostileActionsSuspended &&
+        isV2NpcTraversalWalkingEnabled(npc.traversalState)
+      ) {
+        npc.unseenTargetSeconds += deltaSeconds;
+      }
       const stateDeltaSeconds =
         npc.command.mode !== "none" &&
         npc.stateSnapshot.state === "brainwash-complete-haigure"
@@ -1635,6 +1652,7 @@ class SchoolV2NpcSystem implements V2NpcSystem {
         autonomousCombatNpcs,
         deltaSeconds
       );
+    const missionCombatNpcIds = new Set<string>();
     for (let npcIndex = 0; npcIndex < this.npcs.length; npcIndex += 1) {
       const npc = this.npcs[npcIndex];
       if (!npc.sprite.isVisible) {
@@ -1650,10 +1668,9 @@ class SchoolV2NpcSystem implements V2NpcSystem {
       const state = npc.stateSnapshot.state;
       if (
         this.hostileActionsSuspended &&
-        isV2BrainwashState(state) &&
-        npc.locationMission === null
+        isV2BrainwashState(state)
       ) {
-        this.clearNavigationAgent(npc);
+        if (npc.locationMission === null) this.clearNavigationAgent(npc);
         continue;
       }
       if (
@@ -1683,6 +1700,7 @@ class SchoolV2NpcSystem implements V2NpcSystem {
       }
       if (
         npc.locationMission !== null &&
+        npc.locationMission.assignment.source !== "normal" &&
         npc.alarmTargetQueue.length === 0 &&
         npc.targetProvenance !== "alert"
       ) {
@@ -1698,6 +1716,9 @@ class SchoolV2NpcSystem implements V2NpcSystem {
         personalityRetargetNpcIds.has(npc.id)
       );
       if (!target) {
+        if (npc.locationMission !== null) {
+          continue;
+        }
         this.updateSearchingNpc(
           npc,
           playerFrameTarget,
@@ -1707,6 +1728,7 @@ class SchoolV2NpcSystem implements V2NpcSystem {
         continue;
       }
 
+      if (npc.locationMission !== null) missionCombatNpcIds.add(npc.id);
       threatenedIds.add(target.id);
       addNpcEvadeThreat(
         threatSourcesByTargetId,
@@ -1763,7 +1785,7 @@ class SchoolV2NpcSystem implements V2NpcSystem {
         this.hasReplanPermission(npcIndex),
         threatenedIds.has(npc.id),
         breakawayActiveNpcIds.has(npc.id) ||
-          leaveActiveNpcIds.has(npc.id)
+          leaveActiveNpcIds.has(npc.id) || missionCombatNpcIds.has(npc.id)
       );
     }
 
@@ -4571,6 +4593,8 @@ class SchoolV2NpcSystem implements V2NpcSystem {
       npc.command.mode !== "none" ||
       npc.alarmTargetQueue.length > 0 ||
       npc.targetProvenance === "alert" ||
+      (mission.assignment.source === "normal" &&
+        npc.targetProvenance === "visual" && npc.targetId !== null) ||
       npc.capture !== null ||
       npc.breakawayRemainingSeconds > 0 ||
       higherPriorityMovementConsumed ||
@@ -4978,6 +5002,7 @@ class SchoolV2NpcSystem implements V2NpcSystem {
             toAimPosition(npc.footPosition),
             target.aimPosition
           ) === null;
+        if (npc.visualTargetSightClear) this.resetUnseenPatrol(npc);
       }
       return target;
     }
@@ -5090,7 +5115,8 @@ class SchoolV2NpcSystem implements V2NpcSystem {
       sightResults!
     );
     if (!visibleTarget) {
-      this.clearTarget(npc);
+      // 空振りの索敵は、標的を持たないNPCの徘徊・Mission経路を破棄しない。
+      if (npc.targetId !== null) this.clearTarget(npc);
       npc.visualSightCheckPriority = false;
       return null;
     }
@@ -5128,6 +5154,7 @@ class SchoolV2NpcSystem implements V2NpcSystem {
         this.clearNavigationAgent(npc);
       }
       npc.gunVisualPursuitMode = "live";
+      this.resetUnseenPatrol(npc);
       npc.gunLastSeenFootPosition = target.footPosition.clone();
       npc.gunLastSeenPathPlanned = false;
       return true;
@@ -5946,12 +5973,24 @@ class SchoolV2NpcSystem implements V2NpcSystem {
     if (movement.state === "waiting-for-path") {
       return;
     }
+    const patrolPreviousX = npc.footPosition.x;
+    const patrolPreviousZ = npc.footPosition.z;
     const moved = this.applyNavigationMovement(npc, movement.location);
+    if (npc.patrolDirectionAngle !== null) {
+      npc.patrolDistanceMeters += Math.hypot(
+        npc.footPosition.x - patrolPreviousX,
+        npc.footPosition.z - patrolPreviousZ
+      ) / BLENDER_METERS_TO_WORLD_UNITS;
+    }
     if (
       !moved ||
       movement.state === "arrived" ||
       movement.state === "unreachable"
     ) {
+      if (!moved || movement.state === "unreachable") {
+        npc.patrolDirectionAngle = null;
+        npc.patrolDistanceMeters = 0;
+      }
       this.clearNavigationAgent(npc);
       npc.wanderDestination = null;
       npc.wanderWaitSeconds = this.nextWanderWait();
@@ -6278,6 +6317,7 @@ class SchoolV2NpcSystem implements V2NpcSystem {
       sightResults
     );
     npc.visualTargetSightClear = sightClear;
+    if (sightClear) this.resetUnseenPatrol(npc);
     return sightClear;
   }
 
@@ -6507,7 +6547,14 @@ class SchoolV2NpcSystem implements V2NpcSystem {
     }
     npc.targetSelectionPersonality =
       selectV2TargetSelectionPersonality("npc", npc.id);
+    this.resetUnseenPatrol(npc);
     npc.visualSightCheckPriority = true;
+  }
+
+  private resetUnseenPatrol(npc: NpcRuntime) {
+    npc.unseenTargetSeconds = 0;
+    npc.patrolDirectionAngle = null;
+    npc.patrolDistanceMeters = 0;
   }
 
   private requireTargetSelectionPersonality(npc: NpcRuntime) {
@@ -6525,6 +6572,7 @@ class SchoolV2NpcSystem implements V2NpcSystem {
     target: V2HumanTargetSnapshot
   ) {
     const targetIdChanged = npc.targetId !== target.id;
+    this.resetUnseenPatrol(npc);
     npc.targetId = target.id;
     npc.targetProvenance = "visual";
     npc.alertLeaderId = null;
@@ -6907,8 +6955,18 @@ class SchoolV2NpcSystem implements V2NpcSystem {
     playerTarget: V2HumanTargetSnapshot
   ) {
     const origin = npc.navigationLocation;
+    const directionDistance = getV2NpcPatrolDistanceMeters(npc.unseenTargetSeconds);
+    const expanded = isCompletedBrainwashState(npc.stateSnapshot.state) && directionDistance > 0;
+    if (!expanded || npc.patrolDistanceMeters >= directionDistance) {
+      npc.patrolDirectionAngle = null;
+      npc.patrolDistanceMeters = 0;
+    }
     for (let attempt = 0; attempt < NPC_WANDER_MAX_ATTEMPTS; attempt += 1) {
-      const angle = this.nextRandom() * Math.PI * 2;
+      const angleRoll = this.nextRandom();
+      const angle = expanded && npc.patrolDirectionAngle !== null &&
+        attempt < V2_NPC_PATROL_TUNING.directionalAttempts
+        ? npc.patrolDirectionAngle + (angleRoll * 2 - 1) * V2_NPC_PATROL_TUNING.directionHalfAngleRadians
+        : angleRoll * Math.PI * 2;
       const distance = Math.sqrt(this.nextRandom()) * NPC_WANDER_RADIUS;
       const candidate = new Vector3(
         origin.position.x + Math.cos(angle) * distance,
@@ -6940,10 +6998,24 @@ class SchoolV2NpcSystem implements V2NpcSystem {
           Number.POSITIVE_INFINITY
         );
         if (restSlot) {
+          if (expanded) {
+            const selectedAngle = Math.atan2(
+              restSlot.position.z - origin.position.z,
+              restSlot.position.x - origin.position.x
+            );
+            if (npc.patrolDirectionAngle === null ||
+              attempt >= V2_NPC_PATROL_TUNING.directionalAttempts ||
+              Math.cos(selectedAngle - npc.patrolDirectionAngle) <= 0) {
+              npc.patrolDirectionAngle = selectedAngle;
+              npc.patrolDistanceMeters = 0;
+            }
+          }
           return restSlot;
         }
       }
     }
+    npc.patrolDirectionAngle = null;
+    npc.patrolDistanceMeters = 0;
     return null;
   }
 
