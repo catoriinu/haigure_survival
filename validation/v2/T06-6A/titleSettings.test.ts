@@ -100,7 +100,7 @@ export const runTitleSettingsTests = async () => [
     const restarted = createV2TitleSettingsStore(memory.storage, CATALOGS);
     assert(restarted.load().school.roomDisorderLevel === 10, "再起動で保存値が復元されません。");
     restarted.reset();
-    assert(restarted.get().school.roomDisorderLevel === 2, "全resetで既定値に戻りません。");
+    assert(restarted.get().school.roomDisorderLevel === 5, "全resetで既定値に戻りません。");
     assert(memory.writes.length === 2, "変更とresetが各1回保存されていません。");
     return "変更1回・reset1回を保存し、再起動復元";
   }),

@@ -2,7 +2,7 @@ import type { HumanNavRoomVariantSelection } from "./humanNavTileBundle";
 
 export const SCHOOL_ROOM_DISORDER_LEVEL_MIN = 0;
 export const SCHOOL_ROOM_DISORDER_LEVEL_MAX = 10;
-export const SCHOOL_ROOM_DISORDER_LEVEL_DEFAULT = 2;
+export const SCHOOL_ROOM_DISORDER_LEVEL_DEFAULT = 5;
 
 export const SCHOOL_ROOM_VARIANT_ROOM_IDS = Object.freeze([
   "f02-classroom-01",

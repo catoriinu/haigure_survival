@@ -86,7 +86,7 @@ export const V2_DEFAULT_TITLE_SETTINGS: V2TitleSettings = Object.freeze({
   bit: Object.freeze({
     disabled: false,
     reinforcementIntervalSeconds: 10,
-    maximumCount: 25
+    maximumCount: 30
   }),
   audio: Object.freeze({ bgm: 5, se: 5, voice: 5 }),
   display: Object.freeze({
@@ -102,7 +102,7 @@ export const V2_DEFAULT_TITLE_SETTINGS: V2TitleSettings = Object.freeze({
     haigurePercent: 10
   }),
   school: Object.freeze({
-    roomDisorderLevel: 2,
+    roomDisorderLevel: 5,
     playerSpawn: "random"
   }),
   character: Object.freeze({
@@ -300,7 +300,12 @@ const buildCanonicalSettings = (
         99,
         10
       ),
-      maximumCount: normalizeInteger(bit.maximumCount, 1, 50, 25)
+      maximumCount: normalizeInteger(
+        bit.maximumCount,
+        1,
+        50,
+        V2_DEFAULT_TITLE_SETTINGS.bit.maximumCount
+      )
     }),
     audio: Object.freeze({
       bgm: normalizeInteger(audio.bgm, 0, 10, 5),
@@ -326,7 +331,12 @@ const buildCanonicalSettings = (
       haigurePercent: 100 - gunPercent - noGunPercent
     }),
     school: Object.freeze({
-      roomDisorderLevel: normalizeInteger(school.roomDisorderLevel, 0, 10, 2),
+      roomDisorderLevel: normalizeInteger(
+        school.roomDisorderLevel,
+        0,
+        10,
+        V2_DEFAULT_TITLE_SETTINGS.school.roomDisorderLevel
+      ),
       playerSpawn: normalizeSpawnSelection(school.playerSpawn)
     }),
     character: Object.freeze({
