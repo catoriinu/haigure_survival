@@ -1590,8 +1590,7 @@ class SchoolV2NpcSystem implements V2NpcSystem {
       this.collectAutonomousThreatObservers();
     this.invalidateAutonomousVisualTargets(
       autonomousCombatNpcs,
-      targetsById,
-      capturedTargetIds
+      targetsById
     );
     const currentTargetSightCandidates =
       this.collectCurrentTargetSightCandidates(
@@ -1695,7 +1694,6 @@ class SchoolV2NpcSystem implements V2NpcSystem {
         state,
         targetSpatialIndex,
         targetsById,
-        capturedTargetIds,
         currentTargetSightNpcIds.has(npc.id),
         personalityRetargetNpcIds.has(npc.id)
       );
@@ -4026,8 +4024,7 @@ class SchoolV2NpcSystem implements V2NpcSystem {
 
   private invalidateAutonomousVisualTargets(
     npcs: readonly NpcRuntime[],
-    targetsById: ReadonlyMap<string, V2HumanTargetSnapshot>,
-    capturedTargetIds: ReadonlySet<string>
+    targetsById: ReadonlyMap<string, V2HumanTargetSnapshot>
   ) {
     for (const npc of npcs) {
       if (npc.targetProvenance !== "visual" || !npc.targetId) {
@@ -4036,7 +4033,6 @@ class SchoolV2NpcSystem implements V2NpcSystem {
       const target = targetsById.get(npc.targetId);
       if (
         !target ||
-        capturedTargetIds.has(target.id) ||
         !this.isTargetable(npc, target)
       ) {
         this.clearTarget(npc);
@@ -4947,7 +4943,6 @@ class SchoolV2NpcSystem implements V2NpcSystem {
     state: "brainwash-complete-gun" | "brainwash-complete-no-gun",
     targetSpatialIndex: V2HumanTargetSpatialIndex,
     targetsById: ReadonlyMap<string, V2HumanTargetSnapshot>,
-    capturedTargetIds: ReadonlySet<string>,
     runCurrentTargetSightCheck: boolean,
     runPersonalityRetargetQuery: boolean
   ) {
@@ -4998,7 +4993,6 @@ class SchoolV2NpcSystem implements V2NpcSystem {
       currentTarget = targetsById.get(npc.targetId) ?? null;
       if (
         !currentTarget ||
-        capturedTargetIds.has(currentTarget.id) ||
         !this.isTargetable(npc, currentTarget)
       ) {
         this.clearTarget(npc);
@@ -5042,7 +5036,6 @@ class SchoolV2NpcSystem implements V2NpcSystem {
           toAimPosition(npc.footPosition),
           NPC_VISION_RANGE
         ),
-        capturedTargetIds,
         "target-id",
         sightResults!
       );
@@ -5091,7 +5084,6 @@ class SchoolV2NpcSystem implements V2NpcSystem {
         toAimPosition(npc.footPosition),
         NPC_VISION_RANGE
       ),
-      capturedTargetIds,
       personality === "nearest-visible"
         ? "target-id"
         : "source-order",
@@ -5751,7 +5743,6 @@ class SchoolV2NpcSystem implements V2NpcSystem {
     }
     if (
       target.alive &&
-      !capturedTargetIds.has(target.id) &&
       Vector3.Distance(npc.footPosition, target.footPosition) <=
         V2_NPC_CAPTURE_RADIUS
     ) {
@@ -6225,7 +6216,6 @@ class SchoolV2NpcSystem implements V2NpcSystem {
   private findNearestVisibleTarget(
     npc: NpcRuntime,
     targets: readonly V2HumanTargetSnapshot[],
-    excludedTargetIds: ReadonlySet<string>,
     tieBreak: "source-order" | "target-id",
     sightResults: NpcSightResultCache
   ) {
@@ -6236,9 +6226,6 @@ class SchoolV2NpcSystem implements V2NpcSystem {
       sourceOrder: number;
     }> = [];
     targets.forEach((target, sourceOrder) => {
-      if (excludedTargetIds.has(target.id)) {
-        return;
-      }
       const distanceSquared = this.getVisualDistanceSquared(
         npc,
         target,

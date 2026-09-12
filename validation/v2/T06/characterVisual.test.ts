@@ -508,6 +508,23 @@ export const runCharacterVisualTests = async (): Promise<
         const restraintMeshCount = scene.meshes.filter((mesh) =>
           mesh.name.endsWith("_noGunRestraint")
         ).length;
+        assert(firstMaterial !== null, "拘束帯のMaterialがありません。");
+        const singleCaptureAlpha = firstMaterial.alpha;
+        runtime.updateNoGunRestraint(
+          Object.freeze(["npc-001", "npc-001", "npc-001"]),
+          0
+        );
+        assert(
+          scene.getMeshByName("fixture-restraint-first_noGunRestraint") ===
+            firstBand &&
+            scene.meshes.filter((mesh) =>
+              mesh.name.endsWith("_noGunRestraint")
+            ).length === restraintMeshCount &&
+            firstBand.isVisible &&
+            firstBand.material === firstMaterial &&
+            firstMaterial.alpha === singleCaptureAlpha,
+          "複数捕獲により拘束帯が重複するか濃さが変わりました。"
+        );
         firstNpc.sprite.position.copyFromFloats(2, 2.5, 4);
         runtime.setFacingYaw(Math.PI / 2);
         runtime.updateNoGunRestraint(Object.freeze(["npc-001"]), 0.5);
@@ -558,7 +575,7 @@ export const runCharacterVisualTests = async (): Promise<
             !scene.textures.includes(firstTexture),
           "Runtime破棄で拘束Plane・共有Material・gradient Textureを破棄しません。"
         );
-        return "Player除外、feet追随、0.075高、再利用、解除、record/runtime破棄";
+        return "Player除外、複数捕獲でも帯1本・同じ濃さ、feet追随、0.075高、再利用、解除、record/runtime破棄";
       } finally {
         if (!runtimeDisposed) {
           runtime.dispose();

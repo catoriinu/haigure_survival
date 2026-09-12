@@ -1192,6 +1192,135 @@ const startNoGunCaptureOfNpc = (
   return distantPlayer;
 };
 
+const testGunFiresAtCapturedNpcAndNoGunsShareCapture = async () => {
+  const fixture = await createNpcFixture(3, 2);
+  const player = createPlayerTarget(new Vector3(4, 0, 4));
+  try {
+    fixture.system.placeNpcs([
+      { id: "npc_0", footPosition: new Vector3(0, 0, 0.2), formation: false },
+      { id: "npc_1", footPosition: new Vector3(0.2, 0, 0), formation: false },
+      { id: "npc_2", footPosition: Vector3.Zero(), formation: false }
+    ]);
+    fixture.system.setVisibleNpcIds(["npc_1", "npc_2"]);
+    fixture.system.update(0, player, EMPTY_ALARM_TARGET_EVENTS);
+    assert(
+      fixture.system.getFrameView().captures[0]?.targetId === "npc_2",
+      "銃ありNPCの新規取得テストで対象を拘束できません。"
+    );
+    fixture.system.setVisibleNpcIds(["npc_0", "npc_1", "npc_2"]);
+    fixture.system.update(0.2, player, EMPTY_ALARM_TARGET_EVENTS);
+    const acquired = fixture.system.getFrameView();
+    const gunTargetId = acquired.tracking
+      .find(({ npcId }) => npcId === "npc_0")?.targetId;
+    assert(
+      gunTargetId === "npc_2" && acquired.captures.length === 1,
+      "銃ありNPCが拘束中の未洗脳NPCを新規の視認標的に選べません: " +
+        `target=${gunTargetId ?? "none"}`
+    );
+
+    fixture.system.drainBeamRequests();
+    for (let index = 0; index < 15; index += 1) {
+      fixture.system.update(0.2, player, EMPTY_ALARM_TARGET_EVENTS);
+    }
+    const shots = fixture.system.drainBeamRequests();
+    assert(
+      shots.some(({ sourceId, originKind, origin, direction }) =>
+        sourceId === "npc_0" && originKind === "npc-gun" &&
+        Vector3.Dot(
+          new Vector3(0, NPC_SPRITE_CENTER_HEIGHT, 0).subtract(origin).normalize(),
+          direction
+        ) > 0.999) &&
+        fixture.system.getFrameView().captures[0]?.targetId === "npc_2",
+      "銃ありNPCが拘束継続中の標的に向けて射撃要求を出しません。"
+    );
+
+    fixture.system.setCompletedBrainwashedNpcsState("brainwash-complete-no-gun");
+    for (let index = 0; index < 20; index += 1) {
+      fixture.system.update(0.1, player, EMPTY_ALARM_TARGET_EVENTS);
+    }
+    const noGunFrame = fixture.system.getFrameView();
+    assert(
+      noGunFrame.captures.length === 2 &&
+        noGunFrame.captures.every(({ targetId }) => targetId === "npc_2") &&
+        noGunFrame.captures.some(({ npcId }) => npcId === "npc_0") &&
+        noGunFrame.captures.some(({ npcId }) => npcId === "npc_1"),
+      "複数の銃なしNPCが同じ未洗脳NPCを捕獲できません。"
+    );
+    return "拘束対象を銃ありNPCが新規取得して射撃し、複数の銃なしNPCも捕獲";
+  } finally {
+    fixture.dispose();
+  }
+};
+
+const testPersistentGunRetainsNpcAfterCapture = async () => {
+  const fixture = await createNpcFixture(3, 2, 5, true, null, 0.6);
+  const player = createPlayerTarget(new Vector3(4, 0, 4));
+  try {
+    fixture.system.prepareExecutionRoles([{ npcId: "npc_1", role: "shooter" }]);
+    fixture.system.placeNpcs([
+      { id: "npc_0", footPosition: new Vector3(0.2, 0, 0), formation: false },
+      { id: "npc_1", footPosition: new Vector3(0, 0, 1), formation: false },
+      { id: "npc_2", footPosition: Vector3.Zero(), formation: false }
+    ]);
+    fixture.system.setVisibleNpcIds(["npc_1", "npc_2"]);
+    fixture.system.update(0, player, EMPTY_ALARM_TARGET_EVENTS);
+    const before = fixture.system.getFrameView().tracking
+      .find(({ npcId }) => npcId === "npc_1");
+    assert(
+      before?.targetSelectionPersonality === "persistent" &&
+        before.targetId === "npc_2",
+      "拘束前の銃ありNPCがpersistent個性で未洗脳NPCを追跡していません。"
+    );
+    fixture.system.setVisibleNpcIds(["npc_0", "npc_1", "npc_2"]);
+    fixture.system.update(0, player, EMPTY_ALARM_TARGET_EVENTS);
+    fixture.system.update(0.2, player, EMPTY_ALARM_TARGET_EVENTS);
+    const after = fixture.system.getFrameView();
+    assert(
+      after.captures.some(({ npcId, targetId }) =>
+        npcId === "npc_0" && targetId === "npc_2") &&
+        after.tracking.find(({ npcId }) => npcId === "npc_1")?.targetId ===
+          "npc_2",
+      "銃ありNPCが既存の視認標的を、拘束されたことだけを理由に破棄しました。"
+    );
+    return "persistentの銃ありNPCは拘束開始後も既存の視認標的を保持";
+  } finally {
+    fixture.dispose();
+  }
+};
+
+const testCapturedNpcHasNoNearestVisiblePriority = async () => {
+  const fixture = await createNpcFixture(4, 2, 5, true);
+  const player = createPlayerTarget(new Vector3(4, 0, 4));
+  try {
+    fixture.system.placeNpcs([
+      { id: "npc_0", footPosition: new Vector3(0, 0, 1), formation: false },
+      { id: "npc_1", footPosition: new Vector3(0.2, 0, 0), formation: false },
+      { id: "npc_2", footPosition: Vector3.Zero(), formation: false },
+      { id: "npc_3", footPosition: new Vector3(0, 0, 0.4), formation: false }
+    ]);
+    fixture.system.setVisibleNpcIds(["npc_1", "npc_2"]);
+    fixture.system.update(0, player, EMPTY_ALARM_TARGET_EVENTS);
+    assert(
+      fixture.system.getFrameView().captures[0]?.targetId === "npc_2",
+      "標的優先度テストで遠い未洗脳NPCを拘束できません。"
+    );
+    fixture.system.setVisibleNpcIds(["npc_0", "npc_1", "npc_2", "npc_3"]);
+    fixture.system.update(0.2, player, EMPTY_ALARM_TARGET_EVENTS);
+    const frame = fixture.system.getFrameView();
+    const tracking = frame.tracking.find(({ npcId }) => npcId === "npc_0");
+    assert(
+      tracking?.targetSelectionPersonality === "nearest-visible" &&
+        tracking.targetId === "npc_3" &&
+        frame.captures[0]?.targetId === "npc_2",
+      "nearest-visibleの銃ありNPCが近い通常標的より遠い拘束対象を優先しました: " +
+        `target=${tracking?.targetId ?? "none"}`
+    );
+    return "拘束への優先加点をせず、nearest-visibleは近い非拘束NPCを選ぶ";
+  } finally {
+    fixture.dispose();
+  }
+};
+
 const testNpcCaptureTargetImmediateReleasePaths = async () => {
   const impactFixture = await createNpcFixture(3, 2);
   const visibilityFixture = await createNpcFixture(3, 2);
@@ -4121,6 +4250,18 @@ export const runNpcCombatTests = async () =>
     executeTest(
       "NPC capture対象の被弾・非表示即解除",
       testNpcCaptureTargetImmediateReleasePaths
+    ),
+    executeTest(
+      "NPC拘束対象への射撃・複数捕獲",
+      testGunFiresAtCapturedNpcAndNoGunsShareCapture
+    ),
+    executeTest(
+      "NPC拘束開始後のpersistent射撃標的保持",
+      testPersistentGunRetainsNpcAfterCapture
+    ),
+    executeTest(
+      "NPC拘束対象への優先加点なし",
+      testCapturedNpcHasNoNearestVisiblePriority
     ),
     executeTest(
       "NPC beam impact・AI停止・厳格配置",
