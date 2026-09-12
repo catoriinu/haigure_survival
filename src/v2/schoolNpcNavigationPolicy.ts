@@ -477,6 +477,13 @@ const resolveTrackingTrip = (
   if (!targetReservation && !targetPassenger && !followsKnownPlayerTrip) {
     return null;
   }
+  // 空席数には自分の予約も含まれるため、確保済みの席は別に判定する。
+  const hasOwnReservation = snapshot.reservations.some(
+    (reservation) =>
+      reservation.actorId === context.npcId &&
+      reservation.fromStopId === fromStop.id &&
+      reservation.destinationStopId === destinationStop.id
+  );
   const targetStillBoardable =
     targetReservation !== undefined ||
     (followsKnownPlayerTrip &&
@@ -489,7 +496,7 @@ const resolveTrackingTrip = (
     targetActorId: context.targetId,
     boardingMode:
       targetStillBoardable &&
-      estimate.capacityAvailable &&
+      (estimate.capacityAvailable || hasOwnReservation) &&
       (followsKnownPlayerTrip ||
         walkingSeconds <= estimate.boardingWindowSeconds)
         ? "same"

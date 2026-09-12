@@ -4648,6 +4648,10 @@ class SchoolV2NpcSystem implements V2NpcSystem {
     deltaSeconds: number,
     allowPathRecalculation: boolean
   ) {
+    // 乗車接近・乗降中は、車内のPlayerへの近さで経路を終了しない。
+    const followingElevator =
+      npc.command.followElevatorDestination !== null ||
+      isV2NpcElevatorTraversalState(npc.traversalState);
     let destination: Vector3 | null = null;
     let usesFormationAnchor = false;
     const lastSeen = npc.command.followLastSeenFootPosition;
@@ -4683,7 +4687,7 @@ class SchoolV2NpcSystem implements V2NpcSystem {
         destination = centralDestination;
       }
     }
-    if (destination && usesFormationAnchor) {
+    if (destination && usesFormationAnchor && !followingElevator) {
       const formationDistance = Vector3.Distance(
         npc.footPosition,
         destination
@@ -4696,7 +4700,7 @@ class SchoolV2NpcSystem implements V2NpcSystem {
         npc.command.followMovementStopped = true;
       }
     }
-    if (npc.command.followMovementStopped) {
+    if (npc.command.followMovementStopped && !followingElevator) {
       destination = null;
     }
     if (!destination) {
@@ -4723,6 +4727,7 @@ class SchoolV2NpcSystem implements V2NpcSystem {
       ? destination
       : playerTarget.footPosition;
     if (
+      !followingElevator &&
       npc.command.followLostSightSeconds === 0 &&
       Vector3.Distance(npc.footPosition, stopTarget) <= stopDistance
     ) {

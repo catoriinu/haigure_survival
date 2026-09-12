@@ -229,7 +229,16 @@ const elevatorNpcAcceptanceScenario = (() => {
       "elevatorAcceptanceのfollowersには1以上5以下の整数が必要です。"
     );
   }
-  return Object.freeze({ id: requested, seed, followerCount });
+  const npcCount = Number(parameters.get("elevatorNpcs") ?? "50");
+  if (npcCount !== 50 && npcCount !== 99) {
+    throw new Error("elevatorNpcsには50または99が必要です。");
+  }
+  const population = Object.freeze({
+    ...V2_TEST_SURVIVAL_POPULATION,
+    npcCount,
+    initialBrainwashedNpcCount: Math.floor(npcCount * 0.2)
+  });
+  return Object.freeze({ id: requested, seed, followerCount, population });
 })();
 const rampValidationTarget = (() => {
   const requested = new URLSearchParams(location.search).get(
@@ -361,7 +370,7 @@ const createSessionStartSnapshot = (
           bitReinforcementIntervalSeconds: 10,
           maximumBitCount: 0
         })
-      : runtimeStressScenario?.population ?? null;
+      : elevatorNpcAcceptanceScenario?.population ?? runtimeStressScenario?.population ?? null;
   return createV2SessionStartSnapshot({
     startMode: titleStartMode,
     settings,
@@ -2583,11 +2592,11 @@ if (schoolVisualAcceptanceScenario) {
 if (elevatorNpcAcceptanceScenario) {
   const initialFrame = survival.getFrame();
   if (
-    initialFrame.npcCount !== V2_TEST_SURVIVAL_POPULATION.npcCount ||
+    initialFrame.npcCount !== elevatorNpcAcceptanceScenario.population.npcCount ||
     initialFrame.brainwashedNpcCount !==
-      V2_TEST_SURVIVAL_POPULATION.initialBrainwashedNpcCount ||
+      elevatorNpcAcceptanceScenario.population.initialBrainwashedNpcCount ||
     initialFrame.bitCount !==
-      V2_TEST_SURVIVAL_POPULATION.initialBitCount
+      elevatorNpcAcceptanceScenario.population.initialBitCount
   ) {
     throw new Error(
       "エレベーターNPC受入の初期人口が通常ゲーム設定と一致しません。"

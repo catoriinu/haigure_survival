@@ -1557,6 +1557,28 @@ const testFollowDistanceAndOcclusion = async () => {
   }
 };
 
+const testFollowElevatorApproachKeepsPath = async () => {
+  for (const phase of ["calling", "reserved", "riding"] as const) {
+    let routeSelections = 0;
+    const fixture = await createNpcCommandFixture(1, 0, 6, () => { routeSelections += 1; });
+    const player = createPlayerTarget(new Vector3(0, 0, -0.2));
+    try {
+      placeNpcs(fixture.system, [Vector3.Zero()]);
+      assert(fixture.system.requestCommand("npc_0", "follow", createCommandQuery(player)),
+        "乗車接近検証の同行指示が受理されません。");
+      fixture.system.setPlayerElevatorTraversalSnapshot(Object.freeze({
+        elevatorId: "elevator-follow-test", linkId: "link-follow-test",
+        from: "A" as const, to: "B" as const,
+        destinationFloorPosition: new Vector3(0, 0, 2), phase
+      }));
+      for (let i = 0; i < 5; i += 1) fixture.system.update(0.05, player, EMPTY_ALARM_EVENTS);
+      assert(routeSelections === 1,
+        `${phase}中、通常の同行停止距離で経路を破棄しました: 経路選択${routeSelections}回`);
+    } finally { fixture.dispose(); }
+  }
+  return "Playerの呼出・予約・乗車中とも近距離で接近経路を保持";
+};
+
 const testFollowElevatorSightGrace = async () => {
   const fixture = await createNpcCommandFixture(1, 0, 6);
   const nearbyPlayer = createPlayerTarget(
@@ -3851,6 +3873,9 @@ export const runNpcCommandTests = async () =>
       executeTest(
         "Follow距離・遮蔽契約",
         testFollowDistanceAndOcclusion
+      ),
+      executeTest(
+        "Followエレベーター接近経路の保持", testFollowElevatorApproachKeepsPath
       ),
       executeTest(
         "Followエレベーター搬送中の見失い停止",

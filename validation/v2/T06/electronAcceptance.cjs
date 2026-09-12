@@ -98,7 +98,7 @@ const parseBeamCount = (text) =>
 const parseBitPlayerTargetCount = (text) =>
   Number(text.match(/プレイヤー標的 NPC \d+\s+BIT (\d+)/)?.[1] ?? 0);
 
-const assertNpcSpawnReport = (snapshot, label) => {
+const assertNpcSpawnReport = (snapshot, label, npcCount = 50) => {
   const report = snapshot.npcSpawnReport;
   assertCondition(report !== null, `${label}のNPC spawn reportがありません。`);
   assertCondition(
@@ -107,11 +107,11 @@ const assertNpcSpawnReport = (snapshot, label) => {
     `${label}のseedまたはPlayer開始IDがDOM診断と一致しません。`
   );
   assertCondition(
-    report.npcCount === 50 &&
-      report.initialBrainwashedNpcCount === 10 &&
-      report.signature.length === 50 &&
-      new Set(report.signature.map((entry) => entry.id)).size === 50,
-    `${label}のNPC 50/初期洗脳10またはsignatureが不正です。`
+    report.npcCount === npcCount &&
+      report.initialBrainwashedNpcCount === Math.floor(npcCount * 0.2) &&
+      report.signature.length === npcCount &&
+      new Set(report.signature.map((entry) => entry.id)).size === npcCount,
+    `${label}のNPC ${npcCount}/初期洗脳${Math.floor(npcCount * 0.2)}またはsignatureが不正です。`
   );
   assertCondition(
     report.activeBiases.length === 1 &&
@@ -526,9 +526,12 @@ const run = async () => {
         snapshot.elevatorNpcAcceptanceReport?.status === "passed",
       180_000
     );
+    const expectedNpcCount = Number(applicationUrl.searchParams.get("elevatorNpcs") ?? "50");
+    const expectedFollowers = Number(applicationUrl.searchParams.get("followers") ?? "5");
     const spawnReport = assertNpcSpawnReport(
       completed,
-      "エレベーターNPC専用session"
+      "エレベーターNPC専用session",
+      expectedNpcCount
     );
     const elevatorReport = completed.elevatorNpcAcceptanceReport;
     assertCondition(
@@ -538,10 +541,10 @@ const run = async () => {
       "エレベーターNPC専用受入のscenarioまたは固定seedが不正です。"
     );
     assertCondition(
-      elevatorReport.population.npcCount === 50 &&
-        elevatorReport.followerIds.length === 5 &&
-        elevatorReport.followCommandAcceptedIds.length === 5 &&
-        elevatorReport.ridingFollowerIds.length === 5,
+      elevatorReport.population.npcCount === expectedNpcCount &&
+        elevatorReport.followerIds.length === expectedFollowers &&
+        elevatorReport.followCommandAcceptedIds.length === expectedFollowers &&
+        elevatorReport.ridingFollowerIds.length === expectedFollowers,
       "エレベーターNPC専用受入の通常人口またはFollow受理数が不正です。"
     );
     assertCondition(
