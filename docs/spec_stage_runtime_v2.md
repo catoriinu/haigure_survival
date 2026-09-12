@@ -660,3 +660,13 @@ T07では`performance=normal`、`performance=stress`、`performance=acceptance`�
 同一collectorはCPU frame work、次callbackまでのframe interval、旧total frame、CPU section、GPU、heap、Long Taskを分離する。取得不能な指標は`null`とavailabilityで表し、0に置き換えない。最終callback後のLong Task通知をdrainしてからreportを確定する。stressの同一入力は意味request列のhashで確認し、record runを変更前または変更後の比較値へ混ぜない。
 
 強制GCは性能計測窓内では行わない。session再開始の保持観測ではnormal 70秒の完了後にGCし、同じrendererでRとEnter→Canvasを交互に使って3回以上のsessionを生成する。各GC直前に媒体観測ログをNode側へ退避してrenderer側配列を空にし、性能report履歴は最新1件だけ保持する。最終session後は`beforeunload`による全owner解放後にもGCする。主heap指標はCDP `Runtime.getHeapUsage()`の`usedSize`とし、複数runの分布、DOM／listener傾向、動的・静的ownerの解放状態を併せて判定する。14節の`static-only baseline`は動的owner残留0を測る所有基準であり、T07の変更前性能baselineとは別である。
+
+### 未洗脳NPCの逃走個性と記憶
+
+自律視認の脅威対象は洗脳完了後のプレイヤー・NPCとBITとする。プレイヤーにもNPCと同じ視認距離・視野・遮蔽条件を適用する。プレイヤー・NPCともに洗脳進行中（`brainwash-in-progress`）はまだ脅威対象にせず、完了後から視認対象とする。未洗脳プレイヤーも脅威対象にしない。
+
+未洗脳NPCの通常逃走は`npc_N`の数値を3で割った余りにより、慎重型・一目散型・突破型を固定割当する。視認・直接脅威で認識した敵の最後の位置をゲーム内時間で5秒保持し、見失った敵を現在位置で追跡しない。現在の直接脅威を優先してIDで重複排除し、認識対象全体を評価する。
+
+候補は既存の16方向・8m相当のNavMesh制約済み位置と既存条件のエレベーター候補を使用する。候補ごとの経路探索や遮蔽Rayを追加せず、最小敵距離、主脅威からの離隔、短い直線区間の敵接近、方向の好み・継続を共通評価する。突破型は左右45度の斜め方向を好み、同点は現在目的地、初回はIDに依存する固定順を優先する。個性の重み・継続時間は`src/v2/npcEvadePolicy.ts`を正本とする。
+
+候補評価は通常各体2Hz・全体最大4体／更新で、公平な待ちQueueと緊急要求を用いる。実経路再計算の既存最大4件／更新とは別予算とする。視認更新だけで経路を破棄せず、新しい計画の待機中は有効な旧経路を継続する。移動不能な経路は継続しない。詳細な受入・調整結果は`docs/plans/v2/npc-evade-personalities/plan.md`に記録する。

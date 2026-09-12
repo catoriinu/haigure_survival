@@ -2169,6 +2169,13 @@ constructionDependencies: V2SurvivalConstructionDependencies = Object.freeze({})
           performanceSectionStartedAt
         );
         const npcFrameView = npcSystem.getFrameView();
+        performanceDiagnostics?.count("npc.evade.evaluations", npcFrameView.evadeEvaluationCount);
+        performanceDiagnostics?.count("npc.evade.candidates", npcFrameView.evadeCandidateCount);
+        performanceDiagnostics?.count("npc.evade.evaluation-ms", npcFrameView.evadeEvaluationMilliseconds);
+        performanceDiagnostics?.count("npc.evade.max-wait-seconds", npcFrameView.evadeMaximumWaitSeconds);
+        performanceDiagnostics?.count("npc.evade.destination-changes", npcFrameView.evadeDestinationChangeCount);
+        performanceDiagnostics?.count("npc.evade.reversals", npcFrameView.evadeDirectionReversalCount);
+        performanceDiagnostics?.count("npc.evade.remembered", npcFrameView.autonomousThreatRememberedCount);
         performanceDiagnostics?.count(
           "npc.route-plans",
           npcFrameView.pathRecalculationCount
@@ -2423,6 +2430,13 @@ constructionDependencies: V2SurvivalConstructionDependencies = Object.freeze({})
           performanceSectionStartedAt
         );
         const npcFrameView = npcSystem.getFrameView();
+        performanceDiagnostics?.count("npc.evade.evaluations", npcFrameView.evadeEvaluationCount);
+        performanceDiagnostics?.count("npc.evade.candidates", npcFrameView.evadeCandidateCount);
+        performanceDiagnostics?.count("npc.evade.evaluation-ms", npcFrameView.evadeEvaluationMilliseconds);
+        performanceDiagnostics?.count("npc.evade.max-wait-seconds", npcFrameView.evadeMaximumWaitSeconds);
+        performanceDiagnostics?.count("npc.evade.destination-changes", npcFrameView.evadeDestinationChangeCount);
+        performanceDiagnostics?.count("npc.evade.reversals", npcFrameView.evadeDirectionReversalCount);
+        performanceDiagnostics?.count("npc.evade.remembered", npcFrameView.autonomousThreatRememberedCount);
         performanceDiagnostics?.count(
           "npc.route-plans",
           npcFrameView.pathRecalculationCount
@@ -2566,6 +2580,13 @@ constructionDependencies: V2SurvivalConstructionDependencies = Object.freeze({})
           }
         }
         const npcFrameView = npcSystem.getFrameView();
+        performanceDiagnostics?.count("npc.evade.evaluations", npcFrameView.evadeEvaluationCount);
+        performanceDiagnostics?.count("npc.evade.candidates", npcFrameView.evadeCandidateCount);
+        performanceDiagnostics?.count("npc.evade.evaluation-ms", npcFrameView.evadeEvaluationMilliseconds);
+        performanceDiagnostics?.count("npc.evade.max-wait-seconds", npcFrameView.evadeMaximumWaitSeconds);
+        performanceDiagnostics?.count("npc.evade.destination-changes", npcFrameView.evadeDestinationChangeCount);
+        performanceDiagnostics?.count("npc.evade.reversals", npcFrameView.evadeDirectionReversalCount);
+        performanceDiagnostics?.count("npc.evade.remembered", npcFrameView.autonomousThreatRememberedCount);
         const bitFrameView = bitSystem.getFrameView();
         performanceDiagnostics.count("bit.population-count", bitFrameView.populationBitCount);
         performanceDiagnostics.count(

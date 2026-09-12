@@ -1854,16 +1854,20 @@ const testExternalThreatAndPlayerBlocking = async () => {
       createPlayerTarget(new Vector3(4, 0, 4)),
       EMPTY_ALARM_TARGET_EVENTS
     );
+    assert(fixture.system.getFrameView().targets.every((snapshot) =>
+      snapshot.state === (snapshot.id === "npc_0" ? "evade" : "normal")),
+      "直接脅威の記憶とプレイヤー接触停止解除を分離できません。");
+    fixture.system.update(5.01, createPlayerTarget(new Vector3(4, 0, 4)), EMPTY_ALARM_TARGET_EVENTS);
     assert(
       fixture.system
         .getFrameView()
         .targets
         .every((snapshot) => snapshot.state === "normal"),
-      "空集合を設定した次frameに脅威・停止状態が解除されません。"
+      "5秒の記憶失効後も脅威が解除されません。"
     );
     return (
       "外部脅威evade・逃走、経路policyへ脅威ID・露出状態、" +
-      "複数NPC停止、空集合で次frame解除"
+      "複数NPC停止の即時解除、直接脅威の5秒記憶"
     );
   } finally {
     fixture.dispose();
