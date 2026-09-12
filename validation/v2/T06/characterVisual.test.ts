@@ -1,3 +1,4 @@
+import { createDefaultCharacterSpritesheet, CHARACTER_SPRITE_CELL_SIZE } from "../../../src/game/characterSprites";
 import {
   Camera,
   Color3,
@@ -97,6 +98,32 @@ export const runCharacterVisualTests = async (): Promise<
   readonly T06TestResult[]
 > =>
   Promise.all([
+    executeTest("デフォルトNPCの洗脳状態別配色", async () => {
+      const image = new Image();
+      const loaded = new Promise<void>((resolve, reject) => {
+        image.onload = () => resolve();
+        image.onerror = () => reject(new Error("デフォルト画像の読込失敗"));
+      });
+      image.src = createDefaultCharacterSpritesheet();
+      await loaded;
+      const canvas = document.createElement("canvas");
+      canvas.width = image.width;
+      canvas.height = image.height;
+      const context = canvas.getContext("2d", { willReadFrequently: true }) as CanvasRenderingContext2D;
+      context.drawImage(image, 0, 0);
+      const color = (state: Parameters<typeof getV2CharacterVisualCellIndex>[0]) => {
+        const frame = getV2CharacterVisualCellIndex(state, false, "default", null);
+        return [...context.getImageData(frame * CHARACTER_SPRITE_CELL_SIZE + 4, 4, 1, 1).data].slice(0, 3);
+      };
+      for (const state of ["brainwash-in-progress", "brainwash-complete-haigure", "brainwash-complete-haigure-formation"] as const) {
+        assert(color(state).join(",") === "92,92,92", `${state}が灰色ではありません。`);
+      }
+      const gun = color("brainwash-complete-gun");
+      const noGun = color("brainwash-complete-no-gun");
+      assert(gun[0] > gun[1] && gun[0] > gun[2], "銃ありがくすんだ赤ではありません。");
+      assert(noGun[0] < noGun[1] && noGun[1] < noGun[2], "銃なしがくすんだ水色ではありません。");
+      return "進行中・ポーズ・整列は灰色、銃ありは赤、銃なしは水色";
+    }),
     executeTest("Character画像の必須8状態解決", () => {
       const paths = V2_PORTRAIT_IMAGE_BASE_NAMES.map(
         (baseName) =>
