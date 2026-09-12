@@ -1430,7 +1430,7 @@ const voiceRuntime = createV2VoiceRuntime({
 ownedVoiceRuntime = voiceRuntime;
 loadingSession.advance();
 const bgmUrl = audioAssets.selectBgmUrl(
-  SCHOOL_STAGE.label,
+  SCHOOL_STAGE.id,
   audioRandom
 );
 let audioActivated = false;
@@ -2513,7 +2513,7 @@ if (performanceScenario) {
     camera: { position: camera.position.asArray(), rotation: camera.rotation.asArray(), fov: camera.fov },
     features: survival.getFeatureResources(),
     initialFrame: survival.getFrame(),
-    materialMode: import.meta.env.DEV ? "local-catalog" : "distribution-default",
+    materialMode: "public-catalog",
     characterAssignments,
     defaultPortraitActorCount: characterAssignments.filter((assignment) => assignment.portraitDirectory === "00_default").length,
     bgmUrl,

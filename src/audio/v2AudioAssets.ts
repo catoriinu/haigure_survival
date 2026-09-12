@@ -1,3 +1,4 @@
+import * as audioAssetInventory from "./v2AudioAssetInventory";
 import voiceManifest from "./voiceManifest.json";
 
 const V2_VOICE_PROFILE_IDS = new Set(Object.keys(voiceManifest));
@@ -107,15 +108,6 @@ export const createV2AudioAssetCatalogFromPublicPaths = ({
     },
   });
 };
-
-const EMPTY_AUDIO_PUBLIC_PATHS: readonly string[] = Object.freeze([]);
-const audioAssetInventory = import.meta.env.DEV
-  ? await import("./v2AudioAssetInventory.dev")
-  : Object.freeze({
-      bgmPublicPaths: EMPTY_AUDIO_PUBLIC_PATHS,
-      sePublicPaths: EMPTY_AUDIO_PUBLIC_PATHS,
-      voicePublicPaths: EMPTY_AUDIO_PUBLIC_PATHS,
-    });
 
 export const V2_AUDIO_ASSET_CATALOG = createV2AudioAssetCatalogFromPublicPaths({
   baseUrl: import.meta.env.BASE_URL,

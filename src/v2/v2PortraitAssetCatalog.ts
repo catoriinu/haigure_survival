@@ -1,3 +1,5 @@
+import * as portraitAssetInventory from "./v2PortraitAssetInventory";
+
 export type V2PortraitFileInventory = ReadonlyMap<
   string,
   ReadonlyMap<string, string>
@@ -51,11 +53,6 @@ export const createV2PortraitAssetCatalogFromPublicPaths = (
     filesByDirectory: new Map(entries)
   });
 };
-
-const EMPTY_PORTRAIT_PUBLIC_PATHS: readonly string[] = Object.freeze([]);
-const portraitAssetInventory = import.meta.env.DEV
-  ? await import("./v2PortraitAssetInventory.dev")
-  : Object.freeze({ portraitPublicPaths: EMPTY_PORTRAIT_PUBLIC_PATHS });
 
 export const V2_PORTRAIT_ASSET_CATALOG =
   createV2PortraitAssetCatalogFromPublicPaths(
