@@ -86,7 +86,7 @@ export const createDefaultCharacterSpritesheet = (
   drawFrame(0, "#3b5fbf", "#f1f1f1");
   drawFrame(1, "#d4a21f", "#f8f2c2");
   drawFrame(2, "#5c5c5c", "#c7c7c7");
-  drawFrame(3, "#783c46", "#edc7cd", true);
+  drawFrame(3, "#713c78", "#ebc7f0", true);
   drawFrame(4, "#315f72", "#b9e2ec");
   drawFrame(5, "#5c5c5c", "#c7c7c7");
 

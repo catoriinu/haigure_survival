@@ -120,9 +120,9 @@ export const runCharacterVisualTests = async (): Promise<
       }
       const gun = color("brainwash-complete-gun");
       const noGun = color("brainwash-complete-no-gun");
-      assert(gun[0] > gun[1] && gun[0] > gun[2], "銃ありがくすんだ赤ではありません。");
+      assert(gun.join(",") === "113,60,120", "銃ありが指定されたピンク系の配色ではありません。");
       assert(noGun[0] < noGun[1] && noGun[1] < noGun[2], "銃なしがくすんだ水色ではありません。");
-      return "進行中・ポーズ・整列は灰色、銃ありは赤、銃なしは水色";
+      return "進行中・ポーズ・整列は灰色、銃ありはピンク系、銃なしは水色";
     }),
     executeTest("Character画像の必須8状態解決", () => {
       const paths = V2_PORTRAIT_IMAGE_BASE_NAMES.map(
