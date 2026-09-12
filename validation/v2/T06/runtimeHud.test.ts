@@ -337,7 +337,7 @@ export const runRuntimeHudTests = async () =>
         scene.render();
         const guide = getRole(host, "completion-guide");
         const colors = {
-          gun: "rgb(156, 255, 87)",
+          gun: "rgb(217, 140, 255)",
           "no-gun": "rgb(97, 232, 255)",
           haigure: "rgb(255, 209, 102)"
         } as const;

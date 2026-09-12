@@ -1,3 +1,4 @@
+import { SCHOOL_STAGE } from "../../../src/world/stageCatalog";
 import {
   FreeCamera,
   NullEngine,
@@ -107,6 +108,23 @@ const createVoiceAssetCatalog = (): V2AudioAssetCatalog =>
 
 export const runAudioRuntimeTests = async () =>
   Promise.all([
+    executeTest("V1素材名の継続利用と学校BGMのID指定", () => {
+      const createCatalog = (bgmPublicPaths: readonly string[]) =>
+        createV2AudioAssetCatalogFromPublicPaths({
+          baseUrl: "/game/",
+          bgmPublicPaths,
+          sePublicPaths: [],
+          voicePublicPaths: ["/public/audio/voice/任意のフォルダ/旧ボイス.wav"],
+        });
+      const legacy = createCatalog(["/public/audio/bgm/laboratory.mp3"]);
+      assert(legacy.selectBgmUrl(SCHOOL_STAGE.id, () => 0) === "/game/audio/bgm/laboratory.mp3", "V1のBGMを改名せず選曲できません。");
+      const school = createCatalog(["/public/audio/bgm/laboratory.mp3", "/public/audio/bgm/school.mp3"]);
+      assert(school.selectBgmUrl(SCHOOL_STAGE.id, () => 0) === "/game/audio/bgm/school.mp3", "学校BGMがステージIDで優先されません。");
+      assert(legacy.isVoiceFileAvailable("任意のフォルダ/旧ボイス.wav"), "登録済みVOICEの相対パスをそのまま使用できません。");
+      const empty = createCatalog([]);
+      assert(empty.selectBgmUrl(SCHOOL_STAGE.id, () => 0) === null, "BGM未配置で無音になりません。");
+      return "既存BGM名・任意VOICEパス維持、school.mp3優先、BGMなしは無音";
+    }),
     executeTest("Gameplay Audio eventの一回drain", () => {
       const queue = createV2GameplayAudioEventQueue();
       const initialEmpty = queue.drain();

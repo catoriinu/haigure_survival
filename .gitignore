@@ -3,9 +3,14 @@ dist
 dist-electron
 release
 *.code-workspace
+!/.vscode/fps_survival20251226.code-workspace
 *.log
 gpt_image/
 public/audio/bgm/**
 public/audio/se/**
 public/audio/voice/**
 public/picture/chara/**
+
+# 検証画像はディレクトリ単位でGit管理から除外する
+/verification-images/
+/docs/plans/**/images/

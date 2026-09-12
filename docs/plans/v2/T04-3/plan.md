@@ -400,7 +400,7 @@ stateDiagram-v2
 - 推奨リーズニング: Ultra
 - Ultra判断: 推奨。動的Collider・遮蔽、タイルNavMesh、扉とエレベーターの状態機械、乗車予約を同時に扱う。
 - 開始条件: T05-2Vが`develop`へ統合済みであること。
-- 所有範囲: `src/world`、専用の動的状態機械、`validation/v2/T04/`と`vite.t04.config.mts`の動的空間・扉・エレベーター専用fixture。学校バイナリ、`validation/v2/T05/`、実学校NPC統合を変更しない。
+- 所有範囲: `src/world`、専用の動的状態機械、`validation/v2/T04/`と`validation/v2/T04/vite.config.mts`の動的空間・扉・エレベーター専用fixture。学校バイナリ、`validation/v2/T05/`、実学校NPC統合を変更しない。
 - 並行可否: B03-3BまたはB03-3C、およびT05-3と並行できる。T05-2Vが先に完了してB03-3Bが継続している場合も、学校バイナリを編集しないため開始できる。
 
 ### T04-3B

@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { readdir, readFile, stat } from "node:fs/promises";
-import { dirname, extname, join, relative, resolve } from "node:path";
+import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const REPOSITORY_ROOT = resolve(
@@ -9,19 +9,7 @@ const REPOSITORY_ROOT = resolve(
 );
 const DIST_ROOT = join(REPOSITORY_ROOT, "dist");
 const STAGE_CATALOG_PATH = join(REPOSITORY_ROOT, "src/world/stageCatalog.ts");
-const FONT_EXTENSIONS = new Set([".ttf", ".otf", ".woff", ".woff2"]);
-const AUDIO_EXTENSIONS = new Set([".mp3", ".wav"]);
-const FORBIDDEN_LOCAL_ASSET_ROOTS = Object.freeze([
-  Object.freeze({
-    id: "local-audio-paths-absent",
-    path: "audio",
-  }),
-  Object.freeze({
-    id: "local-character-paths-absent",
-    path: "picture/chara",
-  }),
-]);
-const ALLOWED_PUBLIC_ASSET_PATHS = Object.freeze([
+const REQUIRED_PUBLIC_ASSET_PATHS = Object.freeze([
   "LICENSES/NotoSansJP-OFL-1.1.txt",
   "LICENSES/THIRD_PARTY_NOTICES.txt",
   "stage-assets/v2/B02/b02_school_blockout.bit-flight.navmesh.bin",
@@ -77,19 +65,6 @@ function normalizeRelativePath(path) {
 function normalizedPathKey(path) {
   return normalizeRelativePath(path).toLowerCase();
 }
-
-const ALLOWED_PUBLIC_ASSET_PATH_KEYS = new Set(
-  ALLOWED_PUBLIC_ASSET_PATHS.map(normalizedPathKey)
-);
-const ALLOWED_PRODUCTION_DIRECTORY_KEYS = new Set([
-  "assets",
-  ...ALLOWED_PUBLIC_ASSET_PATHS.flatMap((path) => {
-    const segments = normalizeRelativePath(path).split("/");
-    return segments.slice(0, -1).map((_, index) =>
-      segments.slice(0, index + 1).join("/").toLowerCase()
-    );
-  }),
-]);
 
 function stableJson(value) {
   return `${JSON.stringify(value, null, 2)}\n`;
@@ -205,82 +180,51 @@ function createCheck(id, passed, expected, actual) {
 
 async function auditDistribution() {
   const tree = await listDistributionTree(DIST_ROOT);
-  const allArtifacts = tree.allPaths
-    .map((path) => normalizeRelativePath(relative(DIST_ROOT, path)))
-    .sort();
   const fileArtifacts = tree.filePaths
     .map((path) => normalizeRelativePath(relative(DIST_ROOT, path)))
     .sort();
   const specialArtifacts = tree.specialPaths
     .map((path) => normalizeRelativePath(relative(DIST_ROOT, path)))
     .sort();
-  const fontArtifacts = fileArtifacts
-    .filter((path) => FONT_EXTENSIONS.has(extname(path).toLowerCase()))
+  const publicRoot = join(REPOSITORY_ROOT, "public");
+  const publicTree = await listDistributionTree(publicRoot);
+  const publicFiles = publicTree.filePaths
+    .map((path) => normalizeRelativePath(relative(publicRoot, path)))
     .sort();
-  const audioFileArtifacts = allArtifacts
-    .filter((path) => AUDIO_EXTENSIONS.has(extname(path).toLowerCase()))
-    .sort();
-
-  const checks = [
-    createCheck("font-artifacts-absent", fontArtifacts.length === 0, 0, fontArtifacts.length),
-    createCheck(
-      "audio-file-artifacts-absent",
-      audioFileArtifacts.length === 0,
-      [],
-      audioFileArtifacts
-    ),
-  ];
-
-  for (const forbiddenRoot of FORBIDDEN_LOCAL_ASSET_ROOTS) {
-    const rootKey = normalizedPathKey(forbiddenRoot.path);
-    const artifacts = allArtifacts.filter((path) => {
-      const key = normalizedPathKey(path);
-      return key === rootKey || key.startsWith(`${rootKey}/`);
-    });
-    checks.push(
-      createCheck(forbiddenRoot.id, artifacts.length === 0, [], artifacts)
-    );
+  const publicKeys = new Set(publicFiles.map(normalizedPathKey));
+  const mismatchedPublicFiles = [];
+  for (const relativePath of publicFiles) {
+    const outputPath = join(DIST_ROOT, relativePath);
+    if (!(await isFile(outputPath))) {
+      mismatchedPublicFiles.push(relativePath);
+      continue;
+    }
+    const [source, output] = await Promise.all([
+      readFile(join(publicRoot, relativePath)),
+      readFile(outputPath),
+    ]);
+    if (!source.equals(output)) {
+      mismatchedPublicFiles.push(relativePath);
+    }
   }
-
-  const actualAllowedPublicAssets = fileArtifacts.filter((path) =>
-    ALLOWED_PUBLIC_ASSET_PATH_KEYS.has(normalizedPathKey(path))
+  const missingRequiredAssets = REQUIRED_PUBLIC_ASSET_PATHS.filter(
+    (path) => !fileArtifacts.includes(path)
   );
-  const actualAllowedPublicAssetKeys = new Set(
-    actualAllowedPublicAssets.map(normalizedPathKey)
-  );
-  checks.push(
-    createCheck(
-      "allowed-public-assets-present",
-      actualAllowedPublicAssets.length === ALLOWED_PUBLIC_ASSET_PATHS.length &&
-        actualAllowedPublicAssetKeys.size === ALLOWED_PUBLIC_ASSET_PATHS.length,
-      ALLOWED_PUBLIC_ASSET_PATHS,
-      actualAllowedPublicAssets
-    )
-  );
-
-  const unexpectedArtifacts = [
-    ...new Set([
-      ...allArtifacts.filter((path) => {
-        const key = normalizedPathKey(path);
-        if (ALLOWED_PRODUCTION_DIRECTORY_KEYS.has(key)) {
-          return false;
-        }
-        if (key === "index.html" || ALLOWED_PUBLIC_ASSET_PATH_KEYS.has(key)) {
-          return false;
-        }
-        return !/^assets\/[^/]+\.(?:js|css|wasm)$/u.test(key);
-      }),
-      ...specialArtifacts,
-    ]),
-  ].sort();
-  checks.push(
-    createCheck(
-      "unexpected-production-artifacts-absent",
-      unexpectedArtifacts.length === 0,
-      [],
-      unexpectedArtifacts
-    )
-  );
+  const unexpectedArtifacts = fileArtifacts.filter((path) => {
+    const key = normalizedPathKey(path);
+    return key !== "index.html" && !publicKeys.has(key) &&
+      !/^assets\/[^/]+\.(?:js|css|wasm)$/u.test(key);
+  });
+  const checks = [
+    createCheck("public-files-integrity", mismatchedPublicFiles.length === 0,
+      [], mismatchedPublicFiles),
+    createCheck("required-stage-assets-present", missingRequiredAssets.length === 0,
+      [], missingRequiredAssets),
+    createCheck("unexpected-production-artifacts-absent", unexpectedArtifacts.length === 0,
+      [], unexpectedArtifacts),
+    createCheck("special-artifacts-absent", specialArtifacts.length === 0,
+      [], specialArtifacts),
+  ];
 
   const atlasPath = join(DIST_ROOT, ATLAS.path);
   const atlasExists = await isFile(atlasPath);
@@ -395,12 +339,7 @@ async function auditDistribution() {
     distributionRoot: "dist",
     status: checks.every((check) => check.status === "passed") ? "passed" : "failed",
     checks,
-    fontArtifacts,
-    audioFileArtifacts,
-    localAudioArtifacts:
-      checks.find((check) => check.id === "local-audio-paths-absent")?.actual ?? [],
-    localCharacterArtifacts:
-      checks.find((check) => check.id === "local-character-paths-absent")?.actual ?? [],
+    publicFileCount: publicFiles.length,
     unexpectedArtifacts,
   };
 }

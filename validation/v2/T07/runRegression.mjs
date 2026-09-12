@@ -30,28 +30,28 @@ const domResult = Object.freeze({
 
 const suites = Object.freeze({
   t04: Object.freeze({
-    configPath: "vite.t04.config.mts",
+    configPath: "validation/v2/T04/vite.config.mts",
     entryPath: "validation/v2/T04/index.html",
     urlPath: "/index.html",
     timeoutMilliseconds: 360_000,
     result: domResult
   }),
   "t04-school": Object.freeze({
-    configPath: "vite.t04.config.mts",
+    configPath: "validation/v2/T04/vite.config.mts",
     entryPath: "validation/v2/T04/school-integration.html",
     urlPath: "/school-integration.html",
     timeoutMilliseconds: 300_000,
     result: domResult
   }),
   b05: Object.freeze({
-    configPath: "vite.b05.config.mts",
+    configPath: "validation/v2/B05/vite.config.mts",
     entryPath: "validation/v2/B05/index.html",
     urlPath: "/index.html",
     timeoutMilliseconds: 300_000,
     result: windowResult("__B05_VALIDATION__", ["inventory", "activeFloor"])
   }),
   t05: Object.freeze({
-    configPath: "vite.t05.config.mts",
+    configPath: "validation/v2/T05/vite.config.mts",
     entryPath: "validation/v2/T05/index.html",
     urlPath: "/index.html",
     timeoutMilliseconds: 360_000,
@@ -60,63 +60,63 @@ const suites = Object.freeze({
       "非学校fixtureの既存記録上の残1件は除外せず、正式statusと失敗checkをそのまま保存する。"
   }),
   "t05-npc-command": Object.freeze({
-    configPath: "vite.t05.config.mts",
+    configPath: "validation/v2/T05/vite.config.mts",
     entryPath: "validation/v2/T05/npc-command.html",
     urlPath: "/npc-command.html",
     timeoutMilliseconds: 240_000,
     result: windowResult("__T05_3_VALIDATION__")
   }),
   t06: Object.freeze({
-    configPath: "vite.t06.config.mts",
+    configPath: "validation/v2/T06/vite.config.mts",
     entryPath: "validation/v2/T06/index.html",
     urlPath: "/index.html",
     timeoutMilliseconds: 240_000,
     result: windowResult("__T06_VALIDATION__")
   }),
   "t06-2": Object.freeze({
-    configPath: "vite.t06-2.config.mts",
+    configPath: "validation/v2/T06-2/vite.config.mts",
     entryPath: "validation/v2/T06-2/index.html",
     urlPath: "/index.html",
     timeoutMilliseconds: 240_000,
     result: windowResult("__T06_2_VALIDATION__")
   }),
   "t06-3": Object.freeze({
-    configPath: "vite.t06-3.config.mts",
+    configPath: "validation/v2/T06-3/vite.config.mts",
     entryPath: "validation/v2/T06-3/index.html",
     urlPath: "/index.html",
     timeoutMilliseconds: 300_000,
     result: windowResult("__T06_3_VALIDATION__", ["activeFloor"])
   }),
   "t06-4": Object.freeze({
-    configPath: "vite.t06-4.config.mts",
+    configPath: "validation/v2/T06-4/vite.config.mts",
     entryPath: "validation/v2/T06-4/index.html",
     urlPath: "/index.html",
     timeoutMilliseconds: 240_000,
     result: windowResult("__T06_4_VALIDATION__")
   }),
   "t06-6a": Object.freeze({
-    configPath: "vite.t06-6a.config.mts",
+    configPath: "validation/v2/T06-6A/vite.config.mts",
     entryPath: "validation/v2/T06-6A/index.html",
     urlPath: "/index.html",
     timeoutMilliseconds: 180_000,
     result: windowResult("__T06_6A_VALIDATION__")
   }),
   "t06-6b": Object.freeze({
-    configPath: "vite.t06-6b.config.mts",
+    configPath: "validation/v2/T06-6B/vite.config.mts",
     entryPath: "validation/v2/T06-6B/index.html",
     urlPath: "/index.html",
     timeoutMilliseconds: 180_000,
     result: windowResult("__T06_6B_VALIDATION__")
   }),
   "t06-6c": Object.freeze({
-    configPath: "vite.t06-6c.config.mts",
+    configPath: "validation/v2/T06-6C/vite.config.mts",
     entryPath: "validation/v2/T06-6C/index.html",
     urlPath: "/index.html",
     timeoutMilliseconds: 180_000,
     result: windowResult("__T06_6C_VALIDATION__")
   }),
   "t06-6d": Object.freeze({
-    configPath: "vite.t06-6d.config.mts",
+    configPath: "validation/v2/T06-6D/vite.config.mts",
     entryPath: "validation/v2/T06-6D/index.html",
     urlPath: "/index.html",
     timeoutMilliseconds: 240_000,

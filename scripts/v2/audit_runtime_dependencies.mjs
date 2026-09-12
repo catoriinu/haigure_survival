@@ -58,10 +58,10 @@ const validationSeedRelativePaths = [
   "validation/v2/T02/main.ts",
   "validation/v2/T03/main.ts",
   "validation/v2/T04/main.ts",
-  "vite.t01.config.mts",
-  "vite.t02.config.mts",
-  "vite.t03.config.mts",
-  "vite.t04.config.mts"
+  "validation/v2/T01/vite.config.mts",
+  "validation/v2/T02/vite.config.mts",
+  "validation/v2/T03/vite.config.mts",
+  "validation/v2/T04/vite.config.mts"
 ];
 const bannedIdentifiers = [
   "GridLayout",
