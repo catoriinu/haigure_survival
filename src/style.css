@@ -1422,8 +1422,11 @@ body {
 
 #titleOverlay[data-title-layout="wide"] .v2-title-settings__main-host {
   align-self: start;
+  justify-self: end;
+  width: calc(100% - 20px);
   max-height: 100%;
   padding: 6px;
+  scrollbar-gutter: auto;
 }
 
 #titleOverlay[data-title-layout] .v2-title-settings__mode-button {
@@ -1487,8 +1490,17 @@ body {
 }
 
 #titleOverlay[data-title-layout="wide"] .v2-title-settings__main-host .v2-title-settings__row {
-  gap: 7px;
+  grid-template-columns: minmax(max-content, 1fr) auto;
+  gap: 5px;
   margin-top: 5px;
+}
+
+#titleOverlay[data-title-layout="wide"] .v2-title-settings__main-host .v2-title-settings__row--range {
+  grid-template-columns: minmax(max-content, 0.8fr) minmax(0, 1.2fr);
+}
+
+#titleOverlay[data-title-layout="wide"] .v2-title-settings__main-host .v2-title-settings__label {
+  white-space: nowrap;
 }
 
 #titleOverlay[data-title-layout="wide"] .v2-title-settings__main-host .v2-title-settings__number,
@@ -1504,6 +1516,7 @@ body {
 }
 
 #titleOverlay[data-title-layout="wide"] .v2-title-settings__main-host .v2-title-settings__select {
+  width: 215px;
   height: 29px;
 }
 
