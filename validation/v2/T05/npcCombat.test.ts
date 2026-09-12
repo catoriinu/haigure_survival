@@ -117,6 +117,7 @@ type NpcRuntimeTestAccess = {
     navigationAgentCleared: boolean;
     navigationBehavior: string;
     wanderWaitSeconds: number;
+    targetSelectionPersonality: "persistent" | "nearest-visible" | null;
     restSlot: Readonly<{
       position: Vector3;
       polygonRef: number;
@@ -1254,6 +1255,7 @@ const testGunFiresAtCapturedNpcAndNoGunsShareCapture = async () => {
 
 const testPersistentGunRetainsNpcAfterCapture = async () => {
   const fixture = await createNpcFixture(3, 2, 5, true, null, 0.6);
+  (fixture.system as unknown as NpcRuntimeTestAccess).npcs[1].targetSelectionPersonality = "persistent";
   const player = createPlayerTarget(new Vector3(4, 0, 4));
   try {
     fixture.system.prepareExecutionRoles([{ npcId: "npc_1", role: "shooter" }]);
@@ -1825,6 +1827,7 @@ const placeVisionSelectionNpcs = (system: V2NpcSystem) => {
 const testNearestVisibleTargetRayEarlyExitAndTieOrder = async () => {
   const nearestTieFixture = await createNpcFixture(3, 1);
   const persistentTieFixture = await createNpcFixture(3, 2);
+  (persistentTieFixture.system as unknown as NpcRuntimeTestAccess).npcs[1].targetSelectionPersonality = "persistent";
   const blockedFixture = await createNpcFixture(3, 1);
   const player = createPlayerTarget(
     new Vector3(1, NPC_SPRITE_CENTER_HEIGHT - 0.3, -1)
@@ -1930,6 +1933,7 @@ const testNearestVisibleTargetRayEarlyExitAndTieOrder = async () => {
 
 const testNpcCurrentTargetSightSchedule = async () => {
   const fixture = await createNpcFixture(2, 2);
+  (fixture.system as unknown as NpcRuntimeTestAccess).npcs[1].targetSelectionPersonality = "persistent";
   const player = createPlayerTarget(new Vector3(0, 0, -1));
   try {
     fixture.system.placeNpcs([
@@ -2107,6 +2111,7 @@ const testNpcFollowAndAlarmSightSchedules = async () => {
 
 const testNpcTargetSelectionPersonalitiesAndForcedPriority = async () => {
   const fixture = await createNpcFixture(3, 2, 5, true);
+  (fixture.system as unknown as NpcRuntimeTestAccess).npcs[1].targetSelectionPersonality = "persistent";
   const initialPlayer = createPlayerTarget(
     new Vector3(0, 0, -0.5)
   );
@@ -2395,6 +2400,7 @@ const testNpcTargetlessPriorityDoesNotStarveCurrentSightChecks = async () => {
   const npcCount = 30;
   const holderId = "npc_1";
   const fixture = await createNpcFixture(npcCount, npcCount, 5, true);
+  (fixture.system as unknown as NpcRuntimeTestAccess).npcs[1].targetSelectionPersonality = "persistent";
   const player = createPlayerTarget(new Vector3(0, 0, -2));
   const targetlessRayOrigins = new Set<string>();
   let measurementHalf = 0;
