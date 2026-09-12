@@ -7,6 +7,7 @@ import {
 
 import {
   createV2BitSystem,
+  V2_BIT_INDOOR_SPAWN_PROBABILITY,
   type V2BitSystem
 } from "../../../src/v2/bitSystem";
 import type {
@@ -28,6 +29,7 @@ import {
   countSceneResources,
   createSyntheticStageFixture,
   sceneResourceCountsEqual,
+  type SyntheticBitSpawnRegion,
   type SyntheticStageFixture
 } from "./runtimeFixture";
 import {
@@ -1062,6 +1064,220 @@ const testBitSpawnRejectsSafeCenterOutsideVolume = () => {
   }
 };
 
+const UNEQUAL_BIT_SPAWN_REGIONS: readonly SyntheticBitSpawnRegion[] = Object.freeze([
+  Object.freeze({ id: "indoor", spaceKind: "indoor", minimumX: -5, maximumX: -4 }),
+  Object.freeze({ id: "outdoor", spaceKind: "outdoor", minimumX: -4, maximumX: 5 })
+]);
+
+const getBitSpawnPosition = (scene: Scene, index: number) => {
+  const node = scene.getTransformNodeByName(`v2_bit_${index}`);
+  assert(node !== null, `出現BITのTransformNodeがありません: ${index}`);
+  return node.position.clone();
+};
+
+const testBitIndoorOutdoorProbabilityBoundary = () => {
+  const engine = new NullEngine();
+  const scene = new Scene(engine);
+  const fixture = createSyntheticStageFixture(scene, {
+    bitSpawnRegions: UNEQUAL_BIT_SPAWN_REGIONS
+  });
+  const threshold = V2_BIT_INDOOR_SPAWN_PROBABILITY;
+  const random = createSequenceRandom([
+    threshold - Number.EPSILON, 0.1, 0.36, 0.25, 0.5,
+    threshold, 0.9, 0.64, 0.75, 0.5,
+    0, 0.7, 0.81, 0.25, 0.5,
+    1 - Number.EPSILON, 0.3, 0.16, 0.75, 0.5
+  ]);
+  const system = createBitSystem(scene, fixture, {
+    initialBitCount: 2,
+    maximumBitCount: 4,
+    combatEnabled: false,
+    random: () => 0.5,
+    spawnRandom: random.random
+  });
+  try {
+    assert(threshold === 0.5, `屋内出現の採用既定値が50%ではありません: ${threshold}`);
+    system.setHostileActionsSuspended(true);
+    updateBitSystem(system, 10, 10);
+    updateBitSystem(system, 10, 20);
+    const spaces = [0, 1, 2, 3].map((index) =>
+      getBitSpawnPosition(scene, index).x < -4 ? "indoor" : "outdoor"
+    );
+    assert(
+      spaces.join(",") === "indoor,outdoor,indoor,outdoor",
+      `初期/時間増援が面積1:9に影響されるか50%境界が不正です: ${spaces.join(",")}`
+    );
+    assert(random.getCallCount() === 20, `1機1回の分類抽選ではありません: ${random.getCallCount()}`);
+    return "NavMesh面積1:9 / 初期2機・時間増援2機 / 分類境界0.5 / 各分類2機";
+  } finally {
+    system.dispose();
+    fixture.dispose();
+    scene.dispose();
+    engine.dispose();
+  }
+};
+
+const testBitSpawnRetryKeepsSelectedSpace = () => {
+  const engine = new NullEngine();
+  const scene = new Scene(engine);
+  const attemptedCenters: Vector3[] = [];
+  const fixture = createSyntheticStageFixture(scene, {
+    bitSpawnRegions: UNEQUAL_BIT_SPAWN_REGIONS,
+    selectedExcludes: (point) => {
+      if (point.y > 0) {
+        attemptedCenters.push(point.clone());
+        return attemptedCenters.length === 1;
+      }
+      return false;
+    }
+  });
+  const random = createSequenceRandom([
+    0.25, 0.8, 0.49, 0.4, 0.5,
+    0.9, 0.81, 0.6, 0.5
+  ]);
+  const system = createBitSystem(scene, fixture, {
+    initialBitCount: 1,
+    maximumBitCount: 1,
+    combatEnabled: false,
+    random: () => 0.5,
+    spawnRandom: random.random,
+    spawnMaxAttempts: 2
+  });
+  try {
+    assert(
+      attemptedCenters.length === 2 && attemptedCenters.every((point) => point.x < -4),
+      `棄却後に分類を再抽選しました: ${attemptedCenters.map((point) => point.x).join(",")}`
+    );
+    assert(getBitSpawnPosition(scene, 0).x < -4, "再試行後のBITが選択済み屋内を離れました。");
+    assert(random.getCallCount() === 9, `棄却で分類乱数を追加消費しました: ${random.getCallCount()}`);
+  } finally {
+    system.dispose();
+    fixture.dispose();
+    scene.dispose();
+    engine.dispose();
+  }
+
+  const exhaustedEngine = new NullEngine();
+  const exhaustedScene = new Scene(exhaustedEngine);
+  const exhaustedFixture = createSyntheticStageFixture(exhaustedScene, {
+    bitSpawnRegions: UNEQUAL_BIT_SPAWN_REGIONS,
+    selectedExcludes: (point) => point.x < -4
+  });
+  try {
+    const exhaustedRandom = createSequenceRandom([0.1], 0.9);
+    const message = captureThrownMessage(() => {
+      const unexpectedSystem = createBitSystem(exhaustedScene, exhaustedFixture, {
+        initialBitCount: 1,
+        maximumBitCount: 1,
+        combatEnabled: false,
+        random: () => 0.5,
+        spawnRandom: exhaustedRandom.random,
+        spawnMaxAttempts: 2
+      });
+      unexpectedSystem.dispose();
+    });
+    assert(
+      message === "bit_spawnの1点目を2回以内に生成できませんでした。",
+      `屋内候補全滅を屋外への振替で隠しました: ${message}`
+    );
+    return "除外後も屋内で再抽選 / 分類乱数1回 / 屋内候補全滅は2回で明示失敗";
+  } finally {
+    exhaustedFixture.dispose();
+    exhaustedScene.dispose();
+    exhaustedEngine.dispose();
+  }
+};
+
+const testBitSpawnWithOneSpaceKind = () => {
+  for (const spaceKind of ["indoor", "outdoor"] as const) {
+    const engine = new NullEngine();
+    const scene = new Scene(engine);
+    const fixture = createSyntheticStageFixture(scene, {
+      bitSpawnRegions: Object.freeze([
+        Object.freeze({ id: spaceKind, spaceKind, minimumX: -5, maximumX: 5 })
+      ])
+    });
+    const random = createSequenceRandom([0.25, 0.36, 0.25, 0.5]);
+    const system = createBitSystem(scene, fixture, {
+      initialBitCount: 1,
+      maximumBitCount: 1,
+      combatEnabled: false,
+      random: () => 0.5,
+      spawnRandom: random.random,
+      spawnMaxAttempts: 1
+    });
+    try {
+      system.prepareForScriptedPhase();
+      const states = system.getFrameView().flightStates;
+      assert(
+        states.length === 1 && states[0].zoneId === `${spaceKind}-zone`,
+        `単独分類${spaceKind}への出現が不正です。`
+      );
+      assert(random.getCallCount() === 4, `単独分類${spaceKind}で不要な分類乱数を消費しました。`);
+    } finally {
+      system.dispose();
+      fixture.dispose();
+      scene.dispose();
+      engine.dispose();
+    }
+  }
+  return "屋内のみ・屋外のみの両方で出現 / 分類乱数0回";
+};
+
+const testBitSpaceSpawnSeedAndSafety = () => {
+  const capture = (seed: number) => {
+    const engine = new NullEngine();
+    const scene = new Scene(engine);
+    const fixture = createSyntheticStageFixture(scene, {
+      bitSpawnRegions: UNEQUAL_BIT_SPAWN_REGIONS,
+      selectedExcludes: (point) => point.z < -2,
+      otherExcludes: () => true
+    });
+    const system = createBitSystem(scene, fixture, {
+      initialBitCount: 6,
+      maximumBitCount: 10,
+      combatEnabled: false,
+      random: () => 0.5,
+      spawnRandom: createSchoolRuntimeRandom(seed, "bit-spawn")
+    });
+    try {
+      system.setHostileActionsSuspended(true);
+      for (let index = 1; index <= 4; index += 1) {
+        updateBitSystem(system, 10, index * 10);
+      }
+      const positions = Array.from({ length: 10 }, (_, index) => getBitSpawnPosition(scene, index));
+      assert(
+        positions.every((position) => position.z >= -2 && position.y >= 1 && position.y <= 1.4),
+        "混在分類の出現が除外領域または許可高度へ違反しました。"
+      );
+      const contains = fixture.stage.volumes.getByRole("bit_spawn").map((volume) =>
+        createStageBoundaryContainsQuery(volume.mesh)
+      );
+      assert(
+        positions.every((position) => contains.some((query) => query(position))),
+        "混在分類の出現が出現Volumeを離れました。"
+      );
+      positions.forEach((position, index) => {
+        assert(
+          positions.slice(0, index).every((earlier) => Vector3.Distance(position, earlier) >= 0.05),
+          `初期/時間増援が既存BITとの最小距離を破りました: ${index}`
+        );
+      });
+      assertOnlySelectedExclusionWasQueried(fixture, 10);
+      return positions.map((position) => position.asArray());
+    } finally {
+      system.dispose();
+      fixture.dispose();
+      scene.dispose();
+      engine.dispose();
+    }
+  };
+  const first = JSON.stringify(capture(0x0620_5091));
+  assert(first === JSON.stringify(capture(0x0620_5091)), "同seedの初期/時間増援が再現しません。");
+  assert(first !== JSON.stringify(capture(0x0620_5092)), "異なるseedでも同じ出現列になりました。");
+  return "初期6機＋時間増援4機 / 同seed再現・別seed差 / 出現Volume・高度・除外・最小距離";
+};
+
 const testCarpetFollowersExcludedFromCap = () => {
   const engine = new NullEngine();
   const scene = new Scene(engine);
@@ -1179,6 +1395,22 @@ export const runPopulationIntegrationTests = async () =>
     await executeTest(
       "BIT投影後safeCenterHeightのVolume内包判定",
       testBitSpawnRejectsSafeCenterOutsideVolume
+    ),
+    await executeTest(
+      "BIT屋内外の面積非依存50%境界・初期と時間増援",
+      testBitIndoorOutdoorProbabilityBoundary
+    ),
+    await executeTest(
+      "BIT安全候補棄却後の分類保持・候補全滅の明示失敗",
+      testBitSpawnRetryKeepsSelectedSpace
+    ),
+    await executeTest(
+      "BIT屋内のみ・屋外のみの正規出現",
+      testBitSpawnWithOneSpaceKind
+    ),
+    await executeTest(
+      "BIT分類抽選のseed再現・初期と増援の安全条件",
+      testBitSpaceSpawnSeedAndSafety
     ),
     await executeTest(
       "絨毯僚機の人口上限除外",

@@ -47,9 +47,7 @@ export const SCHOOL_STAGE: StageCatalogEntry = Object.freeze({
   navmeshSha256: "52f7dcbcd09b5dee685865001bc2dd1e8b98f4bf418688c8f4f01db0c180a9e4",
   bitNavmeshSha256:
     "4b3bbd249e00c515dad333ef29157e5128fc5cf7286cc26655d096e34be5b499",
-  depthPrePassMaterialNames: Object.freeze([
-    "MAT_B03_InfirmaryCurtain"
-  ]),
+  depthPrePassMaterialNames: Object.freeze([]),
   worldBoundaryMode: "required",
   locationAssetsMode: "required"
 });

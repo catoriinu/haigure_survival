@@ -5859,9 +5859,12 @@ const runBitMuzzleColorContractCheck = (): BitCombatIntegrationCheck => {
       bodySource.alphaIndex === V2_TRANSPARENT_ALPHA_INDEX_SPATIAL &&
       redBodySource.alphaIndex === V2_TRANSPARENT_ALPHA_INDEX_SPATIAL &&
       muzzleSource.alphaIndex === V2_TRANSPARENT_ALPHA_INDEX_SPATIAL &&
-      (bodySource.material as StandardMaterial).forceDepthWrite &&
-      (redBodySource.material as StandardMaterial).forceDepthWrite &&
-      (muzzleSource.material as StandardMaterial).forceDepthWrite;
+      !(bodySource.material as StandardMaterial).forceDepthWrite &&
+      !(redBodySource.material as StandardMaterial).forceDepthWrite &&
+      !(muzzleSource.material as StandardMaterial).forceDepthWrite &&
+      !(bodySource.material as StandardMaterial).needDepthPrePass &&
+      !(redBodySource.material as StandardMaterial).needDepthPrePass &&
+      !(muzzleSource.material as StandardMaterial).needDepthPrePass;
     const disabledContract = modes.every((mode) =>
       colorsApproximatelyEqual(resolveV2BitMuzzleColor(mode, false, false), black)
     );
@@ -5891,7 +5894,7 @@ const runBitMuzzleColorContractCheck = (): BitCombatIntegrationCheck => {
       disabledMuzzle.instancedBuffers.color === disabledColor &&
       enabledMuzzle.instancedBuffers.color === enabledColor;
     return Object.freeze({
-      name: "BIT機体は空間距離順＋深度write・通常先端黒・赤BIT先端赤・デバッグ9色",
+      name: "BIT機体は透明材質の深度writeなし・通常先端黒・赤BIT先端赤・デバッグ9色",
       ok:
         disabledColor instanceof Color4 &&
         enabledColor instanceof Color4 &&

@@ -337,6 +337,7 @@ export interface V2SurvivalRuntime {
   cancelNpcFollow(npcId: string): boolean;
   notifyPlayerElevatorStartedMoving(): void;
   setHostileActionsSuspended(suspended: boolean): void;
+  setBitAiSuspended(suspended: boolean): void;
   requestBroadcast(command: V2BroadcastCommand): boolean;
   previewNpcLocationMissionRoute(
     npcId: string,
@@ -2737,6 +2738,10 @@ constructionDependencies: V2SurvivalConstructionDependencies = Object.freeze({})
       hostileActionsSuspendedByRuntime = suspended;
       npcSystem.setHostileActionsSuspended(suspended);
       bitSystem.setHostileActionsSuspended(suspended);
+    },
+    setBitAiSuspended: (suspended) => {
+      assertActive();
+      bitSystem.setAiSuspended(suspended);
     },
     requestBroadcast: (command) => {
       assertActive();

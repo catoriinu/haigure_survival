@@ -1,6 +1,6 @@
 # HAIGURE SURVIVAL v2 3Dステージランタイム仕様書
 
-更新日: 2026-09-06
+更新日: 2026-09-12
 対象バージョン: v2
 
 ## 1. 文書の位置付け
@@ -63,7 +63,7 @@ export type StageCatalogEntry = Readonly<{
 - `worldBoundaryMode`は空間形状ではなく、対応資産世代を厳格に選ぶ非空間契約である。`required`では`BND_WorldLimit`を正確に1件要求し、`unsupported`では同Objectを許可しない。
 - `locationAssetsMode`も対応資産世代を厳格に選ぶ非空間契約である。`required`はschema version 3以上とB05意味資産の完全な目録を要求し、`unsupported`はB05用`MAP_*`、Marker、Volumeを1件も許可しない。
 - `navProfileId`と`bitNavProfileId`はGLBと各NavMesh生成記録の双方に一致させる。
-- `depthPrePassMaterialNames`は、半透明面の重なり順を安定させるため、透明Color pass前に深度を確定するMaterial名を重複なく列挙する。各名前はGLB内のMaterialちょうど1件と一致しなければ読込失敗とする。
+- `depthPrePassMaterialNames`は、Color pass前に不透明な深度を確定するMaterial名を重複なく列挙する。各名前はGLB内のMaterialちょうど1件と一致しなければ読込失敗とする。半透明面の並べ替えには使用しない。学校は空配列とし、窓とカーテンは画素の深度・alphaで透過合成する。
 - GLB、静的人間用NavMesh、対応時の部屋variant bundle、ビット用NavMeshのいずれかのハッシュが不一致なら読込失敗とし、古い成果物を継続使用しない。
 - 当面のカタログ件数は学校1件とする。
 
@@ -411,7 +411,9 @@ T04-3Aでは資産仕様7.9節に従い、`door`、`door_panel`、`door_open_pos
 
 `StagePlayerSpawnRegistry`は`player_spawn` Marker、`hs_player_spawn_id`でそのMarker IDを参照する1件の`player_spawn_exclusion` Volume、同じIDを参照する1件以上の`npc_spawn_bias` Volumeを組み立てる。参照先欠落、除外Volumeの重複対応、bias欠落、孤立対応、`0.000001`未満または`1,000,000`超の重み、単一`npc_spawn`へ完全内包されないbias、対応する人間用NavMeshとの実交差面積がないbiasは読込失敗とする。同一Playerのbias同士は実NavMesh上の正面積重複を禁止し、面・辺で接するだけの場合は許可する。学校は承認済みIDの固定順から、session seedから分離した`player-spawn`乱数列で一様抽選する。選択結果はPlayerとSurvivalへ同一objectで渡す。
 
-NPCとBITのランダム出現は多数の点を列挙せず、対応する3D Volumeとbaked NavMesh polygonの交差面から実面積比例で抽選する。NPCは全`npc_spawn`実交差面をまとめた基礎チャンネルを重み`1.0`とし、選択Player開始地点の`npc_spawn_bias`だけを各`hs_weight`の追加チャンネルとして有効化する。各チャンネルを重み比例で選んだ後、そのチャンネル内を実交差面積比例で抽選する。非選択地点のbiasは候補にも乱数消費にも含めず、基礎チャンネルを常に残すことで全`npc_spawn`許可面の出現確率を0にしない。初期値`hs_weight=0.5`では全校チャンネル`2/3`、近傍チャンネル`1/3`となる。初期洗脳済みを先に配置し、残る未洗脳NPCを同じチャンネル構成と全NPC間の最小距離を共有して後に配置する。`bit_spawn`は対象ゾーンID・帯IDを明示し、対応するBIT用NavMeshだけを使う。開始地点、NPC出現、BIT出現、その他のゲーム進行はsession seedからラベル付きで分離した乱数列を使う。
+NPCとBITのランダム出現は多数の点を列挙せず、対応する3D Volumeとbaked NavMesh polygonの交差面を使い、選択した分類・チャンネル内を実面積比例で抽選する。NPCは全`npc_spawn`実交差面をまとめた基礎チャンネルを重み`1.0`とし、選択Player開始地点の`npc_spawn_bias`だけを各`hs_weight`の追加チャンネルとして有効化する。各チャンネルを重み比例で選んだ後、そのチャンネル内を実交差面積比例で抽選する。非選択地点のbiasは候補にも乱数消費にも含めず、基礎チャンネルを常に残すことで全`npc_spawn`許可面の出現確率を0にしない。初期値`hs_weight=0.5`では全校チャンネル`2/3`、近傍チャンネル`1/3`となる。初期洗脳済みを先に配置し、残る未洗脳NPCを同じチャンネル構成と全NPC間の最小距離を共有して後に配置する。`bit_spawn`は対象ゾーンID・帯IDを明示し、対応するBIT用NavMeshだけを使う。開始地点、NPC出現、BIT出現、その他のゲーム進行はsession seedからラベル付きで分離した乱数列を使う。
+
+BITの初期出現・時間増援は、有効な`bit_spawn`のzoneにある`spaceKind`で屋内・屋外を分け、両方が存在するときは1機ごとに屋内50%・屋外50%を選ぶ。体育館は屋内に含む。比率は`V2_BIT_INDOOR_SPAWN_PROBABILITY`へ集約する。位置・高度の候補を安全判定や出現禁止・開始地点除外・他BITとの最小距離で棄却しても、その機の分類は変えずに同じ分類内で再抽選する。片方の分類しかないステージではその分類のみを使い、分類抽選の乱数は消費しない。候補が試行上限までに見つからないときは既存の生成失敗を報告する。Alertによる発信機近傍の追加生成は別の配置規則を維持する。この比率は通常出現時の抽選配分であり、Alert追加機を含む全生成率や移動後の所在比率を保証しない。
 
 ## 9. ボリュームと境界
 

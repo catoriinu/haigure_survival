@@ -1,6 +1,10 @@
 # T06-2 光線と窓ガラスの奥行き描画修正 計画
 
-更新日: 2026-08-09
+更新日: 2026-09-12
+
+## 現在の到達点
+
+2026-09-12、過去のdepth proxy方式が奥のBIT・ガラスを不透明に遮り、出現球は別の描画indexにより手前ガラスへ重なることを実GPUで確認した。以下の過去結果は当時の検証記録であり、現在の透過合成の合格を示さない。最新の実装・検証は末尾の再発防止フェーズで管理する。
 
 ## プロンプト
 
@@ -59,7 +63,7 @@
 - [x] T05・T06・T06-2の型検査、build、ブラウザーfixture、通常ゲーム、consoleを再確認する。
 - [x] 実装結果を最新の実測値へ更新し、ローカルcommitする。pushは行わない。
 
-## 結果
+## 過去の結果（2026-08-09）
 
 前回commit `96fd6a7`で通常ビーム本体・先端へ追加した`needDepthPrePass`が、今回のプレイヤービーム消失の直接原因だった。Babylon.jsの透明depth pre-passはvertex／instance alphaとalpha cutoffを適用するcolor passより先に深度を書き、カメラからほぼ同軸に伸びる実ビームでは、透明な後端側面が本体奥側・先端・軌跡を自己遮蔽していた。前回のGPU fixtureは通常Meshによる大きな代替形状であり、実Cylinderの後端fade、hardware Instance、実寸、FPS同軸投影を再現していなかったため、この回帰を検出できなかった。
 
@@ -72,3 +76,54 @@ T06 GPU fixtureへ実`createV2BeamSystem`を使うplayer-gun回帰を追加し�
 独立した最終差分監査でも、描画順、depth proxy Material、親子変形、opacity同期、poolの再利用・clear・dispose、実GPU fixtureにP0～P2の指摘はなかった。
 
 変更はT06-2本体branch内のRuntime 2ファイル、検証2ファイル、計画1ファイルに限定した。主worktreeの未追跡ファイル、学校資産、Blender session、5182のserverには変更を加えていない。5176はユーザー確認用に維持し、pushとPR更新は行わない。
+
+## 2026-09-12 透明深度の再発防止
+
+### プロンプト
+
+> ビットとガラスと光線の奥行きの表示の仕方がおかしいです。ビットが出現したときの球状の状態がガラスよりも前に見えました。また、ビットに対して光線を自分から向かって撃つと、光線の方が優先されてビットが後ろで見えなくなりました。光線は光を通すので光線の後ろに、奥にうっすらとビットが見えてほしいし、ビットより手前にガラスがあるならガラスは手前にあるんだから、それにうっすら奥にビットが見えていなければいけません。前後関係、奥行き関係について改めて確認し直してください。
+
+> 前にも言ったように、この深さの問題はこの開発中に何十回も起きている問題です。テストコードを強化してください。そしてその上で実装も正しい深度順とか、透明度を重ねて表示するものは表示するというのを、ちゃんとカメラからの見え方で正しくなるように修正してください。
+
+> ここまで一回コミットしてください。（2026-09-12、検証完了後）
+
+### 対象・完了条件
+
+実BIT（出現・通常・fade）と実光線（本体・先端・軌跡・命中演出）、ガラスをカメラからの深度に従って透過合成する。交差面・逆方向の視点でも、手前半透明の奥の色を残し、不透明面の奥だけを遮る。Characterの透明背景・輪郭・拘束帯、壁による遮蔽を回帰確認する。学校GLB等の資産形状、AI、当たり判定は変更しない。既存の屋内出現50%の差分を維持する。テスト・実装修正・検証・記録の完了後、追加指示により屋内出現配分と合わせた1件のローカルcommitまでを対象とする。pushは含めない。
+
+### ステップ
+
+- [x] 現行コードと実GPU再現、過去のdepth pre-pass／OIT回帰、既存テストの不足を照合する。
+- [x] 実BIT・実光線・実GLB由来のガラス材質を使うGPU回帰を先に追加し、現行コードの失敗を記録する。
+- [x] カテゴリ順や見えない深度proxyに依存せず、画素の深度とalphaから合成する方式を実験・実装する。
+- [x] 前後・交差・逆視点・出現／消失・多重光線・Character・壁の回帰を確認し、旧テストの誤った期待を最新の透過契約へ改める。
+- [x] 対象型検査・配布build、通常ゲームの実画面とPlayer操作、console・素材読込を確認する（Pointer Lockの自動操作制約は下記へ記録）。
+- [x] 独立レビューと実測結果を記録し、確認サーバーを起動したまま報告する。
+
+### 結果
+
+修正前の独立GPU再現では、FPS同軸の光線中心が奥BITの有無にかかわらずRGBA `[251,67,238,255]`で一致し、BITが合成に寄与していない。出現球もfade中はガラスより後に固定描画される。既存T06は78/78 PASSだが、不透明PlaneをBITの代役にしており、実BIT＋実光線の透過を検査していなかった。
+
+実装修正前に`transparentDepthComposition.test.ts`を接続し、新6件中5件の描画不一致を確認した（全体79/84）。出現球と手前PBRガラスは実値`[90,96,100]`に対し独立source-over参照`[109,118,124]`、前光線と奥BITは実値`[238,88,234]`に対し参照`[203,52,196]`。奥ガラスの画素寄与、三者の斜視合成、多重光線でも失敗し、alpha0の非遮蔽はPASS。素材取得の初期URL誤りは本番修正前に訂正し、上記は正しい学校GLB取得後の描画結果である。
+
+深度合成は専用dual depth peelingへ変更した。4回ごとに全画面の未処理深度を1画素へ縮約し、残層がなくなるまで同じフレーム内で描く。35層は20回で完走し、4隅の1画素だけに残る14層、端数resize、空フレーム、RT解放をGPU回帰で確認した。透明材質の片面設定を維持し、不透明な深度の強制書込、光線depth proxy、カーテンpre-passを除去した。
+
+追加回帰から、事前shader compile時にInstanceが0個のtrail／命中光球では、後の初回生成時に`INSTANCESCOLOR`が再判定されずalphaを無視する問題も特定した。最初のInstance生成で材質属性をdirtyにし、実光球のalpha0で奥ガラスだけへ戻ることを確認した。命中光球は修正1行だけを外した外部比較でRED、適用時GREENを確認した。
+
+BITの中心色の追加不一致は、独立参照が通常BIT内部の不透明銃口と本体を距離順に上塗りしていたためだった。通常BITのalpha1をassertしたうえで参照内の不透明深度を有効にし、手前の黒い銃口と奥の灰色本体を別々にも比較する。合成結果の許容誤差は緩めていない。
+
+独立レビューで、camera-facing設定のCharacterだけがSpriteManager経路に残りOITを通らないことを検出した。旧描画を実行するGPU回帰は半透明PNGで`[0,13,229]`となりRED（85/86）。uprightと同じPlane合成経路へ統一し、両向きのPNG alpha 0/128/255、Player fade、壁・光線・ガラス、実寸の拘束帯を確認した。Characterと帯が同一深度のときはpolygon offsetでは分離できず、帯をカメラ側へ実座標0.001ずらす。正面・斜め、両向き、複数拘束IDでも1本・同じ濃さをGPUで確認し、T06は88/88 PASSとなった。
+
+最終Engine破棄時にBabylonが材質plugin factoryを消すライフサイクルも修正した。Scene開始時にfactoryを再登録し、Engine再生成後もalpha0の面が深度層を消費しない。既定rendererの生成直後の破棄と非同期shader compileの競合を避け、最初から専用rendererを設定する。
+
+通常学校の実画面は、DEV限定の`transparentDepthAcceptance=1`を学校受入URLへ併用し、保存値を変更せずPlayer銃あり・BIT1体・Mission無効へ固定して確認した。実際の学校ガラス`VIS_WindowGlass_F01_North_Special_Room02_Set03`の両側、正面・左右斜め、実Player銃の発射を確認した。光線の奥にBITの輪郭・銃口が透け、窓枠はBITを遮り、ガラス部分ではBITへガラス色が重なる。WASDの実キー入力で屋外側のPlayer足元Zが`-12.17937469482422`から`-12.225500280231271`へ移動した。DEV視点変更はPlayerの位置とNavigationAreaの履歴を一緒に更新する。
+
+実画面証拠はGit除外済みの`verification-images/transparent-depth-fix/`へ保存した。`front.png`、`front-player-beam.png`、`left.png`、`right.png`、`reverse.png`、`reverse-player-beam.png`と`normal-game-evidence.json`が確認条件・位置・射撃数を記録する。Chrome 1680×893、seed 20260812、保存設定由来NPC99体、BIT1体静止、敵行動停止の表示検証であり、通常60fps／高負荷120秒の性能受入とは区別する。FPSは同時実行の影響を分離しておらず、今回の変更前後の性能差は未測定。透明層が増えると描画回数が増える方式である。
+
+ブラウザ自動操作からのCanvasクリックではPointer Lockが`WrongDocumentError`で拒否されたため、マウス視点・クリック射撃の通し確認は未確認。射撃はDEVボタンから通常の`requestPlayerGunFire`を呼び、実光線の生成と画面を確認した。最終画面確認中に追加のwarning/errorや素材読込エラーはなかった。BGM・SE・VOICE・Character画像の代表ファイルはHTTP 200と各audio/image Content-Typeを確認し、カタログは空でなく、各音量5でMUTEではない。
+
+最終結果はT06が88/88、T05が341/341、T06-2が31/31 PASS。T05の旧メッシュ数期待をproxy撤去後の6へ修正し、生成直後のtrail alphaは既存fade-in仕様の0として検証した。寸法・前後位置・fade・命中・再衝突防止・pool再利用・clear・disposeの検証は維持する。T05の総数には同じ作業木で別タスクが追加したNPC巡回回帰を含むが、本件ではその実装・テストを編集していない。T05・T06・T06-2のconsole warning/errorは0件。
+
+`typecheck:v2`、`typecheck:t05`（Runtime依存監査込み）、`typecheck:t06`、`typecheck:t06-2`、`build:renderer`が成功した。Web配布監査はPASS、意図しない配布物は0件。Viteの既存chunkサイズ警告は残る。差分・UTF-8 BOMなしを確認し、独立レビューでは追加の修正指摘なし。表示検証UIのDEV限定、設定保存への非干渉、Player再配置の同期、observer破棄も別担当が確認した。これはAIによる検証結果であり、ユーザーの目視承認を記録したものではない。
+
+作業木は正本の`fps_survival20251226`、branchは`codex/v2-default-disorder-bit-count`、基点HEADは`d85b6395ddd6a16fc4fb8f38268e422592ac7861`。2026-09-12の追加指示により屋内出現50%と本件を1件のローカルcommit対象とする。別タスクで進行中のNPC関連差分は維持し、commitへ含めない。pushなし。通常ゲームは`http://localhost:5175/`、描画fixtureは`http://localhost:5175/validation/v2/T06/index.html`、実学校の再現UIは`http://localhost:5175/?schoolVisualAcceptance=B06-1&seed=20260812&transparentDepthAcceptance=1`。5175は本作業木のVite（PID 27028）で、正本の音声・Character素材を使用し、確認用に起動を維持する。

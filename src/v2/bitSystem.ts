@@ -22,6 +22,7 @@ import {
 } from "../world/bitFlightAgent";
 import {
   BIT_FLIGHT_SHORTEST_ROUTE_POLICY,
+  BIT_FLIGHT_SPACE_KINDS,
   getBitFlightWorldPosition,
   type BitFlightBandId,
   type BitFlightBand,
@@ -105,6 +106,7 @@ const BIT_BODY_DIAMETER = 0.12;
 const BIT_MUZZLE_DIAMETER = 0.03;
 const BIT_MUZZLE_OFFSET = BIT_BODY_HEIGHT / 2 + 0.02;
 const BIT_ACTOR_RADIUS = BIT_FLIGHT_BODY_RADIUS_WORLD_UNITS;
+export const V2_BIT_INDOOR_SPAWN_PROBABILITY = 0.5;
 const BIT_SPAWN_FADE_SECONDS = 0.5;
 const BIT_SPAWN_HOLD_SECONDS = 0.5;
 const BIT_SPAWN_SHRINK_SECONDS = 0.5;
@@ -695,19 +697,16 @@ const createSharedMaterials = (scene: Scene) => {
     body = new StandardMaterial("v2BitBodyMaterial", scene);
     body.diffuseColor = new Color3(0.08, 0.08, 0.09);
     body.specularColor = new Color3(0.35, 0.35, 0.4);
-    body.forceDepthWrite = true;
 
     redBody = new StandardMaterial("v2RedBitBodyMaterial", scene);
     redBody.diffuseColor = new Color3(0.72, 0.04, 0.06);
     redBody.emissiveColor = new Color3(0.24, 0.01, 0.01);
     redBody.specularColor = new Color3(0.55, 0.18, 0.18);
-    redBody.forceDepthWrite = true;
 
     muzzle = new StandardMaterial("v2BitMuzzleMaterial", scene);
     muzzle.diffuseColor = Color3.White();
     muzzle.emissiveColor = Color3.Black();
     muzzle.specularColor = Color3.Black();
-    muzzle.forceDepthWrite = true;
 
     return { body, redBody, muzzle };
   } catch (error) {
@@ -835,6 +834,9 @@ const createBitVisual = (
     body = (isRed ? sources.redBody : sources.body).createInstance(
       `${id}_body`
     );
+    // Instanceの描画キュー判定とsourceのshader判定を一致させる。
+    // カーペット僚機のfadeも同じinstance color alphaを使用する。
+    body.hasVertexAlpha = true;
     body.parent = root;
     body.alphaIndex = V2_TRANSPARENT_ALPHA_INDEX_SPATIAL;
     body.isPickable = false;
@@ -843,6 +845,7 @@ const createBitVisual = (
     body.instancedBuffers.color = new Color4(1, 1, 1, 1);
 
     muzzle = sources.muzzle.createInstance(`${id}_muzzle`);
+    muzzle.hasVertexAlpha = true;
     muzzle.parent = root;
     muzzle.alphaIndex = V2_TRANSPARENT_ALPHA_INDEX_SPATIAL;
     muzzle.isPickable = false;
@@ -1657,19 +1660,38 @@ export const createV2BitSystem = (
     );
 
   const spawnRegions = createSpawnRegions();
+  if (spawnRegions.length === 0) {
+    throw new Error("NavMesh面積抽選のVolumeがありません。");
+  }
   const spawnRegionByVolumeId = new Map(
     spawnRegions.map((region) => [region.volume.id, region])
   );
-  const spawnSurfaceSampler = createNavigationSurfaceVolumeSampler(
-    spawnRegions.map((region) =>
-      Object.freeze({
-        volume: region.volume,
-        triangles: navigation.getSurfaceTriangles({
-          zoneId: region.band.zoneId,
-          bandId: region.band.id
+  const spawnSurfaceSamplers = BIT_FLIGHT_SPACE_KINDS.flatMap(
+    (spaceKind) => {
+      const regions = spawnRegions.filter(
+        (region) =>
+          navigation.getZone(region.band.zoneId)!.spaceKind === spaceKind
+      );
+      if (regions.length === 0) {
+        return [];
+      }
+      return [
+        Object.freeze({
+          spaceKind,
+          sampler: createNavigationSurfaceVolumeSampler(
+            regions.map((region) =>
+              Object.freeze({
+                volume: region.volume,
+                triangles: navigation.getSurfaceTriangles({
+                  zoneId: region.band.zoneId,
+                  bandId: region.band.id
+                })
+              })
+            )
+          )
         })
-      })
-    )
+      ];
+    }
   );
 
   const sampleSpawnLocations = (
@@ -1680,12 +1702,18 @@ export const createV2BitSystem = (
     if (count === 0) {
       return Object.freeze([]);
     }
-    if (spawnRegions.length === 0) {
-      throw new Error("bit_spawnがありません。");
-    }
     const accepted: BitFlightLocation[] = [];
     const minimumDistanceSquared = minimumDistance * minimumDistance;
     for (let pointIndex = 0; pointIndex < count; pointIndex += 1) {
+      // 分類は1機につき1回選び、安全候補の再試行でも維持する。
+      const selectedSpaceKind = spawnSurfaceSamplers.length === 1
+        ? spawnSurfaceSamplers[0].spaceKind
+        : nextSpawnRandom() < V2_BIT_INDOOR_SPAWN_PROBABILITY
+          ? "indoor"
+          : "outdoor";
+      const spawnSurfaceSampler = spawnSurfaceSamplers.find(
+        ({ spaceKind }) => spaceKind === selectedSpaceKind
+      )!.sampler;
       let selected: BitFlightLocation | null = null;
       for (let attempt = 0; attempt < config.spawnMaxAttempts; attempt += 1) {
         const surfaceSample = spawnSurfaceSampler.sample(nextSpawnRandom);

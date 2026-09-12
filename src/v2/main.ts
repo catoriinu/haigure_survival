@@ -128,6 +128,7 @@ import {
   type V2CharacterVisualRuntime
 } from "./v2CharacterVisualRuntime";
 import { configureV2StageTransparentRenderingOrder } from "./v2StageTransparentRenderingOrder";
+import { configureV2TransparentDepthComposition } from "./v2TransparentDepthComposition";
 import {
   createSchoolStageActorPort,
   createSchoolStageTraversalCoordinator,
@@ -187,6 +188,9 @@ const schoolVisualAcceptanceScenario = (() => {
   }
   return Object.freeze({ id: requested, seed });
 })();
+const transparentDepthAcceptance = import.meta.env.DEV &&
+  schoolVisualAcceptanceScenario !== null &&
+  new URLSearchParams(location.search).get("transparentDepthAcceptance") === "1";
 const missionAcceptanceScenario = (() => {
   const requested = new URLSearchParams(location.search).get(
     "missionAcceptance"
@@ -329,7 +333,7 @@ const createSessionStartSnapshot = (
   const roomVariantReviewRequested = new URLSearchParams(location.search).has(
     "roomVariantReview"
   );
-  const settings = roomVariantReviewRequested
+  const roomSettings = roomVariantReviewRequested
     ? {
         ...storedSettings,
         school: {
@@ -338,6 +342,14 @@ const createSessionStartSnapshot = (
         }
       }
     : storedSettings;
+  const settings = transparentDepthAcceptance
+    ? {
+        ...roomSettings,
+        population: { ...roomSettings.population, startPlayerBrainwashed: true },
+        bit: { ...roomSettings.bit, disabled: false, maximumCount: 1 },
+        features: { ...roomSettings.features, missionEnabled: false }
+      }
+    : roomSettings;
   const fixturePopulation: V2TitleSettingsRuntimePopulation | null = performanceScenario !== null &&
     performanceScenario.profile !== "normal"
     ? V2_PERFORMANCE_ACCEPTANCE_POPULATION
@@ -368,6 +380,7 @@ if (performanceScenario) {
 const engine = new Engine(canvas, true);
 markV2StartupPhase("engine-created");
 const scene = new Scene(engine);
+configureV2TransparentDepthComposition(scene);
 scene.collisionsEnabled = true;
 scene.clearColor = new Color4(0.48, 0.72, 0.92, 1);
 const ambientLight = new HemisphericLight(
@@ -1107,6 +1120,7 @@ let ownedVoiceRuntime: ReturnType<
 > | null = null;
 let ownedPlayerCharacterVisual: V2PlayerCharacterVisual | null = null;
 let ownedSchoolVisualAcceptanceBridge: HTMLTextAreaElement | null = null;
+let ownedTransparentDepthAcceptance: { dispose(): void } | null = null;
 let started = false;
 let deactivated = false;
 let disposed = false;
@@ -1155,6 +1169,7 @@ const disposeRuntimeSynchronously = () => {
   ownedGameplayAudioBridge?.dispose();
   ownedVoiceRuntime?.dispose();
   ownedSchoolVisualAcceptanceBridge?.remove();
+  ownedTransparentDepthAcceptance?.dispose();
   if (ownedAudio !== null) {
     audioDisposalPromise = ownedAudio.dispose();
     audioDisposeStarted = true;
@@ -1310,6 +1325,7 @@ if (schoolVisualAcceptanceScenario !== null) {
       const foot = Vector3.FromArray(footPosition);
       const lookAt = Vector3.FromArray(lookAtPosition);
       player.placeAt(foot, lookAt);
+      survival.relocateTargetNavigationArea("player", foot);
       camera.setTarget(lookAt);
       camera.fov = fov;
       scene.render();
@@ -1354,6 +1370,20 @@ if (schoolVisualAcceptanceScenario !== null) {
   ownedSchoolVisualAcceptanceBridge = bridge;
   document.body.dataset.v2SchoolVisualAcceptance =
     schoolVisualAcceptanceScenario.id;
+  if (transparentDepthAcceptance) {
+    const { createV2TransparentDepthAcceptance } = await import(
+      "./v2TransparentDepthAcceptance"
+    );
+    assertConstructionActive();
+    ownedTransparentDepthAcceptance = createV2TransparentDepthAcceptance({
+      scene,
+      engine,
+      stage,
+      survival,
+      setPose: visualAcceptanceController.setPose,
+      getSnapshot: visualAcceptanceController.getSnapshot
+    });
+  }
 }
 const runtimeHud = createV2RuntimeHudController({
   host: document.body,

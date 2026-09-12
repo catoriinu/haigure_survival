@@ -5,6 +5,7 @@ import { runPlayerMotionTests } from "./playerMotion.test";
 import { runPlayerStaminaTests } from "./playerStamina.test";
 import { runSpawnSelectionTests } from "./spawnSelection.test";
 import { runSurfaceSpawnTests } from "./surfaceSpawn.test";
+import { runSchoolBitSpawnTests } from "./schoolBitSpawn.test";
 import type { T062TestResult } from "./testUtils";
 
 import "./style.css";
@@ -155,7 +156,8 @@ const runValidation = async () => {
     ...(await runPlayerStaminaTests()),
     ...(await runSpawnSelectionTests()),
     ...(await runSurfaceSpawnTests()),
-    ...(await runPopulationIntegrationTests())
+    ...(await runPopulationIntegrationTests()),
+    ...(await runSchoolBitSpawnTests())
   ];
   const elapsedMilliseconds = performance.now() - startedAt;
   const loggerErrorCount = Logger.errorsCount - loggerErrorsAtStart;

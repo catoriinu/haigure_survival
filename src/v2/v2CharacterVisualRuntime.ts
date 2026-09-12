@@ -76,7 +76,7 @@ export type V2CharacterVisualSize = Readonly<{
 
 export type V2CharacterVisualSpriteHandle = Readonly<{
   sprite: Sprite;
-  presentationMesh: Mesh | null;
+  presentationMesh: Mesh;
   width: number;
   height: number;
   setState(
@@ -131,7 +131,7 @@ export type V2CharacterVisualRuntimeDependencies = Readonly<{
 
 type V2CharacterVisualManagerResource = {
   manager: SpriteManager;
-  presentationMaterial: StandardMaterial | null;
+  presentationMaterial: StandardMaterial;
   sheet: V2CharacterVisualSheet;
   capacity: number;
   activeSpriteCount: number;
@@ -153,7 +153,7 @@ type V2CharacterVisualSpriteRecord = {
   actorId: string;
   sprite: Sprite;
   restraintBand: Mesh | null;
-  presentation: V2CharacterVisualPresentation | null;
+  presentation: V2CharacterVisualPresentation;
   managerResource: V2CharacterVisualManagerResource;
   shadow: GroundShadowHandle | null;
   disposed: boolean;
@@ -161,6 +161,7 @@ type V2CharacterVisualSpriteRecord = {
 
 const V2_CHARACTER_VISUAL_PLAYER_ACTOR_ID = "player";
 const V2_NPC_RESTRAINT_HEIGHT = 0.3 * BLENDER_METERS_TO_WORLD_UNITS;
+export const V2_NPC_RESTRAINT_DEPTH_OFFSET = 0.001;
 
 const createRestraintMaterial = (scene: Scene): StandardMaterial => {
   const texture = new DynamicTexture(
@@ -187,9 +188,6 @@ const createRestraintMaterial = (scene: Scene): StandardMaterial => {
   material.useAlphaFromDiffuseTexture = true;
   material.transparencyMode = Material.MATERIAL_ALPHATESTANDBLEND;
   material.alphaCutOff = 0.01;
-  material.forceDepthWrite = true;
-  // キャラクターと同じ面に重ね、壁の深度判定は維持する。
-  material.zOffset = -1;
   return material;
 };
 
@@ -533,7 +531,6 @@ const createPresentationMaterial = (
   material.useAlphaFromDiffuseTexture = true;
   material.transparencyMode = Material.MATERIAL_ALPHATESTANDBLEND;
   material.alphaCutOff = 0.01;
-  material.forceDepthWrite = true;
   return material;
 };
 
@@ -542,6 +539,7 @@ const createPresentation = (
   instanceName: string,
   material: StandardMaterial,
   frameCount: number,
+  orientationMode: V2CharacterVisualOrientationMode,
   scene: Scene,
 ): V2CharacterVisualPresentation => {
   const mesh = MeshBuilder.CreatePlane(
@@ -557,6 +555,9 @@ const createPresentation = (
   mesh.isPickable = false;
   mesh.isVisible = false;
   mesh.hasVertexAlpha = true;
+  if (orientationMode === "camera-facing") {
+    mesh.billboardMode = Mesh.BILLBOARDMODE_ALL;
+  }
 
   const uvData = new Float32Array(8);
   updatePresentationUvData(uvData, 0, frameCount);
@@ -706,14 +707,12 @@ dependencies: V2CharacterVisualRuntimeDependencies = Object.freeze({
           { width: sheet.cellWidth, height: sheet.cellHeight },
           scene,
         );
-        if (orientationMode === "upright") {
-          manager.layerMask = 0;
-          presentationMaterial = dependencies.createPresentationMaterial(
-            directory,
-            manager,
-            scene,
-          );
-        }
+        manager.layerMask = 0;
+        presentationMaterial = dependencies.createPresentationMaterial(
+          directory,
+          manager,
+          scene,
+        );
         managerResources.set(directory, {
           manager,
           presentationMaterial,
@@ -731,7 +730,7 @@ dependencies: V2CharacterVisualRuntimeDependencies = Object.freeze({
     }
   } catch (error) {
     for (const resource of managerResources.values()) {
-      resource.presentationMaterial?.dispose(false, false);
+      resource.presentationMaterial.dispose(false, false);
       resource.manager.dispose();
     }
     for (const blobUrl of blobUrls) {
@@ -751,7 +750,9 @@ dependencies: V2CharacterVisualRuntimeDependencies = Object.freeze({
   let facingYaw = 0;
   let restraintMaterial: StandardMaterial | null = null;
   const cameraUpAxis = Vector3.Up();
+  const cameraForwardAxis = Vector3.Forward();
   const restraintUp = new Vector3();
+  const restraintFront = new Vector3();
 
   const disposeSpriteRecord = (
     record: V2CharacterVisualSpriteRecord,
@@ -768,7 +769,7 @@ dependencies: V2CharacterVisualRuntimeDependencies = Object.freeze({
     record.disposed = true;
     record.restraintBand?.dispose();
     groundShadowManager?.disposeGroundShadow(record.shadow);
-    record.presentation?.mesh.dispose();
+    record.presentation.mesh.dispose();
     record.sprite.dispose();
     record.managerResource.activeSpriteCount -= 1;
     spriteRecords.delete(record);
@@ -826,14 +827,18 @@ dependencies: V2CharacterVisualRuntimeDependencies = Object.freeze({
           // Spriteと同じview平面に帯を置き、俯角でも表示上の足元を揃える。
           scene.activeCamera!.getDirectionToRef(cameraUpAxis, restraintUp);
           band.position.addInPlace(restraintUp.scaleInPlace(centerOffset));
+          scene.activeCamera!.getDirectionToRef(cameraForwardAxis, restraintFront);
+          restraintFront.scaleInPlace(-1);
         } else {
           band.position.y += centerOffset;
+          restraintFront.set(-Math.sin(facingYaw), 0, -Math.cos(facingYaw));
         }
+        // 深度合成はgl_FragCoord.zを使うため、同一面をzOffsetで分離できない。
+        // 幅・高さ・足元の基準を保ち、表示面の手前へ実距離だけ離す。
+        band.position.addInPlace(restraintFront.scaleInPlace(V2_NPC_RESTRAINT_DEPTH_OFFSET));
         band.scaling.set(record.sprite.width, V2_NPC_RESTRAINT_HEIGHT, 1);
         band.rotation.set(0, orientationMode === "upright" ? facingYaw : 0, 0);
-        band.layerMask =
-          record.presentation?.mesh.layerMask ??
-          record.managerResource.manager.layerMask;
+        band.layerMask = record.presentation.mesh.layerMask;
       }
       if (restraintMaterial !== null) {
         restraintMaterial.alpha =
@@ -851,12 +856,11 @@ dependencies: V2CharacterVisualRuntimeDependencies = Object.freeze({
         return;
       }
       facingYaw = yaw;
+      const presentationYaw = orientationMode === "upright" ? facingYaw : 0;
       for (const record of spriteRecords) {
-        if (record.presentation !== null) {
-          if (record.presentation.lastFacingYaw !== facingYaw) {
-            record.presentation.mesh.rotation.set(0, facingYaw, 0);
-            record.presentation.lastFacingYaw = facingYaw;
-          }
+        if (record.presentation.lastFacingYaw !== presentationYaw) {
+          record.presentation.mesh.rotation.set(0, presentationYaw, 0);
+          record.presentation.lastFacingYaw = presentationYaw;
         }
       }
     },
@@ -889,16 +893,14 @@ dependencies: V2CharacterVisualRuntimeDependencies = Object.freeze({
         managerResource.sheet.source,
         null,
       );
-      const presentation =
-        orientationMode === "upright"
-          ? createPresentation(
-              actorId,
-              instanceName,
-              managerResource.presentationMaterial as StandardMaterial,
-              managerResource.sheet.frameCount,
-              scene,
-            )
-          : null;
+      const presentation = createPresentation(
+        actorId,
+        instanceName,
+        managerResource.presentationMaterial,
+        managerResource.sheet.frameCount,
+        orientationMode,
+        scene,
+      );
       const record: V2CharacterVisualSpriteRecord = {
         actorId,
         sprite,
@@ -913,18 +915,16 @@ dependencies: V2CharacterVisualRuntimeDependencies = Object.freeze({
       };
       managerResource.activeSpriteCount += 1;
       spriteRecords.add(record);
-      if (presentation !== null) {
-        syncPresentation(
-          presentation,
-          sprite,
-          managerResource.sheet.frameCount,
-          facingYaw,
-        );
-      }
+      syncPresentation(
+        presentation,
+        sprite,
+        managerResource.sheet.frameCount,
+        orientationMode === "upright" ? facingYaw : 0,
+      );
 
       return Object.freeze({
         sprite,
-        presentationMesh: presentation?.mesh ?? null,
+        presentationMesh: presentation.mesh,
         width: managerResource.sheet.width,
         height: managerResource.sheet.height,
         setState: (
@@ -952,14 +952,12 @@ dependencies: V2CharacterVisualRuntimeDependencies = Object.freeze({
               `破棄済みのV2 Character表示Spriteは同期できません: ${instanceName}`,
             );
           }
-          if (record.presentation !== null) {
-            syncPresentation(
-              record.presentation,
-              sprite,
-              managerResource.sheet.frameCount,
-              facingYaw,
-            );
-          }
+          syncPresentation(
+            record.presentation,
+            sprite,
+            managerResource.sheet.frameCount,
+            orientationMode === "upright" ? facingYaw : 0,
+          );
           if (record.shadow !== null && groundShadowManager !== null) {
             groundShadowManager.syncGroundShadow(record.shadow, {
               positionX: sprite.position.x,
@@ -970,8 +968,7 @@ dependencies: V2CharacterVisualRuntimeDependencies = Object.freeze({
               yaw: facingYaw,
               visibility: sprite.color.a,
               visible: sprite.isVisible,
-              layerMask:
-                presentation?.mesh.layerMask ?? managerResource.manager.layerMask
+              layerMask: presentation.mesh.layerMask
             });
           }
         },
@@ -988,7 +985,7 @@ dependencies: V2CharacterVisualRuntimeDependencies = Object.freeze({
         disposeSpriteRecord(record, false);
       }
       for (const resource of managerResources.values()) {
-        resource.presentationMaterial?.dispose(false, false);
+        resource.presentationMaterial.dispose(false, false);
         resource.manager.dispose();
       }
       managerResources.clear();

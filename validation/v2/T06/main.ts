@@ -7,6 +7,7 @@ import { runRoomVariantTests } from "./roomVariant.test";
 import { runRuntimeHudTests } from "./runtimeHud.test";
 import { runRuntimeInteractionTests } from "./runtimeInteraction.test";
 import { runStageTransparentRenderingOrderTests } from "./stageTransparentRenderingOrder.test";
+import { runTransparentDepthCompositionTests } from "./transparentDepthComposition.test";
 import {
   runRuntimeSessionLifecycleTests
 } from "./runtimeSessionLifecycle.test";
@@ -210,6 +211,7 @@ const runValidation = async () => {
     ...(await runCharacterAssignmentTests()),
     ...(await runCharacterVisualTests()),
     ...(await runStageTransparentRenderingOrderTests()),
+    ...(await runTransparentDepthCompositionTests()),
     ...(await runRuntimeSessionLifecycleTests())
   ];
   const elapsedMilliseconds = performance.now() - startedAt;
