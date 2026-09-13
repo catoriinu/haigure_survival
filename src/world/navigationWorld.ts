@@ -149,6 +149,7 @@ const straightPathPointCapacity = 4096;
 const straightPathCornersOnly = 0;
 const linkSurfaceEpsilon = 0.025;
 const straightPathPointEqualityThreshold = 1 / 16_384;
+const surfaceBoundaryFloatTolerance = 1e-6;
 
 let recastInitialization: Promise<void> | null = null;
 
@@ -754,6 +755,29 @@ class RecastNavigationWorld implements NavigationWorld {
     this.assertActive();
     assertNavigationLocation("移動始点", start);
     assertFiniteVector("移動終点", destination);
+
+    // 凸ポリゴン内の移動は同じ面へ投影する。共有辺上のFloat32丸めで
+    // moveAlongSurfaceが両面を外側と判定し、遠い外壁へ押し戻すことを防ぐ。
+    const destinationOnStartPoly = this.query.closestPointOnPoly(
+      start.polygonRef,
+      toRecastPosition(destination)
+    );
+    if (!destinationOnStartPoly.success) {
+      return null;
+    }
+    const projectedDestination = toBabylonPosition(
+      destinationOnStartPoly.closestPoint
+    );
+    if (
+      Math.hypot(
+        projectedDestination.x - destination.x,
+        projectedDestination.z - destination.z
+      ) <= surfaceBoundaryFloatTolerance
+    ) {
+      // 面内の高さは経路追従側の補間を維持する（moveAlongSurfaceと同じ）。
+      projectedDestination.y = destination.y;
+      return createNavigationLocation(projectedDestination, start.polygonRef);
+    }
 
     const result = this.query.moveAlongSurface(
       start.polygonRef,
