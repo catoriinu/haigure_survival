@@ -2455,9 +2455,15 @@ const updateGameplayHelp = (frame: ReturnType<typeof survival.getFrame>) => {
     nextText += "\nR: リプレイ  Enter: タイトルへ戻る";
   }
   if (!V2_DEBUG_MODE) {
-    const unbrainwashedNpcCount = frame.npcHudCounts.unbrainwashed;
-    nextText += `\nNPC内訳 未洗脳者 ${unbrainwashedNpcCount}人  ` +
-      `洗脳済み ${frame.npcCount - unbrainwashedNpcCount}人\n` +
+    const playerUnbrainwashed =
+      frame.playerState === "normal" || frame.playerState === "evade";
+    const unbrainwashedCount =
+      frame.npcHudCounts.unbrainwashed + (playerUnbrainwashed ? 1 : 0);
+    const brainwashedCount = frame.npcCount + 1 - unbrainwashedCount;
+    const unbrainwashedLabel = playerUnbrainwashed ? "生存者" : "未洗脳者";
+    const brainwashedLabel = playerUnbrainwashed ? "洗脳済み" : "ハイグレ人間";
+    nextText += `\n現在の人数 ${unbrainwashedLabel}${unbrainwashedCount}人  ` +
+      `${brainwashedLabel}${brainwashedCount}人\n` +
       `ビット ${frame.bitCount}体`;
   }
   if (helpPanel.textContent !== nextText) {

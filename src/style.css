@@ -87,6 +87,13 @@ body {
   bottom: auto;
 }
 
+/* 操作案内を含む最長行「現在の人数 未洗脳者50人  ハイグレ人間50人」を基準に固定。
+   全角17文字＋半角7文字＋24文字分の字間＋左右paddingとborder。 */
+#helpPanel[data-debug-mode="false"] {
+  width: calc(17ic + 7ch + 0.96em + 18px);
+  padding: 8px;
+}
+
 #helpPanel[data-debug-mode="true"] {
   top: auto;
   bottom: 12px;
