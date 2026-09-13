@@ -1890,12 +1890,9 @@ export const createV2BitSystem = (
         BIT_MUZZLE_DIAMETER * 0.5) *
       1.42;
     const circleDiameter = Math.sqrt(baseWidth * baseDepth);
-    const circleBlend =
-      bit.spawnPhase !== "done"
-        ? 1
-        : Math.min(1, Math.max(0, -forward.y));
+    const usesSpawnShadow = bit.spawnPhase !== "done";
     const visibility =
-      Math.max(0.22, 0.7 - heightAboveFloor * 0.25) *
+      (0.7 / (1 + heightAboveFloor * heightAboveFloor)) *
       (bit.spawnPhase === "fade-in"
         ? bit.spawnEffectMaterial!.alpha
         : bit.body.visibility);
@@ -1909,8 +1906,8 @@ export const createV2BitSystem = (
       width: baseWidth * heightScale,
       depth: baseDepth * heightScale,
       yaw,
-      visibility: visibility * (1 - circleBlend),
-      visible,
+      visibility,
+      visible: visible && !usesSpawnShadow,
       layerMask: bit.body.layerMask
     });
     groundShadowManager.syncGroundShadow(bit.groundShadows.circle, {
@@ -1920,8 +1917,8 @@ export const createV2BitSystem = (
       width: circleDiameter * heightScale,
       depth: circleDiameter * heightScale,
       yaw,
-      visibility: visibility * circleBlend,
-      visible,
+      visibility,
+      visible: visible && usesSpawnShadow,
       layerMask: bit.body.layerMask
     });
   };
@@ -6517,6 +6514,7 @@ export const createV2BitSystem = (
           BRUTE_FORCE_START_SECONDS;
         bit.bruteForceFailedTransitionCandidateCount = 0;
         syncBitMuzzleColor(bit);
+        syncBitGroundShadows(bit);
       }
       activeAlerts.clear();
       externalAlertKeyByTargetId.clear();

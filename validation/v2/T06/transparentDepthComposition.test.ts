@@ -100,7 +100,7 @@ const createGpuSceneFixture = (
     bits.update({ deltaSeconds: 0.25, elapsedSeconds: 0.25, targets: [], externalAlerts: [] });
   } else {
     bits.prepareForScriptedPhase();
-    bits.faceBitsAt(new Vector3(0, 1.2, -3));
+    bits.faceBitsAt([{ id: "v2_bit_0", aimPosition: new Vector3(0, 1.2, -3) }]);
   }
   bits.setAiSuspended(true);
   const bitRoot = scene.getTransformNodeByName("v2_bit_0")!;
