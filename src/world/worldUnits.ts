@@ -1,0 +1,1 @@
+export const BLENDER_METERS_TO_WORLD_UNITS = 0.25;

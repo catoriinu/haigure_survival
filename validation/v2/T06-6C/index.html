@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" href="data:," />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' ws: wss:; object-src 'none'; base-uri 'self'"
+    />
+    <title>HAIGURE SURVIVAL v2 T06-6C 検証</title>
+  </head>
+  <body>
+    <div id="titleOverlay">
+      <div id="titleCenterBlock">
+        <div id="titleHeading">HAIGURE SURVIVAL V2</div>
+        <div id="titleStatusSlot">
+          <div id="titleStartHint">左クリック：開始</div>
+          <div id="titleMessage">左クリック：開始</div>
+        </div>
+        <div id="titleMode">サバイバルモード</div>
+      </div>
+      <div id="titleVersion">ver.2.0.0</div>
+    </div>
+    <section id="validation-report" hidden>
+      <p id="summary">検証準備中です。</p>
+      <button id="run-validation" type="button">再検証</button>
+      <ol id="check-results"></ol>
+    </section>
+    <script type="module" src="./main.ts"></script>
+  </body>
+</html>

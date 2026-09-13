@@ -1,0 +1,5078 @@
+{
+  "objects": {
+    "COL_ActorOnly_WindowFixed_F01_CourtyardNorth_Corridor_02": {
+      "properties": {},
+      "signature": "BA6F3786DB442CB425E0F6B291D283851497293ED2B3C409AAF360F3325F7FA9",
+      "type": "MESH"
+    },
+    "COL_ActorOnly_WindowFixed_F01_CourtyardWest_Corridor_02": {
+      "properties": {},
+      "signature": "4A14FFAEF6CA520D9B15DEF429C2A840E7A5E8ADD019492B52DAFEF7DC579543",
+      "type": "MESH"
+    },
+    "COL_ActorOnly_WindowFixed_F01_CourtyardWest_Corridor_04": {
+      "properties": {},
+      "signature": "16992156B7613ACCE65F01E56CA40ADFF2B03C07E8529884A1BD08B4E2B465CF",
+      "type": "MESH"
+    },
+    "COL_ActorOnly_WindowFixed_F01_CourtyardWest_Corridor_05": {
+      "properties": {},
+      "signature": "2315828229F3EF51D30952BA6BF0678AF891BB46759E853DC6CDB3A47778C19F",
+      "type": "MESH"
+    },
+    "COL_ActorOnly_WindowFixed_F01_North_Special_Room01_Set02": {
+      "properties": {},
+      "signature": "7B1628FF97391D887D4A10F6FB016FC5CCBF29AAC4FA57C846C09ADB2A51584B",
+      "type": "MESH"
+    },
+    "COL_ActorOnly_WindowFixed_F01_North_Special_Room02_Set01": {
+      "properties": {},
+      "signature": "186F1696ABC8510C7B4EEEFB3FA2F2FD08C57A9033ECEDCA023D3C434289303E",
+      "type": "MESH"
+    },
+    "COL_ActorOnly_WindowFixed_F01_North_Special_Room02_Set03": {
+      "properties": {},
+      "signature": "B6A624E07B322DD05948191FB48A2048589C307D9A5CBB9FC8280BCFB3B8AC96",
+      "type": "MESH"
+    },
+    "COL_ActorOnly_WindowFixed_F01_West_Ordinary_Room01": {
+      "properties": {},
+      "signature": "15449012AD09290D145AD9EE2E70EB53381D2E127B3E15732532A8D0994F311A",
+      "type": "MESH"
+    },
+    "COL_ActorOnly_WindowFixed_F01_West_Special_01": {
+      "properties": {},
+      "signature": "A20E3F88473A5DF0536E136E734A4FF09A6E2F90CDC3C82764E1FF938C5E7611",
+      "type": "MESH"
+    },
+    "COL_ActorOnly_WindowFixed_F02_CourtyardNorth_Corridor_01": {
+      "properties": {},
+      "signature": "0FF5802B164D01821C792DC8866017BF255476765A85F9E2D2B5D129DCF4F312",
+      "type": "MESH"
+    },
+    "COL_ActorOnly_WindowFixed_F02_CourtyardNorth_Corridor_02": {
+      "properties": {},
+      "signature": "DC8E7B4F2824FEB57AB9ADA21AA2B70BF18882319E618E90385D4736C2685EBE",
+      "type": "MESH"
+    },
+    "COL_ActorOnly_WindowFixed_F02_CourtyardNorth_Corridor_03": {
+      "properties": {},
+      "signature": "DDFF84457AF7D5FF6CD4FBBB08C5A90D35FAE4F9DAF101973D3C6E9BEC1DA6E0",
+      "type": "MESH"
+    },
+    "COL_ActorOnly_WindowFixed_F02_CourtyardWest_Corridor_04": {
+      "properties": {},
+      "signature": "8BD0905F5AF829CE606E918BDF4A1AF7E383C834E0C709EF6F2F0A410DFBF0CF",
+      "type": "MESH"
+    },
+    "COL_ActorOnly_WindowFixed_F02_North_Broadcast_Set01": {
+      "properties": {},
+      "signature": "3B3743A90426480C8780BFA148F3FB40E42F230A768C26538F00D5DE4A1E3AC0",
+      "type": "MESH"
+    },
+    "COL_ActorOnly_WindowFixed_F02_North_Special_Room03_Set02": {
+      "properties": {},
+      "signature": "4A41A6644254965644B6329B1E75E7FFC4DA0CC3DDC10918144472F0BF9F17E9",
+      "type": "MESH"
+    },
+    "COL_ActorOnly_WindowFixed_F02_North_Special_Room03_Set03": {
+      "properties": {},
+      "signature": "BF0DD09B8BAD873678893C47F6E9E8A231E6BFAA6EC5DFAA83D4251C2FDBA3F5",
+      "type": "MESH"
+    },
+    "COL_ActorOnly_WindowFixed_F02_West_Ordinary_Room01": {
+      "properties": {},
+      "signature": "9ED9D567859C22F17096B26287B47AF7CF90F6A75E815755C5D5B8F42556098C",
+      "type": "MESH"
+    },
+    "COL_ActorOnly_WindowFixed_F02_West_Ordinary_Room02": {
+      "properties": {},
+      "signature": "C7C8DB6F4D7D534AED349648F5D58C8F799DF62EDC8CC5FC2DDD45783E01708C",
+      "type": "MESH"
+    },
+    "COL_ActorOnly_WindowFixed_F02_West_Ordinary_Room03": {
+      "properties": {},
+      "signature": "63AABA284049EA63DF570FD65BB31DA1179523CC68CAF960460A9C0D571AF450",
+      "type": "MESH"
+    },
+    "COL_ActorOnly_WindowFixed_F03_CourtyardNorth_Corridor_01": {
+      "properties": {},
+      "signature": "C024B6C59368235D9303633EEEDBF182F1E08D1CE2625150EFCB4BEA611CFA9A",
+      "type": "MESH"
+    },
+    "COL_ActorOnly_WindowFixed_F03_CourtyardNorth_Corridor_02": {
+      "properties": {},
+      "signature": "1AB5B665904FE8D864865F4E8A191C47C5AEA61A0C1753879835CB32BE9081C9",
+      "type": "MESH"
+    },
+    "COL_ActorOnly_WindowFixed_F03_CourtyardNorth_Corridor_03": {
+      "properties": {},
+      "signature": "DBB99241410D4E21FDE1EE0E5A59F7ECAEC2C53F26D69907F9DA2BC4550B5B1D",
+      "type": "MESH"
+    },
+    "COL_ActorOnly_WindowFixed_F03_CourtyardWest_Corridor_01": {
+      "properties": {},
+      "signature": "247CCCE8A3B7C405B01B9254B4219A7CD2C7B61E47F44587E1836B2C4D7AE33A",
+      "type": "MESH"
+    },
+    "COL_ActorOnly_WindowFixed_F03_CourtyardWest_Corridor_02": {
+      "properties": {},
+      "signature": "CF43853881646ABD2D771A95C9430B9DC1901168424A7C1CD7715A0104412B61",
+      "type": "MESH"
+    },
+    "COL_ActorOnly_WindowFixed_F03_CourtyardWest_Corridor_04": {
+      "properties": {},
+      "signature": "21624C04A2EEC6F19D1D947C3F72A4CE6F257648DA8C760FF30F6A299E6BA22F",
+      "type": "MESH"
+    },
+    "COL_ActorOnly_WindowFixed_F03_North_Special_Room01_Set01": {
+      "properties": {},
+      "signature": "BF40BCCCD8508AED958578D81ECAE69CF417418E36D20C9186CD097C3805CD57",
+      "type": "MESH"
+    },
+    "COL_ActorOnly_WindowFixed_F03_North_Special_Room02_Set01": {
+      "properties": {},
+      "signature": "EF836E69D7C79F93D0F19E6F887209F8ED344ECFF4A66F5999B51FB4278A8EA0",
+      "type": "MESH"
+    },
+    "COL_ActorOnly_WindowFixed_F03_North_Special_Room02_Set02": {
+      "properties": {},
+      "signature": "07F0C8F7A284F7499A281A289CD81FDDFBE57627708E140BE2D09CAC8F03EA3D",
+      "type": "MESH"
+    },
+    "COL_ActorOnly_WindowFixed_F03_North_Special_Room02_Set03": {
+      "properties": {},
+      "signature": "7DB192BEB4C3891EDE1A313436DEFC9A35D4802EDE905752B08C4FAD28D3A76A",
+      "type": "MESH"
+    },
+    "COL_ActorOnly_WindowFixed_F03_West_Ordinary_Room01": {
+      "properties": {},
+      "signature": "9FF83C28318A0D0962092198A5B4B660D075CD3B08456E1723F16DA46E3C80F6",
+      "type": "MESH"
+    },
+    "COL_ActorOnly_WindowFixed_F03_West_Ordinary_Room02": {
+      "properties": {},
+      "signature": "7FAA8D1306D7F2D6300DFE6C212532E1D0646E4393B306F4C3743EF223832253",
+      "type": "MESH"
+    },
+    "COL_ActorOnly_WindowFixed_F04_CourtyardNorth_Corridor_01": {
+      "properties": {},
+      "signature": "2017DFFBD848795C870DDB343BC83E5F975912601DC8377BB9FC88F14073D8CA",
+      "type": "MESH"
+    },
+    "COL_ActorOnly_WindowFixed_F04_CourtyardNorth_Corridor_02": {
+      "properties": {},
+      "signature": "7C019A258F2FE6037B96DD82051F6E4E8313B4C985134F1EFF4F0B051E48550A",
+      "type": "MESH"
+    },
+    "COL_ActorOnly_WindowFixed_F04_CourtyardNorth_Corridor_03": {
+      "properties": {},
+      "signature": "584D65DB5C8FF6B0A39F9EB5FBE723FC98A538CE06CD90D535FFBA30550AE1B6",
+      "type": "MESH"
+    },
+    "COL_ActorOnly_WindowFixed_F04_CourtyardWest_Corridor_01": {
+      "properties": {},
+      "signature": "385D71A235CE36F6CBBCA38678F91EABF7B44A176FA01EDD32BC98F3D84B637F",
+      "type": "MESH"
+    },
+    "COL_ActorOnly_WindowFixed_F04_CourtyardWest_Corridor_03": {
+      "properties": {},
+      "signature": "82EB0EF9B3FDAB0F1BB9AE404FEF8970A4A2E3F58312B214D15DB8CF8C2FFE9D",
+      "type": "MESH"
+    },
+    "COL_ActorOnly_WindowFixed_F04_CourtyardWest_Corridor_05": {
+      "properties": {},
+      "signature": "28589006A71D78D2BAB329FBED011CA5A586E5918CDFEC70AEE216A1CF5A79EA",
+      "type": "MESH"
+    },
+    "COL_ActorOnly_WindowFixed_F04_North_Special_Room02_Set01": {
+      "properties": {},
+      "signature": "E5BE21DB75BF98B83B1ADE52335F2E84BEF99CCC4B2CA329D116527738280F76",
+      "type": "MESH"
+    },
+    "COL_ActorOnly_WindowFixed_F04_North_Special_Room02_Set02": {
+      "properties": {},
+      "signature": "D739FC35783BF27B8F93879A81CE69EDAB06174F2DFD2586080E6F6B5A0FD1B6",
+      "type": "MESH"
+    },
+    "COL_ActorOnly_WindowFixed_F04_West_Ordinary_Room01": {
+      "properties": {},
+      "signature": "D1EC90575AA47CC0F7F745DC95BB63371CAB8C0BD996D72BF7F74FEAD62A193B",
+      "type": "MESH"
+    },
+    "COL_ActorOnly_WindowFixed_F04_West_Ordinary_Room02": {
+      "properties": {},
+      "signature": "9541BC26F39DFE9FFE8DDB076B5A8127BEC40164FCAB5AF0DD254BD841B6F977",
+      "type": "MESH"
+    },
+    "COL_ActorOnly_WindowFixed_F04_West_Ordinary_Room03": {
+      "properties": {},
+      "signature": "171BA56B201AF0BCBB2C960CEDE7EF72DBCCEBE9461EE788524524773E875ECA",
+      "type": "MESH"
+    },
+    "COL_ActorOnly_WindowFixed_Gym_East_01": {
+      "properties": {},
+      "signature": "5C47728D04F101B221E23D7A77A6DB426145342648A6A699BE8CB28947F2E2D1",
+      "type": "MESH"
+    },
+    "COL_ActorOnly_WindowFixed_Gym_East_02": {
+      "properties": {},
+      "signature": "10D64FEF2CFBE716105A4426087F017595807AF28DDF868C5C1C053FEC51A93E",
+      "type": "MESH"
+    },
+    "COL_ActorOnly_WindowFixed_Gym_East_03": {
+      "properties": {},
+      "signature": "F27307371E907331EE2543430A80A85E59C5224BA2636B1B1FEB219AC449EE3E",
+      "type": "MESH"
+    },
+    "COL_ActorOnly_WindowFixed_Gym_North_02": {
+      "properties": {},
+      "signature": "73667AAD69480D730429C694FE5EC442B34E7DD40994EF6C2B26DB5887E888C6",
+      "type": "MESH"
+    },
+    "COL_ActorOnly_WindowFixed_Gym_West_01": {
+      "properties": {},
+      "signature": "0BDA25FBAC8DF15BB66BFB2AF645D1FB2E26364BF9BA25A9A4D8CBE90B1C26E2",
+      "type": "MESH"
+    },
+    "COL_ActorOnly_WindowFixed_Gym_West_02": {
+      "properties": {},
+      "signature": "B230E1D012D6EBC2A0693BB26964CEE01C7EED116BCD1018EAE38606D91CD220",
+      "type": "MESH"
+    },
+    "COL_ActorOnly_WindowFixed_Gym_West_03": {
+      "properties": {},
+      "signature": "D8C7A31469932DB2A43CAA217189521D00A2923ECB4A4878071224752D4DF2CC",
+      "type": "MESH"
+    },
+    "COL_ActorOnly_Window_F01_CourtyardNorth_Corridor_01": {
+      "properties": {},
+      "signature": "91739A813B1B695F05B1B6F444EFCF3ACC421EF04DA559DA22BD61EDFA5C4DA6",
+      "type": "MESH"
+    },
+    "COL_ActorOnly_Window_F01_CourtyardNorth_Corridor_03": {
+      "properties": {},
+      "signature": "E9BBB4E76AEF3447E297E3B43F21EDEBD9CCE99AD3BFB8505B807366A09B3829",
+      "type": "MESH"
+    },
+    "COL_ActorOnly_Window_F01_CourtyardWest_Corridor_03": {
+      "properties": {},
+      "signature": "25F5D585F5883FF7D1E316BC7A76780B416E2CFECF9F01C84C79F4F7572813D6",
+      "type": "MESH"
+    },
+    "COL_ActorOnly_Window_F01_North_Special_Room01_Set01": {
+      "properties": {},
+      "signature": "15E27879129FE4D443919B61148C76F62B7C25E759EB878564263CA0236D60C5",
+      "type": "MESH"
+    },
+    "COL_ActorOnly_Window_F01_North_Special_Room01_Set03": {
+      "properties": {},
+      "signature": "BBB7F900C1AEF782035FBD9A23BCD1916A4BE1E74097484C2475826B5FDC51C8",
+      "type": "MESH"
+    },
+    "COL_ActorOnly_Window_F01_North_Special_Room02_Set02": {
+      "properties": {},
+      "signature": "832D6DDF0D0084A822B56FD810B06A8F742548B8BD9EB8213677EB1DC02B87C1",
+      "type": "MESH"
+    },
+    "COL_ActorOnly_Window_F01_North_StairNE": {
+      "properties": {},
+      "signature": "F4FA5DF18320B44440BE2660395D562ABF6A83559F6ABC7A3FAB26033334364D",
+      "type": "MESH"
+    },
+    "COL_ActorOnly_Window_F01_North_StairNW": {
+      "properties": {},
+      "signature": "4C229D1E85A152549E4BC1D32168FA589BBA67E4D71415E0144190D2FC9310F2",
+      "type": "MESH"
+    },
+    "COL_ActorOnly_Window_F01_West_StairSW": {
+      "properties": {},
+      "signature": "F56EBCAD63C1D9476F8D6677DB684FD11713677F85663E0D8CD861B1A174262E",
+      "type": "MESH"
+    },
+    "COL_ActorOnly_Window_F02_CourtyardWest_Corridor_01": {
+      "properties": {},
+      "signature": "D0385F6ADA5632B37F6ABFD20D7A851845D596F72FC85F2B37861D1626B2A069",
+      "type": "MESH"
+    },
+    "COL_ActorOnly_Window_F02_CourtyardWest_Corridor_02": {
+      "properties": {},
+      "signature": "4B56EE23CFB79E49EB354178BB57B7B83231384C0E640B86EBA312376177E32D",
+      "type": "MESH"
+    },
+    "COL_ActorOnly_Window_F02_CourtyardWest_Corridor_03": {
+      "properties": {},
+      "signature": "FE8533C61D7C8A70DFEFC2209E18F99053ADE5BD1D0F694D6B1E346DC45430B7",
+      "type": "MESH"
+    },
+    "COL_ActorOnly_Window_F02_CourtyardWest_Corridor_05": {
+      "properties": {},
+      "signature": "D1597EA6ED916B2D9DD67D8C42E845899E4F584DF5066B20A52DDE9C5014881B",
+      "type": "MESH"
+    },
+    "COL_ActorOnly_Window_F02_North_Special_Room03_Set01": {
+      "properties": {},
+      "signature": "9F820BF1FB1D01EE39D2C00EF5A80E26C75B91107CDAEA4597403A1425549639",
+      "type": "MESH"
+    },
+    "COL_ActorOnly_Window_F02_North_StairNE": {
+      "properties": {},
+      "signature": "7654D5CA19C853E7408548F46CB153832575E8B55B1DDA88035F2E9D1A4C3211",
+      "type": "MESH"
+    },
+    "COL_ActorOnly_Window_F02_North_StairNW": {
+      "properties": {},
+      "signature": "59929B5266EFACBE379D99E008AACA890C67FA5172022F8E140FAFFD1FAF1DCC",
+      "type": "MESH"
+    },
+    "COL_ActorOnly_Window_F02_North_StudentCouncil_Set01": {
+      "properties": {},
+      "signature": "2BB486457B1546FCE0C6F7881FE9AD8D2A430455D7C7CBE699B1E566929C367E",
+      "type": "MESH"
+    },
+    "COL_ActorOnly_Window_F02_West_StairSW": {
+      "properties": {},
+      "signature": "5BBBF151615845E22C2D05A6FB85F6F93986B575C408D2C32B7DCC5A9BCE5764",
+      "type": "MESH"
+    },
+    "COL_ActorOnly_Window_F03_CourtyardWest_Corridor_03": {
+      "properties": {},
+      "signature": "2EE6943124946A54AB3D86C4990EAF589B6B0234D035924F6696DCDA678BB57A",
+      "type": "MESH"
+    },
+    "COL_ActorOnly_Window_F03_CourtyardWest_Corridor_05": {
+      "properties": {},
+      "signature": "F7314CE999BD4B3B2ED3ED14AB814B33B324CFFE695A9AF2CDA1FFEF64F582CC",
+      "type": "MESH"
+    },
+    "COL_ActorOnly_Window_F03_North_Special_Room01_Set02": {
+      "properties": {},
+      "signature": "2407D872F30FC897E05F95C4D3E90B3F8DC0E2A66E3AB39926CA987BBA16BC71",
+      "type": "MESH"
+    },
+    "COL_ActorOnly_Window_F03_North_Special_Room01_Set03": {
+      "properties": {},
+      "signature": "966B5FBD7DDD0F8F9ECCAC5E1FD5674900CE01C4A49525533F8256A1AD3523EE",
+      "type": "MESH"
+    },
+    "COL_ActorOnly_Window_F03_North_StairNE": {
+      "properties": {},
+      "signature": "0B0AD1B2D3CDB35F0ABAC47C636CD8C052F7FF21FFC6D98139F1781127585710",
+      "type": "MESH"
+    },
+    "COL_ActorOnly_Window_F03_North_StairNW": {
+      "properties": {},
+      "signature": "E9FE8F9B0510330AA0BDD15D255FE8C6A079CE1D824EAB92A5146880D0C921F5",
+      "type": "MESH"
+    },
+    "COL_ActorOnly_Window_F03_West_Ordinary_Room03": {
+      "properties": {},
+      "signature": "2C4609EC8EEBE54B4D878DE0AC490C3B9A17F2B2BDF91BC6C17C317067997E4F",
+      "type": "MESH"
+    },
+    "COL_ActorOnly_Window_F03_West_StairSW": {
+      "properties": {},
+      "signature": "22BC23C1D3E0030BE0580B8C6755299C16A5DC7655B944C85CAB235078521C4D",
+      "type": "MESH"
+    },
+    "COL_ActorOnly_Window_F04_CourtyardWest_Corridor_02": {
+      "properties": {},
+      "signature": "8B10225BD22E6B0339364D90FF3EEBB818301E731B8BD213E70DA8347DB9A3FB",
+      "type": "MESH"
+    },
+    "COL_ActorOnly_Window_F04_CourtyardWest_Corridor_04": {
+      "properties": {},
+      "signature": "B661096A40D57B6E23C5B63DC726B9A2FD385246C93F39D63C50A0811DCCF856",
+      "type": "MESH"
+    },
+    "COL_ActorOnly_Window_F04_North_Special_Room01_Set01": {
+      "properties": {},
+      "signature": "7F7728EFE8793ECB925857A7081CB53159CFF32D8C49542DDFE82F9151D34394",
+      "type": "MESH"
+    },
+    "COL_ActorOnly_Window_F04_North_Special_Room01_Set02": {
+      "properties": {},
+      "signature": "142587401BFF447E09ECB1339BCE5E45F1AC48A0EAFB909B07D602F0C7C9CC9F",
+      "type": "MESH"
+    },
+    "COL_ActorOnly_Window_F04_North_Special_Room01_Set03": {
+      "properties": {},
+      "signature": "70B7E8B086444AFA96D08C6E553F2AC265BA6411F11E1C0B3E1DFFC919DB5F94",
+      "type": "MESH"
+    },
+    "COL_ActorOnly_Window_F04_North_Special_Room02_Set03": {
+      "properties": {},
+      "signature": "3C3B3B553011F06D8D556DBFB196D0D72FBBE02BB9C3CDFF4C530C9952602B46",
+      "type": "MESH"
+    },
+    "COL_ActorOnly_Window_F04_North_StairNW": {
+      "properties": {},
+      "signature": "5A566B2840E6BF41B68F79CC20025521714D859EB2F5C8E731E3A844FD3AE42A",
+      "type": "MESH"
+    },
+    "COL_ActorOnly_Window_GymStorage_North_01": {
+      "properties": {},
+      "signature": "0756DAB5E8E406E65AF63A341EA8B2B16BD2063FE61C486F86ABD2A92C7F4D38",
+      "type": "MESH"
+    },
+    "COL_B03_Ceiling_F02": {
+      "properties": {},
+      "signature": "F458354644B3F403425A7D146E21DC5BF3C959F1B748B6D4E2C4508580499029",
+      "type": "MESH"
+    },
+    "COL_B03_Ceiling_F03": {
+      "properties": {},
+      "signature": "305FCACA8B544B3CB8A904AED2CD32B0B9204130AA619349056B74C855422420",
+      "type": "MESH"
+    },
+    "COL_B03_ChangingBenches": {
+      "properties": {},
+      "signature": "9D31382BA610AA9CEB68AB4C3E12C916F7DB9CEE61529BFBF3DDB9B75A853D2C",
+      "type": "MESH"
+    },
+    "COL_B03_ExteriorWalls_F01": {
+      "properties": {},
+      "signature": "35E1E2AC20A089ACE86322A8F48420FCD59B0BBF234D731419E40E6850C56D74",
+      "type": "MESH"
+    },
+    "COL_B03_ExteriorWalls_F02": {
+      "properties": {},
+      "signature": "9C1E1E4090FA45A77373B325E77B863875DED5B9387F4219EDEC10F89DDF7E46",
+      "type": "MESH"
+    },
+    "COL_B03_ExteriorWalls_F03": {
+      "properties": {},
+      "signature": "9327257A0719EC40DEDADAE7FD3959AD72AF68BEB115848B5CA80EF4A7FF28F2",
+      "type": "MESH"
+    },
+    "COL_B03_ExteriorWalls_F04": {
+      "properties": {},
+      "signature": "B6BDFA613744CF0D026313F705AAA1ADA254FCCC730D9E0D4D03254CE0709E52",
+      "type": "MESH"
+    },
+    "COL_B03_Floor_F02": {
+      "properties": {},
+      "signature": "D466A833D4A4EAE60B16A70FB4570B9DCA93047E9C157F0DAE1FA5438F67B481",
+      "type": "MESH"
+    },
+    "COL_B03_Floor_F03": {
+      "properties": {},
+      "signature": "F458354644B3F403425A7D146E21DC5BF3C959F1B748B6D4E2C4508580499029",
+      "type": "MESH"
+    },
+    "COL_B03_Floor_F04": {
+      "properties": {},
+      "signature": "305FCACA8B544B3CB8A904AED2CD32B0B9204130AA619349056B74C855422420",
+      "type": "MESH"
+    },
+    "COL_B03_GymExteriorWalls": {
+      "properties": {},
+      "signature": "0BECF056D392CEBEA538B7A152F7ED4AAC6AC1B9561CC6AD581D71E2675098B3",
+      "type": "MESH"
+    },
+    "COL_B03_GymStorageNorthWall": {
+      "properties": {},
+      "signature": "5174B6C6ADB74B12ABA0D3D54879BA563EB4CD20D62A0BBA6F9B33C6377066CF",
+      "type": "MESH"
+    },
+    "COL_B03_InteriorWalls_F02": {
+      "properties": {},
+      "signature": "5B267A27DEEC829726EB54799C8ACBBFEB1CF0CC4CF0CAD017AAA37850EDA9A5",
+      "type": "MESH"
+    },
+    "COL_B03_InteriorWalls_F03": {
+      "properties": {},
+      "signature": "273A745A89E2E3B094FD12924C311ABB87E5C3A616015FB90F96244242F5A2CA",
+      "type": "MESH"
+    },
+    "COL_B03_InteriorWalls_F04": {
+      "properties": {},
+      "signature": "2B00EA55B0A6AEDA8FCBF760E9426511AF570D370021E54AF0DE3C95ED58C475",
+      "type": "MESH"
+    },
+    "COL_B03_Prop_Locker_Changing_F_01": {
+      "properties": {},
+      "signature": "9C7196C1CE111845CED96D960C29BF2E5A92648C17FD368910CA4FE30E242400",
+      "type": "MESH"
+    },
+    "COL_B03_Prop_Locker_Changing_F_02": {
+      "properties": {},
+      "signature": "65A26627D4AB0396D748E60BD904F52B8C4C116D410699828574A1A69DB7D526",
+      "type": "MESH"
+    },
+    "COL_B03_Prop_Locker_Changing_M_01": {
+      "properties": {},
+      "signature": "196E42DAEFEAC752C9733335905BAD2C3AC80BC6D248A7C402D0D810D7DEA8B7",
+      "type": "MESH"
+    },
+    "COL_B03_Prop_Locker_Changing_M_02": {
+      "properties": {},
+      "signature": "8BD25A68AB8629F0F7A5A4AEA672DE67AC760918F2A079176643034F6D4FAAE8",
+      "type": "MESH"
+    },
+    "COL_BridgeSideRamp_East": {
+      "properties": {},
+      "signature": "1A9DCA1DFC95584A87605FB3CB3434437CD79E776D3EEB37C30AB519F58325F4",
+      "type": "MESH"
+    },
+    "COL_BridgeSideRamp_West": {
+      "properties": {},
+      "signature": "2F0477B3D24CD04709A166576B76407C1AE76E4B2FA1787CE428C11D5B80BBFD",
+      "type": "MESH"
+    },
+    "COL_Ceiling1F_North": {
+      "properties": {},
+      "signature": "9FD8555527474A6384750D9F2980C796BDB69D7CC313D6787C855EAEEDB52124",
+      "type": "MESH"
+    },
+    "COL_Ceiling1F_West": {
+      "properties": {},
+      "signature": "349517FF4AC3F44618012A28FBA6A41A14ECD71D3964874297B616DA1BABDC96",
+      "type": "MESH"
+    },
+    "COL_EntryRamp": {
+      "properties": {},
+      "signature": "CA327304AC2031B146D0D9078C00E732B71CE18DB04F05581A5E498402F20F1A",
+      "type": "MESH"
+    },
+    "COL_Floor_Bridge": {
+      "properties": {},
+      "signature": "8CCF5D987FF90FD5688343E3B28644D716C4DD336DB19EAC322B8C84E8690FE8",
+      "type": "MESH"
+    },
+    "COL_Floor_Gym": {
+      "properties": {},
+      "signature": "2C343B0A5870CB7F652214689CF7166E3CCF2803511ADCE41860DB4003AEBDAD",
+      "type": "MESH"
+    },
+    "COL_Floor_GymStorage": {
+      "properties": {},
+      "signature": "E0A6B2992AF010F8A3052099E51A2A41F079F71085333AD08C0FD8F5D951814F",
+      "type": "MESH"
+    },
+    "COL_Floor_NorthWing": {
+      "properties": {},
+      "signature": "3EB03A6290CDAEDB8C11117B77560820FD891E526621AA7CC3D131FF58847F6B",
+      "type": "MESH"
+    },
+    "COL_Floor_WestWing": {
+      "properties": {},
+      "signature": "DFBE580E95D4CB3DE3AB194B49B316200180491A4BE9F045F4135B8E807CB098",
+      "type": "MESH"
+    },
+    "COL_Gate_MainClosed": {
+      "properties": {},
+      "signature": "375E922D9E78BA1558432B70BD902FC37E33723EEF8D66A4ACCD4B5AB838539D",
+      "type": "MESH"
+    },
+    "COL_Gate_UtilityClosed": {
+      "properties": {},
+      "signature": "9CC58A58490AE319162482C51056246AC57EC54608BAD89B45C265F6A5E67B7F",
+      "type": "MESH"
+    },
+    "COL_GymCourtyardEntryRamp": {
+      "properties": {},
+      "signature": "B19D3E90C0EBA90122970F494E02C42B5DFB83966D314CBC53E5A08D3AFD651E",
+      "type": "MESH"
+    },
+    "COL_GymRoof": {
+      "properties": {},
+      "signature": "3F8EB3F1584BE78374B16564605B0E4B21F9A7DA3F53513FAE84C24B54A9131F",
+      "type": "MESH"
+    },
+    "COL_GymStage": {
+      "properties": {},
+      "signature": "1AAB4E2374C2627EC52B000FA8456EC3D4D921B028B9C046180E94BF96ADEE35",
+      "type": "MESH"
+    },
+    "COL_GymStageSideWall_East_Left": {
+      "properties": {},
+      "signature": "90ECA5D6C0638D52F1BA913CD779DBE0CCE9F13780292F88C93EEAC20DBF33E0",
+      "type": "MESH"
+    },
+    "COL_GymStageSideWall_East_Lintel": {
+      "properties": {},
+      "signature": "47857D9EECEF1B61217289570E9718A84F10686FB594009B7BC1D948BF0E6F6C",
+      "type": "MESH"
+    },
+    "COL_GymStageSideWall_East_Right": {
+      "properties": {},
+      "signature": "E1F439E3956D246EB28254014304A50FE1B66A2741AE1920388371F60486F9B9",
+      "type": "MESH"
+    },
+    "COL_GymStageSideWall_West_Left": {
+      "properties": {},
+      "signature": "B7C3CDB9EDB7942CE08A3CF56493F33BACF36E14F485353D23EE62E666214B4E",
+      "type": "MESH"
+    },
+    "COL_GymStageSideWall_West_Lintel": {
+      "properties": {},
+      "signature": "1F62CC0BEB1BCD60E137FE15A50262DC0BC99E52753961646A9F41488678FE93",
+      "type": "MESH"
+    },
+    "COL_GymStageSideWall_West_Right": {
+      "properties": {},
+      "signature": "68F403BF62791447672821E83BD36737F1F55EA363C2177D7B5787692763C528",
+      "type": "MESH"
+    },
+    "COL_GymStageStairHeadWall_East": {
+      "properties": {},
+      "signature": "E62FC857C9391C21757E9EE2DB3CB8550E38065E2F0964076619012037A86A65",
+      "type": "MESH"
+    },
+    "COL_GymStageStairHeadWall_West": {
+      "properties": {},
+      "signature": "E428F3ECC692FD9934C9AA5DF30AF1AEF037DFC5E3EA3A4E8EA5D5DA3DC82723",
+      "type": "MESH"
+    },
+    "COL_GymStageStairRamp_East": {
+      "properties": {},
+      "signature": "E01B1DB9EE7A23CB1B9D31D097718A292A4901FB7FC9E83C4C535A61C45653B7",
+      "type": "MESH"
+    },
+    "COL_GymStageStairRamp_West": {
+      "properties": {},
+      "signature": "85E94A0FFE609992AB99A142B7A63E0B5D4B41087956B4DBBD617209DBB620EB",
+      "type": "MESH"
+    },
+    "COL_GymStorage_East": {
+      "properties": {},
+      "signature": "ACD2FF1B34F8824AF8538437FE61E2BF09053E78E34D3C42EA623C2BB7572177",
+      "type": "MESH"
+    },
+    "COL_GymStorage_Roof": {
+      "properties": {},
+      "signature": "FA1E0FDB7BB0C67E5D35E7193C6256E2494CED45E1F38204343F05AB292CDFE0",
+      "type": "MESH"
+    },
+    "COL_GymStorage_West": {
+      "properties": {},
+      "signature": "0CD489C9E8425D7D374470AEF8C13B3D0E6F30B44CE9F86AB09AC76C6FE38BB4",
+      "type": "MESH"
+    },
+    "COL_GymWall_South": {
+      "properties": {},
+      "signature": "3B2D90B35D6E49591E435196B0FF33132A90D2EC1FFC1F43E376E21BF7CB031C",
+      "type": "MESH"
+    },
+    "COL_HumanOnly_Window_F01_CourtyardNorth_Corridor_02_U03": {
+      "properties": {},
+      "signature": "4632A0183A4570D3C9CE0B8384A28D2E0AA0DCB98C9711977C4E2688963B353A",
+      "type": "MESH"
+    },
+    "COL_HumanOnly_Window_F01_CourtyardWest_Corridor_02_U02": {
+      "properties": {},
+      "signature": "A04B78C77E2675ED21926674AF3F893337DC2F2D80ECF3535866E9BBE87A6DD7",
+      "type": "MESH"
+    },
+    "COL_HumanOnly_Window_F01_CourtyardWest_Corridor_04_U02": {
+      "properties": {},
+      "signature": "0D9BC121AA18485D4E867AB77020CD7232AD77661AD8355B6E964C21D74E3C56",
+      "type": "MESH"
+    },
+    "COL_HumanOnly_Window_F01_CourtyardWest_Corridor_05_U02": {
+      "properties": {},
+      "signature": "0A90AEEDC1915FC97482649DAA8736A7D73F37B8BC76654D5431BFDFBDE566B1",
+      "type": "MESH"
+    },
+    "COL_HumanOnly_Window_F01_North_Special_Room01_Set02_U01": {
+      "properties": {},
+      "signature": "D33B9B5E3CD4CA9844F0B4ADDA0ED229E960B92EA3574920107EAE4102F2D474",
+      "type": "MESH"
+    },
+    "COL_HumanOnly_Window_F01_North_Special_Room02_Set01_U01": {
+      "properties": {},
+      "signature": "3F35EA4BE8CF6682C8953CD5F9B2ACA3CB700F56FC30D36C362112CBAA215E23",
+      "type": "MESH"
+    },
+    "COL_HumanOnly_Window_F01_North_Special_Room02_Set03_U02": {
+      "properties": {},
+      "signature": "92F4EDC267F5E7ECAAB5849D24FD82CC101564AF5371678B81D44ED32433B912",
+      "type": "MESH"
+    },
+    "COL_HumanOnly_Window_F01_West_Ordinary_Room01_U04": {
+      "properties": {},
+      "signature": "7E5952E3025B1BD97CB96EAD5B81FA258CFCCD6202621F2FEDF2956054536149",
+      "type": "MESH"
+    },
+    "COL_HumanOnly_Window_F01_West_Special_01_U01": {
+      "properties": {},
+      "signature": "B6B87731DB7349F1DF69C34390D2585A5B12FDA1DCA2FD23B198F7D192A94EBB",
+      "type": "MESH"
+    },
+    "COL_HumanOnly_Window_F02_CourtyardNorth_Corridor_01_U02": {
+      "properties": {},
+      "signature": "ECFC6D1A7DE040731F465ADDA685A66DB8A4E42B4985C4A1DB2A7AD46D30C3B5",
+      "type": "MESH"
+    },
+    "COL_HumanOnly_Window_F02_CourtyardNorth_Corridor_02_U01": {
+      "properties": {},
+      "signature": "3E368292543F89146B546DC31DCACA91270B47B79ABFFE4F049F5A422E017E9A",
+      "type": "MESH"
+    },
+    "COL_HumanOnly_Window_F02_CourtyardNorth_Corridor_03_U01": {
+      "properties": {},
+      "signature": "579B2F20E2038758347B5C851D83A7A5F5D0FDA7F3CE5D063F1828D1BAFA76AA",
+      "type": "MESH"
+    },
+    "COL_HumanOnly_Window_F02_CourtyardWest_Corridor_04_U02": {
+      "properties": {},
+      "signature": "5F5797C2A614B645DD9257D944DA398672664C187B7FA7A1D81AB2E72BDFAFC7",
+      "type": "MESH"
+    },
+    "COL_HumanOnly_Window_F02_North_Broadcast_Set01_U02": {
+      "properties": {},
+      "signature": "C4F9CC2A3446BF56D35DC6841F66198F2D5B655FF8246B343BB602BCCF1C8D15",
+      "type": "MESH"
+    },
+    "COL_HumanOnly_Window_F02_North_Special_Room03_Set02_U02": {
+      "properties": {},
+      "signature": "6B8808E46FCB8576D9608C33FFD3657EAB43FF261FF601B459C1F343AD26C276",
+      "type": "MESH"
+    },
+    "COL_HumanOnly_Window_F02_North_Special_Room03_Set03_U01": {
+      "properties": {},
+      "signature": "6A30482690CD95EBD6484671D5FE8DD626C060056197AFED87FBD0C8F59E8AD3",
+      "type": "MESH"
+    },
+    "COL_HumanOnly_Window_F02_West_Ordinary_Room01_U02": {
+      "properties": {},
+      "signature": "D3CADF541A57E21135FAF1C311D1329F670493F53C9FBB5A5987F156573B297C",
+      "type": "MESH"
+    },
+    "COL_HumanOnly_Window_F02_West_Ordinary_Room02_U01": {
+      "properties": {},
+      "signature": "E96422C27BB129464C1EA1C90E73AC962CBFB0EF29E8E04447E96278BD7F1416",
+      "type": "MESH"
+    },
+    "COL_HumanOnly_Window_F02_West_Ordinary_Room02_U02": {
+      "properties": {},
+      "signature": "7212BAF5DC8E56C50AC2AABDD9EFA1E455E0452F578500F14979F4D040D1B601",
+      "type": "MESH"
+    },
+    "COL_HumanOnly_Window_F02_West_Ordinary_Room02_U03": {
+      "properties": {},
+      "signature": "D364F5FA250BA44B375EDECA955019E99ABA80A84E10D91FC7D0D4DB2BD7BF3F",
+      "type": "MESH"
+    },
+    "COL_HumanOnly_Window_F02_West_Ordinary_Room02_U04": {
+      "properties": {},
+      "signature": "B6FD7F45E7BEF0AF2B8150B2E95522AC2671B2342C46D55A81AEB4800B2A30AF",
+      "type": "MESH"
+    },
+    "COL_HumanOnly_Window_F02_West_Ordinary_Room03_U01": {
+      "properties": {},
+      "signature": "95115DEF2DEDEEE14E78A84B69B6A84F1F893FB02FEAA48D0E8BFECA59EEEC08",
+      "type": "MESH"
+    },
+    "COL_HumanOnly_Window_F03_CourtyardNorth_Corridor_01_U03": {
+      "properties": {},
+      "signature": "BAD1C9DC3545CAF51ED2788B7046867C7FFC5D11BC8D837B2980F8848F7BD3B3",
+      "type": "MESH"
+    },
+    "COL_HumanOnly_Window_F03_CourtyardNorth_Corridor_02_U04": {
+      "properties": {},
+      "signature": "C59837E3D9F7FE1EB0A8DAD97215A77722CD2B975D4517F0581FFFD7AE4C9718",
+      "type": "MESH"
+    },
+    "COL_HumanOnly_Window_F03_CourtyardNorth_Corridor_03_U03": {
+      "properties": {},
+      "signature": "ECB2F30267F455482A87DB50E13A52D90029939C3D18A715DC15653035F5C102",
+      "type": "MESH"
+    },
+    "COL_HumanOnly_Window_F03_CourtyardWest_Corridor_01_U02": {
+      "properties": {},
+      "signature": "1E18ED2E224BD9AF7E4CBA84685ACFED17EA2025EE5B4C176397A2C2C9547A3D",
+      "type": "MESH"
+    },
+    "COL_HumanOnly_Window_F03_CourtyardWest_Corridor_02_U02": {
+      "properties": {},
+      "signature": "F3A234993716FDBB9785B3BD08AC85187F56E83486D2F27B68346A3E5F16772F",
+      "type": "MESH"
+    },
+    "COL_HumanOnly_Window_F03_CourtyardWest_Corridor_04_U01": {
+      "properties": {},
+      "signature": "798266C13ADAD5D0A874EDD2271A0F06734DDA258E866C7C733D9F375DCE59A3",
+      "type": "MESH"
+    },
+    "COL_HumanOnly_Window_F03_North_Special_Room01_Set01_U01": {
+      "properties": {},
+      "signature": "12FBC2CD748915866EB31E0016E7A725807AD8F6480B3DD4DEBD3FD39A1AA179",
+      "type": "MESH"
+    },
+    "COL_HumanOnly_Window_F03_North_Special_Room02_Set01_U01": {
+      "properties": {},
+      "signature": "75BA6EB79F3729AE4AF44EE50C0C04D29C76C89469C6DBAD367138C1B6831647",
+      "type": "MESH"
+    },
+    "COL_HumanOnly_Window_F03_North_Special_Room02_Set01_U02": {
+      "properties": {},
+      "signature": "5472B332790AE05CFC5D79E5D273A291FBDE617854A3E1925B4DFBAE6032C41A",
+      "type": "MESH"
+    },
+    "COL_HumanOnly_Window_F03_North_Special_Room02_Set02_U01": {
+      "properties": {},
+      "signature": "22266A734EAE24CD2EA4F40838D257D62D018A5BF122B2D7942EEEEAA5AEA407",
+      "type": "MESH"
+    },
+    "COL_HumanOnly_Window_F03_North_Special_Room02_Set02_U02": {
+      "properties": {},
+      "signature": "DCD55E06CB65F7CA61078B76C4157FDEF0D68D574EDA85A1D691AC2F93BC3D73",
+      "type": "MESH"
+    },
+    "COL_HumanOnly_Window_F03_North_Special_Room02_Set03_U01": {
+      "properties": {},
+      "signature": "61437C11DEAF1483D03CA5C445C7776D0AC21C96A6C88506012D2C6DA230E369",
+      "type": "MESH"
+    },
+    "COL_HumanOnly_Window_F03_North_Special_Room02_Set03_U02": {
+      "properties": {},
+      "signature": "C2DEAF49DF86E164C26F8EBDAD3FDEC55DA713F7B7574F842C8FC52548F62125",
+      "type": "MESH"
+    },
+    "COL_HumanOnly_Window_F03_West_Ordinary_Room01_U03": {
+      "properties": {},
+      "signature": "734F72664759CD3186EBE4EBF6DCC6F2FCE06F68C15056B84D63E183DAE11D24",
+      "type": "MESH"
+    },
+    "COL_HumanOnly_Window_F03_West_Ordinary_Room02_U01": {
+      "properties": {},
+      "signature": "B4A86D75F2EFA7AEA9DA922CDA0DBBE794A42EC706DFD4D48E0B2DC57DFE3900",
+      "type": "MESH"
+    },
+    "COL_HumanOnly_Window_F04_CourtyardNorth_Corridor_01_U03": {
+      "properties": {},
+      "signature": "E140DBD4A5D48435CC04921752E3529B392A2868DAA280D93F09FEC2A36816E1",
+      "type": "MESH"
+    },
+    "COL_HumanOnly_Window_F04_CourtyardNorth_Corridor_02_U01": {
+      "properties": {},
+      "signature": "13464132A0C7A37CAC5018DCAAF5DC7CC43750F08B5082851537D5C08FD59B1E",
+      "type": "MESH"
+    },
+    "COL_HumanOnly_Window_F04_CourtyardNorth_Corridor_03_U03": {
+      "properties": {},
+      "signature": "E09985B36414D0E47DF33ADD4D759DD6FD111C1FC62989E813A634A9415E6B57",
+      "type": "MESH"
+    },
+    "COL_HumanOnly_Window_F04_CourtyardWest_Corridor_01_U02": {
+      "properties": {},
+      "signature": "EC910AFEEF953EBE756B0C278AFC4EA020C0CE580A339238E2F07D684EFC2B49",
+      "type": "MESH"
+    },
+    "COL_HumanOnly_Window_F04_CourtyardWest_Corridor_03_U02": {
+      "properties": {},
+      "signature": "BA3EA37AFD5E3A450ACEED277188309A1E241EE2C4ED3CA2296D1067997C8976",
+      "type": "MESH"
+    },
+    "COL_HumanOnly_Window_F04_CourtyardWest_Corridor_05_U01": {
+      "properties": {},
+      "signature": "87B2526B6F40A967866E30B58ABD6F1C4F10E882E32D30B8B69480136775043D",
+      "type": "MESH"
+    },
+    "COL_HumanOnly_Window_F04_North_Special_Room02_Set01_U02": {
+      "properties": {},
+      "signature": "F20D18E574B320A51D277C600CEDCD4A12D8EC3E81B524DAF5C6996C20BF228C",
+      "type": "MESH"
+    },
+    "COL_HumanOnly_Window_F04_North_Special_Room02_Set02_U01": {
+      "properties": {},
+      "signature": "311165F1FA9B4607692329595C77796A413766F674470F3A4B280470A736BA1B",
+      "type": "MESH"
+    },
+    "COL_HumanOnly_Window_F04_West_Ordinary_Room01_U04": {
+      "properties": {},
+      "signature": "374DBAB0F4A632BFFEBE6FD2B7EF69F5C2A2244DB3237326D03A1AE8A2C0C3FE",
+      "type": "MESH"
+    },
+    "COL_HumanOnly_Window_F04_West_Ordinary_Room02_U02": {
+      "properties": {},
+      "signature": "650641973C959B3D9C005B0FC002E085DAC605B6495C83804E8A60D9340A3F76",
+      "type": "MESH"
+    },
+    "COL_HumanOnly_Window_F04_West_Ordinary_Room03_U01": {
+      "properties": {},
+      "signature": "5D937DF0CA0C08BBC1B460CD065E58F7A485E965D40F69995A3BFA00D1236C83",
+      "type": "MESH"
+    },
+    "COL_HumanOnly_Window_F04_West_Ordinary_Room03_U02": {
+      "properties": {},
+      "signature": "C305DD86929AC790F3D07C171A9ABFCA9F180BBD49786DFDD43D55837EF5E641",
+      "type": "MESH"
+    },
+    "COL_HumanOnly_Window_F04_West_Ordinary_Room03_U03": {
+      "properties": {},
+      "signature": "BA446DB4680E9376363374F6020B15F6D0F67123E1017D53EFD533CDF54BF209",
+      "type": "MESH"
+    },
+    "COL_HumanOnly_Window_F04_West_Ordinary_Room03_U04": {
+      "properties": {},
+      "signature": "15B643B4A1B181A12136BB0B1BDF4060CB77254FE85419318797565E48C1A4A8",
+      "type": "MESH"
+    },
+    "COL_HumanOnly_Window_Gym_East_01_U03": {
+      "properties": {},
+      "signature": "04F76F35789DFD8D3454A49953CB3133AA5CFC918887BEB38C9F2910384012D2",
+      "type": "MESH"
+    },
+    "COL_HumanOnly_Window_Gym_East_02_U01": {
+      "properties": {},
+      "signature": "055942ED74BF003DD8372ABA0E7FF683CA5DAB9F53F5272C9AC2EF43BDF0BC2B",
+      "type": "MESH"
+    },
+    "COL_HumanOnly_Window_Gym_East_03_U04": {
+      "properties": {},
+      "signature": "3F7A2AC71C0760E4BC5682E4FDBBD0D604671CDA0A0915E358EC87F98B9634C6",
+      "type": "MESH"
+    },
+    "COL_HumanOnly_Window_Gym_North_02_U01": {
+      "properties": {},
+      "signature": "256A35CC5CA950DC2A1C5E3132AD40D2EB5775DC9505AA7F0EF08DD1F655127A",
+      "type": "MESH"
+    },
+    "COL_HumanOnly_Window_Gym_West_01_U04": {
+      "properties": {},
+      "signature": "144CABF9E962224BEDDC780D266EBF5CFCED00B6C5181E0DABC3B30C1F516D9D",
+      "type": "MESH"
+    },
+    "COL_HumanOnly_Window_Gym_West_02_U02": {
+      "properties": {},
+      "signature": "E6A8031D904980A8195844A643DF6A00B86F6D8E178E552C61B1D5EB19C9B6EF",
+      "type": "MESH"
+    },
+    "COL_HumanOnly_Window_Gym_West_03_U01": {
+      "properties": {},
+      "signature": "5F119F1D6D3BC70282E91A078822E18DF6E1434EB644224028423615D3B01B8D",
+      "type": "MESH"
+    },
+    "COL_NorthEntryRamp": {
+      "properties": {},
+      "signature": "22A33314954A8D5E6B0298C38065FEECECCD5A1ADAFECD42C5F9333CFBAAC00D",
+      "type": "MESH"
+    },
+    "COL_NorthWingSouthEntryRamp": {
+      "properties": {},
+      "signature": "719CF342B4D26ECFA1429D0B01207FF5F9A8FD51A107142BD5CCEAD6B4F93AAD",
+      "type": "MESH"
+    },
+    "COL_Perimeter_East": {
+      "properties": {},
+      "signature": "9490B848C5926048D45979A9077C636F265EEED3FD8A98A87EB94B126E2DF665",
+      "type": "MESH"
+    },
+    "COL_Perimeter_EastNorth": {
+      "properties": {},
+      "signature": "A3ECB98D4A81C4CBED6D5AF4EE80FF8AED77F9AB609D0C7F885B3D05D07A2946",
+      "type": "MESH"
+    },
+    "COL_Perimeter_NorthEast": {
+      "properties": {},
+      "signature": "CB66E6C4AC45DC7FA5F4A8893DFA731E8AB6643C107EC4C3BF28EC01315AE45E",
+      "type": "MESH"
+    },
+    "COL_Perimeter_NorthWest": {
+      "properties": {},
+      "signature": "1ED2FD9B43E2D12BCAB241A28ACC4B2CEC0AC98E3CBC04BF219430392D53CDCD",
+      "type": "MESH"
+    },
+    "COL_Perimeter_SouthEast": {
+      "properties": {},
+      "signature": "9EF8E004F7E0CEBBEA54ACAD321D00B9A143031AC217635ECE73BE3DC6B699AF",
+      "type": "MESH"
+    },
+    "COL_Perimeter_SouthWest": {
+      "properties": {},
+      "signature": "56D31139C93A2D45AED9E66BF748A953DC8C780349210414BE63E070E7932CE6",
+      "type": "MESH"
+    },
+    "COL_Perimeter_West": {
+      "properties": {},
+      "signature": "105AE153DAB23982D2DCDAF15A218107D4767E6F19DF65BF6868325794C26E9C",
+      "type": "MESH"
+    },
+    "COL_PoolBasinFloor": {
+      "properties": {},
+      "signature": "DDD3189413DC6F480DF8F3EFD723460D4025D374ECCEB4AB92EA0F2F84F2E469",
+      "type": "MESH"
+    },
+    "COL_PoolBasinRamp_East": {
+      "properties": {},
+      "signature": "78C0834E614AAE859692973C15B3B132C6071555A72E8A3B2687821C9F108A71",
+      "type": "MESH"
+    },
+    "COL_PoolBasinWall_East": {
+      "properties": {},
+      "signature": "AB3B9387DFA221B7E12805DAEA711A8DA2D55C5CB5EDDCEA5AFD0BDECD755F36",
+      "type": "MESH"
+    },
+    "COL_PoolBasinWall_North": {
+      "properties": {},
+      "signature": "E8B704F15FBF0C21C6B20FC1D8951121AA8662054ECD0D6E1F14F4CEC415FAF2",
+      "type": "MESH"
+    },
+    "COL_PoolBasinWall_South": {
+      "properties": {},
+      "signature": "E735BD9ED0EEDFED926FE793BDA9793C5C720D341750F12B6F9D893509BA9A89",
+      "type": "MESH"
+    },
+    "COL_PoolBasinWall_West": {
+      "properties": {},
+      "signature": "8F43901909896C53BFD244B6D8CB85EE5E5CF6D261690B3FDCF7A804F08B0BB9",
+      "type": "MESH"
+    },
+    "COL_PoolDeckAccessRamp_West": {
+      "properties": {},
+      "signature": "D822F447B0A076276ACD84BBE68A0D7C88133D69678A714EBE16C10D35DA2165",
+      "type": "MESH"
+    },
+    "COL_PoolRaisedDeck_East": {
+      "properties": {},
+      "signature": "3822D7F21D49FB87A52BD6360C8762BC3F95762AC1EF632589CC2D7BA31850DC",
+      "type": "MESH"
+    },
+    "COL_PoolRaisedDeck_North": {
+      "properties": {},
+      "signature": "2850C407B77F32AF71CCACDC4C7FA31C5DDAF1B8E9D0E2178EDFD7CDAC390897",
+      "type": "MESH"
+    },
+    "COL_PoolRaisedDeck_South": {
+      "properties": {},
+      "signature": "EB430C7ECBE968E9F6667BB34E3126B237E3D3E0D699857DE3091E3B2411992C",
+      "type": "MESH"
+    },
+    "COL_PoolRaisedDeck_West": {
+      "properties": {},
+      "signature": "7D37C43B95B9796D0CC94017AC67EAD8AA3B66D79D7E8BB016CFACB7A176D055",
+      "type": "MESH"
+    },
+    "COL_RoofGuard_CourtyardNorth": {
+      "properties": {},
+      "signature": "136BC72855C1233C463E8C5C3A83BFFFE21257C5727F5496FA6CF93683FE77CC",
+      "type": "MESH"
+    },
+    "COL_RoofGuard_CourtyardWest": {
+      "properties": {},
+      "signature": "07378102DE80EA466C76EE7D36AB78C9E221D769268486C2EEB51267989E6DEB",
+      "type": "MESH"
+    },
+    "COL_RoofGuard_EastOuter": {
+      "properties": {},
+      "signature": "5F0FE7A0E8B3E716E3DF9B5CCCAC16A23557C8F17D11833D25E6883826280BFA",
+      "type": "MESH"
+    },
+    "COL_RoofGuard_NorthOuter": {
+      "properties": {},
+      "signature": "EE28BBAFF8BC6BED7925FF7E4575868406A8D8D8FF518C481E71C89F2AD3B4A7",
+      "type": "MESH"
+    },
+    "COL_RoofGuard_SouthOuter": {
+      "properties": {},
+      "signature": "1695A33BB5E71999559C34CBE35F74EF0845A6862C0A43604CBB71550BDE2D68",
+      "type": "MESH"
+    },
+    "COL_RoofGuard_WestOuter": {
+      "properties": {},
+      "signature": "82C9E1512AD5001A64A6EDF8E4C76DBC72175E21E5E1B6CAB3D1465C115B3E57",
+      "type": "MESH"
+    },
+    "COL_Roof_North": {
+      "properties": {},
+      "signature": "9203C2A3342D007A0EE8C3DF864E4F0378CC192DB5A4368C4F756B0F5C8FB97C",
+      "type": "MESH"
+    },
+    "COL_Roof_West": {
+      "properties": {},
+      "signature": "1887A9C64B78A36849588F65AA90EAA46DEEC9CEA7E49C1A61BAFC1A1AC8C165",
+      "type": "MESH"
+    },
+    "COL_RooftopFacilityShell": {
+      "properties": {},
+      "signature": "50CD5706EB6E9BA934FD1255D5C7915F050FE4DBBA542CE8F97E9EF86E0B5FD6",
+      "type": "MESH"
+    },
+    "COL_RooftopStairExitRamp": {
+      "properties": {},
+      "signature": "B58F03859093CFFC0994CED8CAD6C73662EC893420445CC75E42272B1B23D947",
+      "type": "MESH"
+    },
+    "COL_SiteGround": {
+      "properties": {},
+      "signature": "AA7E709ECBCD168BD3E01E1B47D0327AA5888729B9BFF5A82E1248934304EF39",
+      "type": "MESH"
+    },
+    "COL_StairClosure_NE": {
+      "properties": {},
+      "signature": "F8B16FCAFE4DBBD6A29E7378E1AD2757A81CE7A233A6A306D0D9CC12954D2012",
+      "type": "MESH"
+    },
+    "COL_StairClosure_SW": {
+      "properties": {},
+      "signature": "5A7889DA9F992570944578D087AA44955B7A239E1FBA0B41DB49B6425C91D007",
+      "type": "MESH"
+    },
+    "COL_StairGuardSystem_NW_2FTo3F": {
+      "properties": {},
+      "signature": "A5482720E82551E686D8186509A6EDFA881A90749E1CEEF984163570C0B4C9F0",
+      "type": "MESH"
+    },
+    "COL_StairGuardSystem_NW_3FTo4F": {
+      "properties": {},
+      "signature": "B1920C79B45526980B95FCC7BC26353FA1D7EEA7F3E276D23FFB4191AB905B31",
+      "type": "MESH"
+    },
+    "COL_StairGuardSystem_NW_4FToRooftop": {
+      "properties": {},
+      "signature": "4419341912E2270D6E9626A4D89AB0118184319433520D75E95B80685FB6DCE1",
+      "type": "MESH"
+    },
+    "COL_StairGuard_NE_Landing": {
+      "properties": {},
+      "signature": "9525C5C4D1845B7E22B88E39A78BDEEC31BEEEB31C353C63B4A5BED41BF8304A",
+      "type": "MESH"
+    },
+    "COL_StairGuard_NE_Lower": {
+      "properties": {},
+      "signature": "D6B3DD4D70D65DD14138593107D44C7575EEE60062E58FED71C4ADD09DF09496",
+      "type": "MESH"
+    },
+    "COL_StairGuard_NE_Upper": {
+      "properties": {},
+      "signature": "4B9C48802603FAFCF0E1B6505CA308EFBE99F0A5933FDE43CAEFD326DA69BDEC",
+      "type": "MESH"
+    },
+    "COL_StairGuard_NW_Landing": {
+      "properties": {},
+      "signature": "2691745478941134B9E44672C96DB720D05F951A69AEAEAA946172555B0E780C",
+      "type": "MESH"
+    },
+    "COL_StairGuard_NW_Lower": {
+      "properties": {},
+      "signature": "5906822CA04640AD02E9FFE216A27C0FA2FC97CB28A5FB0CF7BEA3EB9268CB8A",
+      "type": "MESH"
+    },
+    "COL_StairGuard_NW_Upper": {
+      "properties": {},
+      "signature": "91AF9196F37D9643D9BFAE53FE98ADAE498CBFF928209615CD418C5F92034D87",
+      "type": "MESH"
+    },
+    "COL_StairGuard_SW_Landing": {
+      "properties": {},
+      "signature": "DFDE4BFE7DDBBA954DC20D0B5F040D4D1185AD3E93F5ECCA135891D480D069B1",
+      "type": "MESH"
+    },
+    "COL_StairGuard_SW_Lower": {
+      "properties": {},
+      "signature": "DF8EA634E29C324FE804BE1964B449E78A6B09CE93C19457263281653CC7B778",
+      "type": "MESH"
+    },
+    "COL_StairGuard_SW_Upper": {
+      "properties": {},
+      "signature": "8507BDDB86BE147C0522D72C921B6BC7A380A6E340EAA1D4210A578394F1F0FE",
+      "type": "MESH"
+    },
+    "COL_StairLanding_NE": {
+      "properties": {},
+      "signature": "B3F63F2AAC96D894BA5657A1047DD97865C2F80A09AD440037C3EF46D74EF47C",
+      "type": "MESH"
+    },
+    "COL_StairLanding_NW": {
+      "properties": {},
+      "signature": "D225AB6C2189B6CB3CCDA91E0D6C16B2DB653347D1CA47EBC2B1AD0BD0290D75",
+      "type": "MESH"
+    },
+    "COL_StairLanding_SW": {
+      "properties": {},
+      "signature": "247D93B182CDCD16C2D05AD3CAFEA5052CF27AD8DE9490013A14E76D86B4E7E7",
+      "type": "MESH"
+    },
+    "COL_StairRampUpper_NE": {
+      "properties": {},
+      "signature": "E2DCACFE3795FA3F4FF9778B56AE796670A87D1273531692820019052B471E2E",
+      "type": "MESH"
+    },
+    "COL_StairRampUpper_NW": {
+      "properties": {},
+      "signature": "99E3F219D69D67D2852EEB6DFBCA0154A57254CEB3AABAF965A5A86B69379783",
+      "type": "MESH"
+    },
+    "COL_StairRampUpper_SW": {
+      "properties": {},
+      "signature": "18F0ECF5FDEF8FE02C02A1E0C3990E373213072597DAD9E2B6F10510131E57E0",
+      "type": "MESH"
+    },
+    "COL_StairRamp_NE": {
+      "properties": {},
+      "signature": "6AB278DC56F6730C05B6F620FA84ED7C855086998309DEF03B3515C0F33355A4",
+      "type": "MESH"
+    },
+    "COL_StairRamp_NW": {
+      "properties": {},
+      "signature": "18C43835CDEB6C864CE9CBE9C0EB5736D97DA3C8D7A54BED8EC108BC57C61250",
+      "type": "MESH"
+    },
+    "COL_StairRamp_SW": {
+      "properties": {},
+      "signature": "3FE2EE062E9D3A2D0FF8498B571543279388CF774DAE2E74C7FEDBB691032CAD",
+      "type": "MESH"
+    },
+    "COL_StairStorageShell_NW": {
+      "properties": {},
+      "signature": "B7D467D055B01AAF5911BA2FF0188F1C9033E54AD7C7CF52EDF496AF05757816",
+      "type": "MESH"
+    },
+    "COL_StairSystem_NW_2FTo3F": {
+      "properties": {},
+      "signature": "9E66FF3E7755B3430F68CEEBA0732CD56CEDB316E2BE21183C1075D9E5B33EC7",
+      "type": "MESH"
+    },
+    "COL_StairSystem_NW_3FTo4F": {
+      "properties": {},
+      "signature": "59C237087C86350D436D6CEBF06FB6E0C231F70BD3B80C013947BF4390AF8030",
+      "type": "MESH"
+    },
+    "COL_StairSystem_NW_4FToRooftop": {
+      "properties": {},
+      "signature": "E91BD5702731B54D0305289CC1D4BC2143BA13CCBFF073CA140CC6623C1BDC64",
+      "type": "MESH"
+    },
+    "COL_ToiletStallPartition_F_01": {
+      "properties": {},
+      "signature": "E6DA44A823BD8806DBF50E40BEDA14EC89DCAF3BD1607B9FA9FD59891EF757B5",
+      "type": "MESH"
+    },
+    "COL_ToiletStallPartition_F_02": {
+      "properties": {},
+      "signature": "402410BFB709EEB7A08D4B1FE3DB9F33194D8D391F519836A47A455E12118F55",
+      "type": "MESH"
+    },
+    "COL_ToiletStallPartition_M_01": {
+      "properties": {},
+      "signature": "40D83D3D54AD86AD168783EA9A8354E2D01D4C81D18A1B3649F6A293EE33B8E4",
+      "type": "MESH"
+    },
+    "COL_ToiletStallPartition_M_02": {
+      "properties": {},
+      "signature": "67950B4301A0370337C410497437672F89F5E6BAB91A55667C9C66D71402A5AA",
+      "type": "MESH"
+    },
+    "COL_Wall_Classroom1_Corridor_1": {
+      "properties": {},
+      "signature": "1484FE35F90D47B5B8B0656808B0C116F5D6B0B1BFFB98AC7ED1E7F35BFF6D8C",
+      "type": "MESH"
+    },
+    "COL_Wall_Classroom1_Corridor_2": {
+      "properties": {},
+      "signature": "48B2B0363597C0DF777E82E9DF777418EAA788E849286D95B0D7C8990A8DCC4C",
+      "type": "MESH"
+    },
+    "COL_Wall_Classroom1_Corridor_3": {
+      "properties": {},
+      "signature": "A49832BB6D208A6AA5F75773DB086ED8A4F31F0C1F0AE0E00D2A1478C7A3021B",
+      "type": "MESH"
+    },
+    "COL_Wall_Classroom2_Corridor_1": {
+      "properties": {},
+      "signature": "02BD0279BA41619A564A4CDB807E13758C213D3F71EDB1BCB559E067E184CA35",
+      "type": "MESH"
+    },
+    "COL_Wall_Classroom2_Corridor_2": {
+      "properties": {},
+      "signature": "7391F2E34E349606DA80DF1CBB048CEED6ED9795F1934EB841CBA18C1955453E",
+      "type": "MESH"
+    },
+    "COL_Wall_Classroom2_Corridor_3": {
+      "properties": {},
+      "signature": "8FD31E841C222E9DF12333B76F3550E6EE0BC259AE78539245396FE479738799",
+      "type": "MESH"
+    },
+    "COL_Wall_Classroom3_Corridor_1": {
+      "properties": {},
+      "signature": "0E853AD7E2B9AD09AECD61439CCA263D6A6422DA01391081F1F75ED065C91AAF",
+      "type": "MESH"
+    },
+    "COL_Wall_Classroom3_Corridor_2": {
+      "properties": {},
+      "signature": "08929C9E82E50DCB578A553CD6399B55323C8BC9A53618C2005FC8A8DFB78141",
+      "type": "MESH"
+    },
+    "COL_Wall_Classroom3_Corridor_3": {
+      "properties": {},
+      "signature": "5DD0F587321BA61E18EBD03FDB3F0BB9941A6BA15B8296834BB6854FF015618A",
+      "type": "MESH"
+    },
+    "COL_Wall_Classroom3_North": {
+      "properties": {},
+      "signature": "BAD92664144AFAA663B52B1B41A6A463FB80FDE5F803F86D4B5F211DE86685D1",
+      "type": "MESH"
+    },
+    "COL_Wall_ClassroomCross_1": {
+      "properties": {},
+      "signature": "24C117A8D08554C03615FDEF3BD11319634A9609EE7065C272B88F1F614E4F4F",
+      "type": "MESH"
+    },
+    "COL_Wall_ClassroomCross_2": {
+      "properties": {},
+      "signature": "69850CEF9677458723611AC8C3201BE3119177E83A41CC2433251929E5B88BEF",
+      "type": "MESH"
+    },
+    "COL_Wall_Lintel_ClassroomDoor_01": {
+      "properties": {},
+      "signature": "A2196094118EADA7447FC4A5BDA585523FE410803BBB05160E90D452F898BFCC",
+      "type": "MESH"
+    },
+    "COL_Wall_Lintel_ClassroomDoor_02": {
+      "properties": {},
+      "signature": "3A792CEE576E3FB349BEE39667803D82E85DBBBA061CF7202F9917713EC8161B",
+      "type": "MESH"
+    },
+    "COL_Wall_Lintel_SpecialDoor_01": {
+      "properties": {},
+      "signature": "2A0D3DEC0FF9CDBA7C3D9C318248DFFF2AECB2DC7AFDCB9A3D124819230A55C1",
+      "type": "MESH"
+    },
+    "COL_Wall_Lintel_SpecialDoor_02": {
+      "properties": {},
+      "signature": "60CD2D1AD1C4C68880F89C989D3A073DF350E47D81F99C8FEA6AF7DE0125AA9C",
+      "type": "MESH"
+    },
+    "COL_Wall_Lintel_SpecialDoor_03": {
+      "properties": {},
+      "signature": "7BD838174969007AFEA0F4C60BAFFC69939F8FD641150F108096DFE973DFDC9A",
+      "type": "MESH"
+    },
+    "COL_Wall_Lintel_SpecialDoor_04": {
+      "properties": {},
+      "signature": "39A3D7B84F4F035A3954EC8478913F06DBE5BA8B05B04E2A89A3F05E562CAC86",
+      "type": "MESH"
+    },
+    "COL_Wall_Lintel_SpecialRoomWest_Front": {
+      "properties": {},
+      "signature": "EC32A611DE28FF9D1C48BF536A9D3636879AE1B0FBFCEF135CA0C80BF61932F5",
+      "type": "MESH"
+    },
+    "COL_Wall_Lintel_SpecialRoomWest_Rear": {
+      "properties": {},
+      "signature": "3626B0E0663829E89EC17D213BAE0F1AD55AE2752CF7DD176E1AC882E8FD8BC6",
+      "type": "MESH"
+    },
+    "COL_Wall_Lintel_Toilet_F": {
+      "properties": {},
+      "signature": "5A790600526A621AACF2FA5A1B1895C6F9B5304C81D9D5DAB04BF1011C02CDD3",
+      "type": "MESH"
+    },
+    "COL_Wall_Lintel_Toilet_M": {
+      "properties": {},
+      "signature": "44BC22C6DD1450656C2F6C1ECC229AB77835820C084993DC9CDFE920DC48555A",
+      "type": "MESH"
+    },
+    "COL_Wall_NorthEntry_Special1": {
+      "properties": {},
+      "signature": "FFE5F6C079F83697AB17BEEC5B5248E8D79C02B471CEA4632227B76A8CD4EDB9",
+      "type": "MESH"
+    },
+    "COL_Wall_SpecialRoomWest_CorridorClosed_North": {
+      "properties": {},
+      "signature": "53E0EC8A19B6B4DD25628459A3BF94922AD33EC5709CB08A2A8C3570559FAA7C",
+      "type": "MESH"
+    },
+    "COL_Wall_SpecialRoomWest_CorridorClosed_South": {
+      "properties": {},
+      "signature": "984C3C7A6ADF155E72155EF874A612710353E586DBFF2F501180D5912113EC10",
+      "type": "MESH"
+    },
+    "COL_Wall_Special_Divider": {
+      "properties": {},
+      "signature": "0813F4D789BF711F1345D5BD575B8523DC3832856DFE7BA40C75BC3A0CC105F7",
+      "type": "MESH"
+    },
+    "COL_Wall_Special_S1A": {
+      "properties": {},
+      "signature": "EDEBED12CEFD349F2906069A539F4E7A3D85C41DC9541E1C04D654AB4E559094",
+      "type": "MESH"
+    },
+    "COL_Wall_Special_S1B": {
+      "properties": {},
+      "signature": "83D0ECBFB5C22E69C867255BEFCDCC7C2F1BD37E3636F4E7A9E0E80BCFE484B5",
+      "type": "MESH"
+    },
+    "COL_Wall_Special_S1C": {
+      "properties": {},
+      "signature": "F4BFCD172ECA212100982A8A9B8CB779E16486C6189C890D8BF2AA51EAB9B9CA",
+      "type": "MESH"
+    },
+    "COL_Wall_Special_S2A": {
+      "properties": {},
+      "signature": "1D9848CE88B0BA2A4FA04E382A9320D525400B166F76F8404D0A34B382F71C77",
+      "type": "MESH"
+    },
+    "COL_Wall_Special_S2B": {
+      "properties": {},
+      "signature": "53945FBFA2AA4954F0C359F2585DF5AA1556D972EC955956C9CA161C38932F10",
+      "type": "MESH"
+    },
+    "COL_Wall_Special_S2C": {
+      "properties": {},
+      "signature": "36F48AC8A9C1E443ED0E521677746EF0CA81CB8D271A6B9FD416E1B7BFDA9A8C",
+      "type": "MESH"
+    },
+    "COL_Wall_StairNE_West": {
+      "properties": {},
+      "signature": "1E7B88883C1E7BAA43453BEEABBD8F365AF7A3B923965933CA0DE6B362F3DD15",
+      "type": "MESH"
+    },
+    "COL_Wall_Toilet_Divider": {
+      "properties": {},
+      "signature": "A3AA73A8186E6E10FCEA1B8AECEE783D0652DE7E9B70A30C7BC3ECD32D326D14",
+      "type": "MESH"
+    },
+    "COL_Wall_Toilet_East": {
+      "properties": {},
+      "signature": "1A5C2C85843E611B26933A2DFBA6CD1DB197AF234186CD4B2E9D5E25396E86FA",
+      "type": "MESH"
+    },
+    "COL_Wall_Toilet_South_A": {
+      "properties": {},
+      "signature": "B1A2A504E51D6BC31111E09AA937725F934ADD8606137EE609C388CA23B77C3A",
+      "type": "MESH"
+    },
+    "COL_Wall_Toilet_South_B": {
+      "properties": {},
+      "signature": "15FF87E3F95C0E92353C2F2761920F6BE24E8FB0BFB667C56EE1615F06B04551",
+      "type": "MESH"
+    },
+    "COL_Wall_Toilet_South_C": {
+      "properties": {},
+      "signature": "B1F74D008F98015F7EC10742DE3A476DF5EB6B68C494137B415D6C32F5D3B9DE",
+      "type": "MESH"
+    },
+    "COL_Wall_Toilet_South_D": {
+      "properties": {},
+      "signature": "15ECE9A467C934EEAE94B5F973C7ADCE1F9B96D6AAEE5271FB40D2E5E031881B",
+      "type": "MESH"
+    },
+    "COL_Wall_Toilet_West": {
+      "properties": {},
+      "signature": "505F8D8B1E10214AF189FF1E66510F09A798850CCE2F05B3DA4E2B19EDB2EFDD",
+      "type": "MESH"
+    },
+    "LNK_bit-roof-north-east_A": {
+      "properties": {
+        "hs_bidirectional": true,
+        "hs_endpoint": "A",
+        "hs_id": "bit-roof-north-east",
+        "hs_link_kind": "bit_roof",
+        "hs_link_radius_m": 0.54
+      },
+      "signature": "478C121DBE072CE5C6FE8551E21E5DC88EF522AF5EE6098A4E04B6C71F9DF62F",
+      "type": "EMPTY"
+    },
+    "LNK_bit-roof-north-east_B": {
+      "properties": {
+        "hs_bidirectional": true,
+        "hs_endpoint": "B",
+        "hs_id": "bit-roof-north-east",
+        "hs_link_kind": "bit_roof",
+        "hs_link_radius_m": 0.54
+      },
+      "signature": "0E6061955FBFCC77ABDF13ED2F041B96AAD89BE144381731F0DFB9B1D7BC08A3",
+      "type": "EMPTY"
+    },
+    "LNK_bit-roof-west-south_A": {
+      "properties": {
+        "hs_bidirectional": true,
+        "hs_endpoint": "A",
+        "hs_id": "bit-roof-west-south",
+        "hs_link_kind": "bit_roof",
+        "hs_link_radius_m": 0.54
+      },
+      "signature": "17224F02296894E321EE2B67A35DDE2757754EC1F7A44C62891A9C8C3410B922",
+      "type": "EMPTY"
+    },
+    "LNK_bit-roof-west-south_B": {
+      "properties": {
+        "hs_bidirectional": true,
+        "hs_endpoint": "B",
+        "hs_id": "bit-roof-west-south",
+        "hs_link_kind": "bit_roof",
+        "hs_link_radius_m": 0.54
+      },
+      "signature": "CE93724F5911973C24E8B2777BB74FE1480E2D6A6F9E3E81D1266D571F58EF3A",
+      "type": "EMPTY"
+    },
+    "LNK_bit-window-f01-courtyardnorth-corridor-02-u03_A": {
+      "properties": {
+        "hs_bidirectional": true,
+        "hs_endpoint": "A",
+        "hs_id": "bit-window-f01-courtyardnorth-corridor-02-u03",
+        "hs_link_kind": "bit_window",
+        "hs_link_radius_m": 0.54
+      },
+      "signature": "29EB3EE14EF91D9E64CA710FCA172A9E4C69958E346CA41F01225FA86E785457",
+      "type": "EMPTY"
+    },
+    "LNK_bit-window-f01-courtyardnorth-corridor-02-u03_B": {
+      "properties": {
+        "hs_bidirectional": true,
+        "hs_endpoint": "B",
+        "hs_id": "bit-window-f01-courtyardnorth-corridor-02-u03",
+        "hs_link_kind": "bit_window",
+        "hs_link_radius_m": 0.54
+      },
+      "signature": "4EBD2D3F361FE313F6794B8F278644D991C7052FBDE81254B35F64039FEBA5D9",
+      "type": "EMPTY"
+    },
+    "LNK_bit-window-f01-courtyardwest-corridor-02-u02_A": {
+      "properties": {
+        "hs_bidirectional": true,
+        "hs_endpoint": "A",
+        "hs_id": "bit-window-f01-courtyardwest-corridor-02-u02",
+        "hs_link_kind": "bit_window",
+        "hs_link_radius_m": 0.54
+      },
+      "signature": "A51E5F9BB4D49AFC945922E536ECA4511601AD5DC7D74F8CA597874B01767255",
+      "type": "EMPTY"
+    },
+    "LNK_bit-window-f01-courtyardwest-corridor-02-u02_B": {
+      "properties": {
+        "hs_bidirectional": true,
+        "hs_endpoint": "B",
+        "hs_id": "bit-window-f01-courtyardwest-corridor-02-u02",
+        "hs_link_kind": "bit_window",
+        "hs_link_radius_m": 0.54
+      },
+      "signature": "C8BE39315DB46C6769D23DB6972D4185747EAB55672B57110A75BAC65D4D6BE7",
+      "type": "EMPTY"
+    },
+    "LNK_bit-window-f01-courtyardwest-corridor-04-u02_A": {
+      "properties": {
+        "hs_bidirectional": true,
+        "hs_endpoint": "A",
+        "hs_id": "bit-window-f01-courtyardwest-corridor-04-u02",
+        "hs_link_kind": "bit_window",
+        "hs_link_radius_m": 0.54
+      },
+      "signature": "0463581FC0C1E00F30C94C3B5CBEF2749C36218329523A972751E2E4BBBC7CE8",
+      "type": "EMPTY"
+    },
+    "LNK_bit-window-f01-courtyardwest-corridor-04-u02_B": {
+      "properties": {
+        "hs_bidirectional": true,
+        "hs_endpoint": "B",
+        "hs_id": "bit-window-f01-courtyardwest-corridor-04-u02",
+        "hs_link_kind": "bit_window",
+        "hs_link_radius_m": 0.54
+      },
+      "signature": "68F68260FB23A6552493AAC39168074217CB39A63DB1364C0334835C561FE74D",
+      "type": "EMPTY"
+    },
+    "LNK_bit-window-f01-courtyardwest-corridor-05-u02_A": {
+      "properties": {
+        "hs_bidirectional": true,
+        "hs_endpoint": "A",
+        "hs_id": "bit-window-f01-courtyardwest-corridor-05-u02",
+        "hs_link_kind": "bit_window",
+        "hs_link_radius_m": 0.54
+      },
+      "signature": "411FA61B25AC153846F7BC983A3BFCDD66457B558DB3494E20B0056D00421B5D",
+      "type": "EMPTY"
+    },
+    "LNK_bit-window-f01-courtyardwest-corridor-05-u02_B": {
+      "properties": {
+        "hs_bidirectional": true,
+        "hs_endpoint": "B",
+        "hs_id": "bit-window-f01-courtyardwest-corridor-05-u02",
+        "hs_link_kind": "bit_window",
+        "hs_link_radius_m": 0.54
+      },
+      "signature": "F145AED4B214F5EEEB1D7BCC6492C1B86593EF7AA788B45AA31D89A0B54114C0",
+      "type": "EMPTY"
+    },
+    "LNK_bit-window-f01-north-special-room01-set02-u01_A": {
+      "properties": {
+        "hs_bidirectional": true,
+        "hs_endpoint": "A",
+        "hs_id": "bit-window-f01-north-special-room01-set02-u01",
+        "hs_link_kind": "bit_window",
+        "hs_link_radius_m": 0.54
+      },
+      "signature": "C4DFB83E5D381416B6EC6B32DF3CB3E9713720F60ED4EAA2F7592C721678D86A",
+      "type": "EMPTY"
+    },
+    "LNK_bit-window-f01-north-special-room01-set02-u01_B": {
+      "properties": {
+        "hs_bidirectional": true,
+        "hs_endpoint": "B",
+        "hs_id": "bit-window-f01-north-special-room01-set02-u01",
+        "hs_link_kind": "bit_window",
+        "hs_link_radius_m": 0.54
+      },
+      "signature": "BE24F3077CC131D4D067FEDC1BDB9EFDAC9B67C7DEF2C4399BACC8F033B57D3A",
+      "type": "EMPTY"
+    },
+    "LNK_bit-window-f01-north-special-room02-set01-u01_A": {
+      "properties": {
+        "hs_bidirectional": true,
+        "hs_endpoint": "A",
+        "hs_id": "bit-window-f01-north-special-room02-set01-u01",
+        "hs_link_kind": "bit_window",
+        "hs_link_radius_m": 0.54
+      },
+      "signature": "742BBEDB84BFBD4BF21BF3155919A61323271CBC6F106C6B70BE74A23F07186D",
+      "type": "EMPTY"
+    },
+    "LNK_bit-window-f01-north-special-room02-set01-u01_B": {
+      "properties": {
+        "hs_bidirectional": true,
+        "hs_endpoint": "B",
+        "hs_id": "bit-window-f01-north-special-room02-set01-u01",
+        "hs_link_kind": "bit_window",
+        "hs_link_radius_m": 0.54
+      },
+      "signature": "C27B87A129428DFD2ED8E0B89DAEE28C0606F37349E3B24E4D679B10D6EAF417",
+      "type": "EMPTY"
+    },
+    "LNK_bit-window-f01-north-special-room02-set03-u02_A": {
+      "properties": {
+        "hs_bidirectional": true,
+        "hs_endpoint": "A",
+        "hs_id": "bit-window-f01-north-special-room02-set03-u02",
+        "hs_link_kind": "bit_window",
+        "hs_link_radius_m": 0.54
+      },
+      "signature": "7DEB9443858491A34E4D18F4E8FFB7CEB4391A7F32089AE30F49A2244E2E32AF",
+      "type": "EMPTY"
+    },
+    "LNK_bit-window-f01-north-special-room02-set03-u02_B": {
+      "properties": {
+        "hs_bidirectional": true,
+        "hs_endpoint": "B",
+        "hs_id": "bit-window-f01-north-special-room02-set03-u02",
+        "hs_link_kind": "bit_window",
+        "hs_link_radius_m": 0.54
+      },
+      "signature": "3A6D6A692B8DE310F529E940ED7F0DADEFE0A566A42FCC280D8032CC58736A38",
+      "type": "EMPTY"
+    },
+    "LNK_bit-window-f01-west-ordinary-room01-u04_A": {
+      "properties": {
+        "hs_bidirectional": true,
+        "hs_endpoint": "A",
+        "hs_id": "bit-window-f01-west-ordinary-room01-u04",
+        "hs_link_kind": "bit_window",
+        "hs_link_radius_m": 0.54
+      },
+      "signature": "351E7245A2420F711056000ACF8DBD48152431617619D59E90A32102E66CD046",
+      "type": "EMPTY"
+    },
+    "LNK_bit-window-f01-west-ordinary-room01-u04_B": {
+      "properties": {
+        "hs_bidirectional": true,
+        "hs_endpoint": "B",
+        "hs_id": "bit-window-f01-west-ordinary-room01-u04",
+        "hs_link_kind": "bit_window",
+        "hs_link_radius_m": 0.54
+      },
+      "signature": "6C2C416EEB328CF1CDFAC1F1F8C79FE0B2C53A98FE50077F422FF4F5E8F31367",
+      "type": "EMPTY"
+    },
+    "LNK_bit-window-f01-west-special-01-u01_A": {
+      "properties": {
+        "hs_bidirectional": true,
+        "hs_endpoint": "A",
+        "hs_id": "bit-window-f01-west-special-01-u01",
+        "hs_link_kind": "bit_window",
+        "hs_link_radius_m": 0.54
+      },
+      "signature": "6F04A7D22BD4A9E2B656D723D5828DFD28E4D7C163B36BF94BAFB2E6406D94DA",
+      "type": "EMPTY"
+    },
+    "LNK_bit-window-f01-west-special-01-u01_B": {
+      "properties": {
+        "hs_bidirectional": true,
+        "hs_endpoint": "B",
+        "hs_id": "bit-window-f01-west-special-01-u01",
+        "hs_link_kind": "bit_window",
+        "hs_link_radius_m": 0.54
+      },
+      "signature": "8EB29C84CF73121A5770091C82081800A69E891B6AC7831DD56746A39BA76BEA",
+      "type": "EMPTY"
+    },
+    "LNK_bit-window-f02-courtyardnorth-corridor-01-u02_A": {
+      "properties": {
+        "hs_bidirectional": true,
+        "hs_endpoint": "A",
+        "hs_id": "bit-window-f02-courtyardnorth-corridor-01-u02",
+        "hs_link_kind": "bit_window",
+        "hs_link_radius_m": 0.54
+      },
+      "signature": "1D46298DF5D77D09A5D7B65ED5C9706F4424C564F2275D1B52D6ADDB9EA711AE",
+      "type": "EMPTY"
+    },
+    "LNK_bit-window-f02-courtyardnorth-corridor-01-u02_B": {
+      "properties": {
+        "hs_bidirectional": true,
+        "hs_endpoint": "B",
+        "hs_id": "bit-window-f02-courtyardnorth-corridor-01-u02",
+        "hs_link_kind": "bit_window",
+        "hs_link_radius_m": 0.54
+      },
+      "signature": "DE77A566E81F15EBD31FE676723221E90590ABF954B13569B13C800AC2690CF9",
+      "type": "EMPTY"
+    },
+    "LNK_bit-window-f02-courtyardnorth-corridor-02-u01_A": {
+      "properties": {
+        "hs_bidirectional": true,
+        "hs_endpoint": "A",
+        "hs_id": "bit-window-f02-courtyardnorth-corridor-02-u01",
+        "hs_link_kind": "bit_window",
+        "hs_link_radius_m": 0.54
+      },
+      "signature": "0B3D77CB1F57815FF7B88C2D1E9BC70FA3D2DFB7CAD618167E6320D18D52B11A",
+      "type": "EMPTY"
+    },
+    "LNK_bit-window-f02-courtyardnorth-corridor-02-u01_B": {
+      "properties": {
+        "hs_bidirectional": true,
+        "hs_endpoint": "B",
+        "hs_id": "bit-window-f02-courtyardnorth-corridor-02-u01",
+        "hs_link_kind": "bit_window",
+        "hs_link_radius_m": 0.54
+      },
+      "signature": "0C255605CA8A15C749E1DC9D6829EE2AB978F09E614996E70DA62458B4A6A913",
+      "type": "EMPTY"
+    },
+    "LNK_bit-window-f02-courtyardnorth-corridor-03-u01_A": {
+      "properties": {
+        "hs_bidirectional": true,
+        "hs_endpoint": "A",
+        "hs_id": "bit-window-f02-courtyardnorth-corridor-03-u01",
+        "hs_link_kind": "bit_window",
+        "hs_link_radius_m": 0.54
+      },
+      "signature": "5A1A153EE0286E03DBEED9AF0D0CBDFE597BD8687F547DC465EF94C5C4F482D8",
+      "type": "EMPTY"
+    },
+    "LNK_bit-window-f02-courtyardnorth-corridor-03-u01_B": {
+      "properties": {
+        "hs_bidirectional": true,
+        "hs_endpoint": "B",
+        "hs_id": "bit-window-f02-courtyardnorth-corridor-03-u01",
+        "hs_link_kind": "bit_window",
+        "hs_link_radius_m": 0.54
+      },
+      "signature": "5F29342DF43E41AF40B48A90A33CA1357DCA2DA836E855B6C5A2B21E515C491E",
+      "type": "EMPTY"
+    },
+    "LNK_bit-window-f02-courtyardwest-corridor-04-u02_A": {
+      "properties": {
+        "hs_bidirectional": true,
+        "hs_endpoint": "A",
+        "hs_id": "bit-window-f02-courtyardwest-corridor-04-u02",
+        "hs_link_kind": "bit_window",
+        "hs_link_radius_m": 0.54
+      },
+      "signature": "88DC04F05A95C6B525A17BC1E9A526B4BA10221C961D2DB67019261988CE82CD",
+      "type": "EMPTY"
+    },
+    "LNK_bit-window-f02-courtyardwest-corridor-04-u02_B": {
+      "properties": {
+        "hs_bidirectional": true,
+        "hs_endpoint": "B",
+        "hs_id": "bit-window-f02-courtyardwest-corridor-04-u02",
+        "hs_link_kind": "bit_window",
+        "hs_link_radius_m": 0.54
+      },
+      "signature": "0D68A1F17ED482BD7C450960614782E9EA34EC2FF9F071CFA7971B7355D6B401",
+      "type": "EMPTY"
+    },
+    "LNK_bit-window-f02-north-broadcast-set01-u02_A": {
+      "properties": {
+        "hs_bidirectional": true,
+        "hs_endpoint": "A",
+        "hs_id": "bit-window-f02-north-broadcast-set01-u02",
+        "hs_link_kind": "bit_window",
+        "hs_link_radius_m": 0.54
+      },
+      "signature": "C17D09F39A1921423A188B77C10E75F1169569593FED8B49BE3E43BCF7FFF963",
+      "type": "EMPTY"
+    },
+    "LNK_bit-window-f02-north-broadcast-set01-u02_B": {
+      "properties": {
+        "hs_bidirectional": true,
+        "hs_endpoint": "B",
+        "hs_id": "bit-window-f02-north-broadcast-set01-u02",
+        "hs_link_kind": "bit_window",
+        "hs_link_radius_m": 0.54
+      },
+      "signature": "B76D49CA0C8FAF58BE5553A79D7900BA51595C552A47E0440A178E4345FF9381",
+      "type": "EMPTY"
+    },
+    "LNK_bit-window-f02-north-special-room03-set02-u02_A": {
+      "properties": {
+        "hs_bidirectional": true,
+        "hs_endpoint": "A",
+        "hs_id": "bit-window-f02-north-special-room03-set02-u02",
+        "hs_link_kind": "bit_window",
+        "hs_link_radius_m": 0.54
+      },
+      "signature": "7E0B7EC14EC7F558DFE13C477A20EEC625E06613D66D80866599EC658C59DAD5",
+      "type": "EMPTY"
+    },
+    "LNK_bit-window-f02-north-special-room03-set02-u02_B": {
+      "properties": {
+        "hs_bidirectional": true,
+        "hs_endpoint": "B",
+        "hs_id": "bit-window-f02-north-special-room03-set02-u02",
+        "hs_link_kind": "bit_window",
+        "hs_link_radius_m": 0.54
+      },
+      "signature": "D92DDC903B43CA9127F833E66168597FB67204D57D029BA14BD256CD4FC9E67E",
+      "type": "EMPTY"
+    },
+    "LNK_bit-window-f02-north-special-room03-set03-u01_A": {
+      "properties": {
+        "hs_bidirectional": true,
+        "hs_endpoint": "A",
+        "hs_id": "bit-window-f02-north-special-room03-set03-u01",
+        "hs_link_kind": "bit_window",
+        "hs_link_radius_m": 0.54
+      },
+      "signature": "B2A08F6FDC97951964E65502330E668774C06340472F3956C9F97A6C7F07BFD1",
+      "type": "EMPTY"
+    },
+    "LNK_bit-window-f02-north-special-room03-set03-u01_B": {
+      "properties": {
+        "hs_bidirectional": true,
+        "hs_endpoint": "B",
+        "hs_id": "bit-window-f02-north-special-room03-set03-u01",
+        "hs_link_kind": "bit_window",
+        "hs_link_radius_m": 0.54
+      },
+      "signature": "6C8A0F2FC01BA4EED9FD94F2D3B2836765183083E9F63055110D82EC6861A628",
+      "type": "EMPTY"
+    },
+    "LNK_bit-window-f02-west-ordinary-room01-u02_A": {
+      "properties": {
+        "hs_bidirectional": true,
+        "hs_endpoint": "A",
+        "hs_id": "bit-window-f02-west-ordinary-room01-u02",
+        "hs_link_kind": "bit_window",
+        "hs_link_radius_m": 0.54
+      },
+      "signature": "831BB2923303F58288533C97F6D6066C49D6AC858BA12A9055D5D09CD6E6ECFD",
+      "type": "EMPTY"
+    },
+    "LNK_bit-window-f02-west-ordinary-room01-u02_B": {
+      "properties": {
+        "hs_bidirectional": true,
+        "hs_endpoint": "B",
+        "hs_id": "bit-window-f02-west-ordinary-room01-u02",
+        "hs_link_kind": "bit_window",
+        "hs_link_radius_m": 0.54
+      },
+      "signature": "CF57CB547B1B863ABE040FB81F8C2B5465B19338FFBF6E41FF3081E6C0C47C90",
+      "type": "EMPTY"
+    },
+    "LNK_bit-window-f02-west-ordinary-room02-u01_A": {
+      "properties": {
+        "hs_bidirectional": true,
+        "hs_endpoint": "A",
+        "hs_id": "bit-window-f02-west-ordinary-room02-u01",
+        "hs_link_kind": "bit_window",
+        "hs_link_radius_m": 0.54
+      },
+      "signature": "B4B7EC4D3DABC9249BBA00DA325EE70F07C69D54D0991B9883E1DCA5FBC2A0FC",
+      "type": "EMPTY"
+    },
+    "LNK_bit-window-f02-west-ordinary-room02-u01_B": {
+      "properties": {
+        "hs_bidirectional": true,
+        "hs_endpoint": "B",
+        "hs_id": "bit-window-f02-west-ordinary-room02-u01",
+        "hs_link_kind": "bit_window",
+        "hs_link_radius_m": 0.54
+      },
+      "signature": "BCB298E031DD813DB0BE3B8447E2E1ED630E54CB6B9D2804B694ED29B44EE613",
+      "type": "EMPTY"
+    },
+    "LNK_bit-window-f02-west-ordinary-room02-u02_A": {
+      "properties": {
+        "hs_bidirectional": true,
+        "hs_endpoint": "A",
+        "hs_id": "bit-window-f02-west-ordinary-room02-u02",
+        "hs_link_kind": "bit_window",
+        "hs_link_radius_m": 0.54
+      },
+      "signature": "D1FA67DFBBD0DB226F3FB6CA7D89E26846F8767488EE1AF22597301D9293EDF1",
+      "type": "EMPTY"
+    },
+    "LNK_bit-window-f02-west-ordinary-room02-u02_B": {
+      "properties": {
+        "hs_bidirectional": true,
+        "hs_endpoint": "B",
+        "hs_id": "bit-window-f02-west-ordinary-room02-u02",
+        "hs_link_kind": "bit_window",
+        "hs_link_radius_m": 0.54
+      },
+      "signature": "B2E9BAD69F87E13C8CB25ECFDF7C098D5B0F2439386837FFFBA6E7A97489D15E",
+      "type": "EMPTY"
+    },
+    "LNK_bit-window-f02-west-ordinary-room02-u03_A": {
+      "properties": {
+        "hs_bidirectional": true,
+        "hs_endpoint": "A",
+        "hs_id": "bit-window-f02-west-ordinary-room02-u03",
+        "hs_link_kind": "bit_window",
+        "hs_link_radius_m": 0.54
+      },
+      "signature": "8ADA4A41EB0862F3EC26EFE798B9DC6EA392E59D8B7739139DF35DC4AFD7F14B",
+      "type": "EMPTY"
+    },
+    "LNK_bit-window-f02-west-ordinary-room02-u03_B": {
+      "properties": {
+        "hs_bidirectional": true,
+        "hs_endpoint": "B",
+        "hs_id": "bit-window-f02-west-ordinary-room02-u03",
+        "hs_link_kind": "bit_window",
+        "hs_link_radius_m": 0.54
+      },
+      "signature": "9E3B312D030063D672D48EDC97A2EAAC9B91A7C4EFF702775D0BEC91BE0B6DC3",
+      "type": "EMPTY"
+    },
+    "LNK_bit-window-f02-west-ordinary-room02-u04_A": {
+      "properties": {
+        "hs_bidirectional": true,
+        "hs_endpoint": "A",
+        "hs_id": "bit-window-f02-west-ordinary-room02-u04",
+        "hs_link_kind": "bit_window",
+        "hs_link_radius_m": 0.54
+      },
+      "signature": "D13EC38427D2B4348246B9B9CAC71DA14B4430CA64FAB10B0627FD3AF943B6EA",
+      "type": "EMPTY"
+    },
+    "LNK_bit-window-f02-west-ordinary-room02-u04_B": {
+      "properties": {
+        "hs_bidirectional": true,
+        "hs_endpoint": "B",
+        "hs_id": "bit-window-f02-west-ordinary-room02-u04",
+        "hs_link_kind": "bit_window",
+        "hs_link_radius_m": 0.54
+      },
+      "signature": "CB0C9906737EF97EFA4A08407D13A05D39706484BF7AD8920D387FF31C27C2AF",
+      "type": "EMPTY"
+    },
+    "LNK_bit-window-f02-west-ordinary-room03-u01_A": {
+      "properties": {
+        "hs_bidirectional": true,
+        "hs_endpoint": "A",
+        "hs_id": "bit-window-f02-west-ordinary-room03-u01",
+        "hs_link_kind": "bit_window",
+        "hs_link_radius_m": 0.54
+      },
+      "signature": "EC3F5F4BC36B3D174F0A80E811D96C50E29C247782950644A8C8DAA0497E3CC5",
+      "type": "EMPTY"
+    },
+    "LNK_bit-window-f02-west-ordinary-room03-u01_B": {
+      "properties": {
+        "hs_bidirectional": true,
+        "hs_endpoint": "B",
+        "hs_id": "bit-window-f02-west-ordinary-room03-u01",
+        "hs_link_kind": "bit_window",
+        "hs_link_radius_m": 0.54
+      },
+      "signature": "12ABD9484B2D3E50C837F3C048B66A100E1F7BE05A633AFCD90CA9D36C696FBF",
+      "type": "EMPTY"
+    },
+    "LNK_bit-window-f03-courtyardnorth-corridor-01-u03_A": {
+      "properties": {
+        "hs_bidirectional": true,
+        "hs_endpoint": "A",
+        "hs_id": "bit-window-f03-courtyardnorth-corridor-01-u03",
+        "hs_link_kind": "bit_window",
+        "hs_link_radius_m": 0.54
+      },
+      "signature": "DDEFC8424064441DC91CB9954504EAFBDAFD1ACC40C1D8DA4FA0C582237BA050",
+      "type": "EMPTY"
+    },
+    "LNK_bit-window-f03-courtyardnorth-corridor-01-u03_B": {
+      "properties": {
+        "hs_bidirectional": true,
+        "hs_endpoint": "B",
+        "hs_id": "bit-window-f03-courtyardnorth-corridor-01-u03",
+        "hs_link_kind": "bit_window",
+        "hs_link_radius_m": 0.54
+      },
+      "signature": "63E3688115973EEEE4304B7685261262E24CFCC7FD4A5C6E9BEAB60BFA717AC5",
+      "type": "EMPTY"
+    },
+    "LNK_bit-window-f03-courtyardnorth-corridor-02-u04_A": {
+      "properties": {
+        "hs_bidirectional": true,
+        "hs_endpoint": "A",
+        "hs_id": "bit-window-f03-courtyardnorth-corridor-02-u04",
+        "hs_link_kind": "bit_window",
+        "hs_link_radius_m": 0.54
+      },
+      "signature": "84B007A207BC281159AA4D5BDEBCBEDB6FCDC4ED4C2040ADEF6BBA5B8C4A42BB",
+      "type": "EMPTY"
+    },
+    "LNK_bit-window-f03-courtyardnorth-corridor-02-u04_B": {
+      "properties": {
+        "hs_bidirectional": true,
+        "hs_endpoint": "B",
+        "hs_id": "bit-window-f03-courtyardnorth-corridor-02-u04",
+        "hs_link_kind": "bit_window",
+        "hs_link_radius_m": 0.54
+      },
+      "signature": "887500CE0E7CE3DE5300E9772B444F0860450DEF3EF5A3D6A244820136B7B085",
+      "type": "EMPTY"
+    },
+    "LNK_bit-window-f03-courtyardnorth-corridor-03-u03_A": {
+      "properties": {
+        "hs_bidirectional": true,
+        "hs_endpoint": "A",
+        "hs_id": "bit-window-f03-courtyardnorth-corridor-03-u03",
+        "hs_link_kind": "bit_window",
+        "hs_link_radius_m": 0.54
+      },
+      "signature": "63E81ECF9899686ACDC9677ABA61755E108B87E820F7A8CF8B3A498841E5C054",
+      "type": "EMPTY"
+    },
+    "LNK_bit-window-f03-courtyardnorth-corridor-03-u03_B": {
+      "properties": {
+        "hs_bidirectional": true,
+        "hs_endpoint": "B",
+        "hs_id": "bit-window-f03-courtyardnorth-corridor-03-u03",
+        "hs_link_kind": "bit_window",
+        "hs_link_radius_m": 0.54
+      },
+      "signature": "1DC1746F23321706071A9AE3625967510AB69AB804E76E80D5A582F06B87A464",
+      "type": "EMPTY"
+    },
+    "LNK_bit-window-f03-courtyardwest-corridor-01-u02_A": {
+      "properties": {
+        "hs_bidirectional": true,
+        "hs_endpoint": "A",
+        "hs_id": "bit-window-f03-courtyardwest-corridor-01-u02",
+        "hs_link_kind": "bit_window",
+        "hs_link_radius_m": 0.54
+      },
+      "signature": "4075A54A342CE0232F436317271909C236607C74123C6368E395C8CEB92CF036",
+      "type": "EMPTY"
+    },
+    "LNK_bit-window-f03-courtyardwest-corridor-01-u02_B": {
+      "properties": {
+        "hs_bidirectional": true,
+        "hs_endpoint": "B",
+        "hs_id": "bit-window-f03-courtyardwest-corridor-01-u02",
+        "hs_link_kind": "bit_window",
+        "hs_link_radius_m": 0.54
+      },
+      "signature": "45DF8A657C78FF869795960B6074A0A57DD27AB728C498C349BFFD672CAB90A6",
+      "type": "EMPTY"
+    },
+    "LNK_bit-window-f03-courtyardwest-corridor-02-u02_A": {
+      "properties": {
+        "hs_bidirectional": true,
+        "hs_endpoint": "A",
+        "hs_id": "bit-window-f03-courtyardwest-corridor-02-u02",
+        "hs_link_kind": "bit_window",
+        "hs_link_radius_m": 0.54
+      },
+      "signature": "882317D0A632EA9CF00977164CE8E879FB1FD963ACC198B338A1B87D603A2275",
+      "type": "EMPTY"
+    },
+    "LNK_bit-window-f03-courtyardwest-corridor-02-u02_B": {
+      "properties": {
+        "hs_bidirectional": true,
+        "hs_endpoint": "B",
+        "hs_id": "bit-window-f03-courtyardwest-corridor-02-u02",
+        "hs_link_kind": "bit_window",
+        "hs_link_radius_m": 0.54
+      },
+      "signature": "FD0955508F269D1270E1A986B29BB8776B2768DE00B54E472A1E976694C6B82E",
+      "type": "EMPTY"
+    },
+    "LNK_bit-window-f03-courtyardwest-corridor-04-u01_A": {
+      "properties": {
+        "hs_bidirectional": true,
+        "hs_endpoint": "A",
+        "hs_id": "bit-window-f03-courtyardwest-corridor-04-u01",
+        "hs_link_kind": "bit_window",
+        "hs_link_radius_m": 0.54
+      },
+      "signature": "E53E1B8D89FC14140B98B3E90CBB29ECF32F158D798960096B3CBCC481D5B4C0",
+      "type": "EMPTY"
+    },
+    "LNK_bit-window-f03-courtyardwest-corridor-04-u01_B": {
+      "properties": {
+        "hs_bidirectional": true,
+        "hs_endpoint": "B",
+        "hs_id": "bit-window-f03-courtyardwest-corridor-04-u01",
+        "hs_link_kind": "bit_window",
+        "hs_link_radius_m": 0.54
+      },
+      "signature": "513B33DE29E1BEB3C39820346E65FC6BD3C4F4D433D4214DD1BCCF79BA9936E0",
+      "type": "EMPTY"
+    },
+    "LNK_bit-window-f03-north-special-room01-set01-u01_A": {
+      "properties": {
+        "hs_bidirectional": true,
+        "hs_endpoint": "A",
+        "hs_id": "bit-window-f03-north-special-room01-set01-u01",
+        "hs_link_kind": "bit_window",
+        "hs_link_radius_m": 0.54
+      },
+      "signature": "087D5B757AA7543E33EB6ABD139850E99599EAFF296997EC110B570E2C0E1778",
+      "type": "EMPTY"
+    },
+    "LNK_bit-window-f03-north-special-room01-set01-u01_B": {
+      "properties": {
+        "hs_bidirectional": true,
+        "hs_endpoint": "B",
+        "hs_id": "bit-window-f03-north-special-room01-set01-u01",
+        "hs_link_kind": "bit_window",
+        "hs_link_radius_m": 0.54
+      },
+      "signature": "1E2226AA2C6F0B131A4CA3F20DB4B855A1473AAC097BA852B07D225FF2DBD3C5",
+      "type": "EMPTY"
+    },
+    "LNK_bit-window-f03-north-special-room02-set01-u01_A": {
+      "properties": {
+        "hs_bidirectional": true,
+        "hs_endpoint": "A",
+        "hs_id": "bit-window-f03-north-special-room02-set01-u01",
+        "hs_link_kind": "bit_window",
+        "hs_link_radius_m": 0.54
+      },
+      "signature": "352B02982F591102907047AEAEBD2D7F77E8BC39BEBB650CC55BE5675F59CE85",
+      "type": "EMPTY"
+    },
+    "LNK_bit-window-f03-north-special-room02-set01-u01_B": {
+      "properties": {
+        "hs_bidirectional": true,
+        "hs_endpoint": "B",
+        "hs_id": "bit-window-f03-north-special-room02-set01-u01",
+        "hs_link_kind": "bit_window",
+        "hs_link_radius_m": 0.54
+      },
+      "signature": "2E348EE49A114357ED10DFC38D5CF8108060AB2764A669FBC595317E31820D34",
+      "type": "EMPTY"
+    },
+    "LNK_bit-window-f03-north-special-room02-set01-u02_A": {
+      "properties": {
+        "hs_bidirectional": true,
+        "hs_endpoint": "A",
+        "hs_id": "bit-window-f03-north-special-room02-set01-u02",
+        "hs_link_kind": "bit_window",
+        "hs_link_radius_m": 0.54
+      },
+      "signature": "C70AB6B920D49B5521C06A6C86FF5B251BAB001181FD67AA7BBF4CCD32C70E53",
+      "type": "EMPTY"
+    },
+    "LNK_bit-window-f03-north-special-room02-set01-u02_B": {
+      "properties": {
+        "hs_bidirectional": true,
+        "hs_endpoint": "B",
+        "hs_id": "bit-window-f03-north-special-room02-set01-u02",
+        "hs_link_kind": "bit_window",
+        "hs_link_radius_m": 0.54
+      },
+      "signature": "8DB27EF1900800FE64E0142B9A8DC8F892975FE639D9555F4E271677884F5475",
+      "type": "EMPTY"
+    },
+    "LNK_bit-window-f03-north-special-room02-set02-u01_A": {
+      "properties": {
+        "hs_bidirectional": true,
+        "hs_endpoint": "A",
+        "hs_id": "bit-window-f03-north-special-room02-set02-u01",
+        "hs_link_kind": "bit_window",
+        "hs_link_radius_m": 0.54
+      },
+      "signature": "232E057E5DDC3765ECDDB3D543A701B35F22B59374CEFE2CA3DCA8571FB03E4F",
+      "type": "EMPTY"
+    },
+    "LNK_bit-window-f03-north-special-room02-set02-u01_B": {
+      "properties": {
+        "hs_bidirectional": true,
+        "hs_endpoint": "B",
+        "hs_id": "bit-window-f03-north-special-room02-set02-u01",
+        "hs_link_kind": "bit_window",
+        "hs_link_radius_m": 0.54
+      },
+      "signature": "5AEBFD1AF947F492697FE6882435649F7EDFD074F10527C43F9CD5B25B9A96A1",
+      "type": "EMPTY"
+    },
+    "LNK_bit-window-f03-north-special-room02-set02-u02_A": {
+      "properties": {
+        "hs_bidirectional": true,
+        "hs_endpoint": "A",
+        "hs_id": "bit-window-f03-north-special-room02-set02-u02",
+        "hs_link_kind": "bit_window",
+        "hs_link_radius_m": 0.54
+      },
+      "signature": "A66CFAAB6DC00A34A9CA421CF41656BA9A315337231A1ECAFCB86D7C6763E30C",
+      "type": "EMPTY"
+    },
+    "LNK_bit-window-f03-north-special-room02-set02-u02_B": {
+      "properties": {
+        "hs_bidirectional": true,
+        "hs_endpoint": "B",
+        "hs_id": "bit-window-f03-north-special-room02-set02-u02",
+        "hs_link_kind": "bit_window",
+        "hs_link_radius_m": 0.54
+      },
+      "signature": "57246D3C4CC11A603F9A85ACA55B1A756F6295F6E7A5F6A6A773A0B7815E51C5",
+      "type": "EMPTY"
+    },
+    "LNK_bit-window-f03-north-special-room02-set03-u01_A": {
+      "properties": {
+        "hs_bidirectional": true,
+        "hs_endpoint": "A",
+        "hs_id": "bit-window-f03-north-special-room02-set03-u01",
+        "hs_link_kind": "bit_window",
+        "hs_link_radius_m": 0.54
+      },
+      "signature": "908B061EA08019182BD5684DA856E87F0A0AF53FE88C43B0CF2B09229C0DD0EA",
+      "type": "EMPTY"
+    },
+    "LNK_bit-window-f03-north-special-room02-set03-u01_B": {
+      "properties": {
+        "hs_bidirectional": true,
+        "hs_endpoint": "B",
+        "hs_id": "bit-window-f03-north-special-room02-set03-u01",
+        "hs_link_kind": "bit_window",
+        "hs_link_radius_m": 0.54
+      },
+      "signature": "E81295D088A38DE545D8E5E912F64E5850B0C6606C3F65A2A4BD484BFE14B78F",
+      "type": "EMPTY"
+    },
+    "LNK_bit-window-f03-north-special-room02-set03-u02_A": {
+      "properties": {
+        "hs_bidirectional": true,
+        "hs_endpoint": "A",
+        "hs_id": "bit-window-f03-north-special-room02-set03-u02",
+        "hs_link_kind": "bit_window",
+        "hs_link_radius_m": 0.54
+      },
+      "signature": "65D7A77509BED279DE2C70572F0E2F5CFC4096D36E87C2C49EDDAC26DFE2FCFC",
+      "type": "EMPTY"
+    },
+    "LNK_bit-window-f03-north-special-room02-set03-u02_B": {
+      "properties": {
+        "hs_bidirectional": true,
+        "hs_endpoint": "B",
+        "hs_id": "bit-window-f03-north-special-room02-set03-u02",
+        "hs_link_kind": "bit_window",
+        "hs_link_radius_m": 0.54
+      },
+      "signature": "CC5FD26E91BCAC20CE7C94C13F2AF8A7F73325B99CF636BDE55452A1982BF251",
+      "type": "EMPTY"
+    },
+    "LNK_bit-window-f03-west-ordinary-room01-u03_A": {
+      "properties": {
+        "hs_bidirectional": true,
+        "hs_endpoint": "A",
+        "hs_id": "bit-window-f03-west-ordinary-room01-u03",
+        "hs_link_kind": "bit_window",
+        "hs_link_radius_m": 0.54
+      },
+      "signature": "674CE63CFFCF4E41AAA6797A31471CB220FF0E7C45732EF2F485030C728D97E0",
+      "type": "EMPTY"
+    },
+    "LNK_bit-window-f03-west-ordinary-room01-u03_B": {
+      "properties": {
+        "hs_bidirectional": true,
+        "hs_endpoint": "B",
+        "hs_id": "bit-window-f03-west-ordinary-room01-u03",
+        "hs_link_kind": "bit_window",
+        "hs_link_radius_m": 0.54
+      },
+      "signature": "F5EF24245FD53E07FBC4F2E2E5B9D45F4D456D010464127B599B3FD75A7FBAF4",
+      "type": "EMPTY"
+    },
+    "LNK_bit-window-f03-west-ordinary-room02-u01_A": {
+      "properties": {
+        "hs_bidirectional": true,
+        "hs_endpoint": "A",
+        "hs_id": "bit-window-f03-west-ordinary-room02-u01",
+        "hs_link_kind": "bit_window",
+        "hs_link_radius_m": 0.54
+      },
+      "signature": "3A96EDAD962D29DBD4597239957CA7A784A32DD64A36F165B3610F2950388818",
+      "type": "EMPTY"
+    },
+    "LNK_bit-window-f03-west-ordinary-room02-u01_B": {
+      "properties": {
+        "hs_bidirectional": true,
+        "hs_endpoint": "B",
+        "hs_id": "bit-window-f03-west-ordinary-room02-u01",
+        "hs_link_kind": "bit_window",
+        "hs_link_radius_m": 0.54
+      },
+      "signature": "95D8851083373586365C9F2C84C425A7859DB39375CB68BA3BB729C8E1E6C721",
+      "type": "EMPTY"
+    },
+    "LNK_bit-window-f04-courtyardnorth-corridor-01-u03_A": {
+      "properties": {
+        "hs_bidirectional": true,
+        "hs_endpoint": "A",
+        "hs_id": "bit-window-f04-courtyardnorth-corridor-01-u03",
+        "hs_link_kind": "bit_window",
+        "hs_link_radius_m": 0.54
+      },
+      "signature": "E95F9D4F026F257425EB45C309C2067D09E2EFC41B37E6B1B7A8D0C569F35CD5",
+      "type": "EMPTY"
+    },
+    "LNK_bit-window-f04-courtyardnorth-corridor-01-u03_B": {
+      "properties": {
+        "hs_bidirectional": true,
+        "hs_endpoint": "B",
+        "hs_id": "bit-window-f04-courtyardnorth-corridor-01-u03",
+        "hs_link_kind": "bit_window",
+        "hs_link_radius_m": 0.54
+      },
+      "signature": "898BE6A5AF3F73646DD0A0B49A5637296D11BA4636B3FA26AA539614BF0E4CF9",
+      "type": "EMPTY"
+    },
+    "LNK_bit-window-f04-courtyardnorth-corridor-02-u01_A": {
+      "properties": {
+        "hs_bidirectional": true,
+        "hs_endpoint": "A",
+        "hs_id": "bit-window-f04-courtyardnorth-corridor-02-u01",
+        "hs_link_kind": "bit_window",
+        "hs_link_radius_m": 0.54
+      },
+      "signature": "6BA86E292D454D84E13C2D3B48C7E35FFAF9BD7CBF1053BD9DD7D38C1586DEF9",
+      "type": "EMPTY"
+    },
+    "LNK_bit-window-f04-courtyardnorth-corridor-02-u01_B": {
+      "properties": {
+        "hs_bidirectional": true,
+        "hs_endpoint": "B",
+        "hs_id": "bit-window-f04-courtyardnorth-corridor-02-u01",
+        "hs_link_kind": "bit_window",
+        "hs_link_radius_m": 0.54
+      },
+      "signature": "D53773470DD59D5408F01F6FA07B42DCB7DB46F5538735C54F5513860E446FA9",
+      "type": "EMPTY"
+    },
+    "LNK_bit-window-f04-courtyardnorth-corridor-03-u03_A": {
+      "properties": {
+        "hs_bidirectional": true,
+        "hs_endpoint": "A",
+        "hs_id": "bit-window-f04-courtyardnorth-corridor-03-u03",
+        "hs_link_kind": "bit_window",
+        "hs_link_radius_m": 0.54
+      },
+      "signature": "700189E471C24A80E9479172AEE98F353F33B92647219265A6271BCEF40D24B1",
+      "type": "EMPTY"
+    },
+    "LNK_bit-window-f04-courtyardnorth-corridor-03-u03_B": {
+      "properties": {
+        "hs_bidirectional": true,
+        "hs_endpoint": "B",
+        "hs_id": "bit-window-f04-courtyardnorth-corridor-03-u03",
+        "hs_link_kind": "bit_window",
+        "hs_link_radius_m": 0.54
+      },
+      "signature": "05A5FC289888A0932BBDE3B821C48596574720EE996CF7F66DA1466930E361F9",
+      "type": "EMPTY"
+    },
+    "LNK_bit-window-f04-courtyardwest-corridor-01-u02_A": {
+      "properties": {
+        "hs_bidirectional": true,
+        "hs_endpoint": "A",
+        "hs_id": "bit-window-f04-courtyardwest-corridor-01-u02",
+        "hs_link_kind": "bit_window",
+        "hs_link_radius_m": 0.54
+      },
+      "signature": "DD5AF95B32DD3BB711D33517940A2D5D9B4B112F3F1BA95D8A4D620E924C957F",
+      "type": "EMPTY"
+    },
+    "LNK_bit-window-f04-courtyardwest-corridor-01-u02_B": {
+      "properties": {
+        "hs_bidirectional": true,
+        "hs_endpoint": "B",
+        "hs_id": "bit-window-f04-courtyardwest-corridor-01-u02",
+        "hs_link_kind": "bit_window",
+        "hs_link_radius_m": 0.54
+      },
+      "signature": "742F7016F22823B93717A0815F4A99F9295D410E8009E8527E627EB0C99EB12A",
+      "type": "EMPTY"
+    },
+    "LNK_bit-window-f04-courtyardwest-corridor-03-u02_A": {
+      "properties": {
+        "hs_bidirectional": true,
+        "hs_endpoint": "A",
+        "hs_id": "bit-window-f04-courtyardwest-corridor-03-u02",
+        "hs_link_kind": "bit_window",
+        "hs_link_radius_m": 0.54
+      },
+      "signature": "854386DFE8BD86F6148601B7F25C139578BF5D680EEB034A76C871384BFADCD2",
+      "type": "EMPTY"
+    },
+    "LNK_bit-window-f04-courtyardwest-corridor-03-u02_B": {
+      "properties": {
+        "hs_bidirectional": true,
+        "hs_endpoint": "B",
+        "hs_id": "bit-window-f04-courtyardwest-corridor-03-u02",
+        "hs_link_kind": "bit_window",
+        "hs_link_radius_m": 0.54
+      },
+      "signature": "59008C4D8B468E4FE9ECF09AD0387F65C62E0BD54D2D719E26AF110A981471B9",
+      "type": "EMPTY"
+    },
+    "LNK_bit-window-f04-courtyardwest-corridor-05-u01_A": {
+      "properties": {
+        "hs_bidirectional": true,
+        "hs_endpoint": "A",
+        "hs_id": "bit-window-f04-courtyardwest-corridor-05-u01",
+        "hs_link_kind": "bit_window",
+        "hs_link_radius_m": 0.54
+      },
+      "signature": "C68C2E7BA67454A5C4DE6F70B2571C49C68C9AF479C95726D6E3022404762D6E",
+      "type": "EMPTY"
+    },
+    "LNK_bit-window-f04-courtyardwest-corridor-05-u01_B": {
+      "properties": {
+        "hs_bidirectional": true,
+        "hs_endpoint": "B",
+        "hs_id": "bit-window-f04-courtyardwest-corridor-05-u01",
+        "hs_link_kind": "bit_window",
+        "hs_link_radius_m": 0.54
+      },
+      "signature": "17A19EA35E6EB621A916B4B6EB8FC28DB356D441C019C39ABF1D307A3E8841BC",
+      "type": "EMPTY"
+    },
+    "LNK_bit-window-f04-north-special-room02-set01-u02_A": {
+      "properties": {
+        "hs_bidirectional": true,
+        "hs_endpoint": "A",
+        "hs_id": "bit-window-f04-north-special-room02-set01-u02",
+        "hs_link_kind": "bit_window",
+        "hs_link_radius_m": 0.54
+      },
+      "signature": "25E7DAC264FC902352EBA1F5FC7A159C2D93E434BE0C07B618D4B009EEB61A45",
+      "type": "EMPTY"
+    },
+    "LNK_bit-window-f04-north-special-room02-set01-u02_B": {
+      "properties": {
+        "hs_bidirectional": true,
+        "hs_endpoint": "B",
+        "hs_id": "bit-window-f04-north-special-room02-set01-u02",
+        "hs_link_kind": "bit_window",
+        "hs_link_radius_m": 0.54
+      },
+      "signature": "D90ABBC6D76C153C118B514D8841D12C75C661F5F2D0176D688D4243FFF07C1C",
+      "type": "EMPTY"
+    },
+    "LNK_bit-window-f04-north-special-room02-set02-u01_A": {
+      "properties": {
+        "hs_bidirectional": true,
+        "hs_endpoint": "A",
+        "hs_id": "bit-window-f04-north-special-room02-set02-u01",
+        "hs_link_kind": "bit_window",
+        "hs_link_radius_m": 0.54
+      },
+      "signature": "9A23D6CF20FA4DA418AF9B8D5F7D60EB999FF3722FBC04E9A971AD34F6AEF712",
+      "type": "EMPTY"
+    },
+    "LNK_bit-window-f04-north-special-room02-set02-u01_B": {
+      "properties": {
+        "hs_bidirectional": true,
+        "hs_endpoint": "B",
+        "hs_id": "bit-window-f04-north-special-room02-set02-u01",
+        "hs_link_kind": "bit_window",
+        "hs_link_radius_m": 0.54
+      },
+      "signature": "F4EA3DF6FA3494C666B44384D7CA0BC87AA559244BF295D310E929B05E72D079",
+      "type": "EMPTY"
+    },
+    "LNK_bit-window-f04-west-ordinary-room01-u04_A": {
+      "properties": {
+        "hs_bidirectional": true,
+        "hs_endpoint": "A",
+        "hs_id": "bit-window-f04-west-ordinary-room01-u04",
+        "hs_link_kind": "bit_window",
+        "hs_link_radius_m": 0.54
+      },
+      "signature": "8CA23437D5A63147E7E17F790F12EEFE6DB747135B046926A27E6525933D09A9",
+      "type": "EMPTY"
+    },
+    "LNK_bit-window-f04-west-ordinary-room01-u04_B": {
+      "properties": {
+        "hs_bidirectional": true,
+        "hs_endpoint": "B",
+        "hs_id": "bit-window-f04-west-ordinary-room01-u04",
+        "hs_link_kind": "bit_window",
+        "hs_link_radius_m": 0.54
+      },
+      "signature": "80E3A36079A560D123CA524B7DD49C2E698CBD664C844030FD3ADE889315F735",
+      "type": "EMPTY"
+    },
+    "LNK_bit-window-f04-west-ordinary-room02-u02_A": {
+      "properties": {
+        "hs_bidirectional": true,
+        "hs_endpoint": "A",
+        "hs_id": "bit-window-f04-west-ordinary-room02-u02",
+        "hs_link_kind": "bit_window",
+        "hs_link_radius_m": 0.54
+      },
+      "signature": "0E7CEBC56BC8B9D89BBC042025291A70D30F96AFCF2ACAE5562D2EE1F5019FCC",
+      "type": "EMPTY"
+    },
+    "LNK_bit-window-f04-west-ordinary-room02-u02_B": {
+      "properties": {
+        "hs_bidirectional": true,
+        "hs_endpoint": "B",
+        "hs_id": "bit-window-f04-west-ordinary-room02-u02",
+        "hs_link_kind": "bit_window",
+        "hs_link_radius_m": 0.54
+      },
+      "signature": "BE7B042302E4944BCB984DAD4CCA0483B25BCCCD4DE31D5327D34C2A541C2A5C",
+      "type": "EMPTY"
+    },
+    "LNK_bit-window-f04-west-ordinary-room03-u01_A": {
+      "properties": {
+        "hs_bidirectional": true,
+        "hs_endpoint": "A",
+        "hs_id": "bit-window-f04-west-ordinary-room03-u01",
+        "hs_link_kind": "bit_window",
+        "hs_link_radius_m": 0.54
+      },
+      "signature": "F6044FF65511499AFEFD9E1771C5C924E7596B2E35E9AF56FF6D9E1477FB0D9C",
+      "type": "EMPTY"
+    },
+    "LNK_bit-window-f04-west-ordinary-room03-u01_B": {
+      "properties": {
+        "hs_bidirectional": true,
+        "hs_endpoint": "B",
+        "hs_id": "bit-window-f04-west-ordinary-room03-u01",
+        "hs_link_kind": "bit_window",
+        "hs_link_radius_m": 0.54
+      },
+      "signature": "AD3BBD789E5014B475FA9FAA48C872D66FC032FCD77613A66F7EF174893B9119",
+      "type": "EMPTY"
+    },
+    "LNK_bit-window-f04-west-ordinary-room03-u02_A": {
+      "properties": {
+        "hs_bidirectional": true,
+        "hs_endpoint": "A",
+        "hs_id": "bit-window-f04-west-ordinary-room03-u02",
+        "hs_link_kind": "bit_window",
+        "hs_link_radius_m": 0.54
+      },
+      "signature": "EB3A885110F9B2679BDE8AAE06CD838AF0FC6D0993B646D9337C9E59B5E96EE4",
+      "type": "EMPTY"
+    },
+    "LNK_bit-window-f04-west-ordinary-room03-u02_B": {
+      "properties": {
+        "hs_bidirectional": true,
+        "hs_endpoint": "B",
+        "hs_id": "bit-window-f04-west-ordinary-room03-u02",
+        "hs_link_kind": "bit_window",
+        "hs_link_radius_m": 0.54
+      },
+      "signature": "75452AFFFF4590D3B0B574D2779EE19E86095815E5F0C371385F131316643453",
+      "type": "EMPTY"
+    },
+    "LNK_bit-window-f04-west-ordinary-room03-u03_A": {
+      "properties": {
+        "hs_bidirectional": true,
+        "hs_endpoint": "A",
+        "hs_id": "bit-window-f04-west-ordinary-room03-u03",
+        "hs_link_kind": "bit_window",
+        "hs_link_radius_m": 0.54
+      },
+      "signature": "8F9ACFD6505CC4558C3C84A6A97E983FD8A0D83433174AF996328D66884A9CEB",
+      "type": "EMPTY"
+    },
+    "LNK_bit-window-f04-west-ordinary-room03-u03_B": {
+      "properties": {
+        "hs_bidirectional": true,
+        "hs_endpoint": "B",
+        "hs_id": "bit-window-f04-west-ordinary-room03-u03",
+        "hs_link_kind": "bit_window",
+        "hs_link_radius_m": 0.54
+      },
+      "signature": "1B1EA33AD188D8A71754933BC9130D9C70280617CE7926B8CF55AC91C53BE04A",
+      "type": "EMPTY"
+    },
+    "LNK_bit-window-f04-west-ordinary-room03-u04_A": {
+      "properties": {
+        "hs_bidirectional": true,
+        "hs_endpoint": "A",
+        "hs_id": "bit-window-f04-west-ordinary-room03-u04",
+        "hs_link_kind": "bit_window",
+        "hs_link_radius_m": 0.54
+      },
+      "signature": "D31DD5B29E61FBFA2715EA5A061475D2B76DEC6F49878AB003E2E5991FC5B2BA",
+      "type": "EMPTY"
+    },
+    "LNK_bit-window-f04-west-ordinary-room03-u04_B": {
+      "properties": {
+        "hs_bidirectional": true,
+        "hs_endpoint": "B",
+        "hs_id": "bit-window-f04-west-ordinary-room03-u04",
+        "hs_link_kind": "bit_window",
+        "hs_link_radius_m": 0.54
+      },
+      "signature": "54CDEFA52625B122D1F9108DC34F4F910B6D418BB2CF5CE9F39A1EB5C08801F3",
+      "type": "EMPTY"
+    },
+    "LNK_bit-window-gym-east-01-u03_A": {
+      "properties": {
+        "hs_bidirectional": true,
+        "hs_endpoint": "A",
+        "hs_id": "bit-window-gym-east-01-u03",
+        "hs_link_kind": "bit_window",
+        "hs_link_radius_m": 0.54
+      },
+      "signature": "9A73883A40040529F546DDB8F10C49045496EAB4F9705E5D29C1F3180D7308D1",
+      "type": "EMPTY"
+    },
+    "LNK_bit-window-gym-east-01-u03_B": {
+      "properties": {
+        "hs_bidirectional": true,
+        "hs_endpoint": "B",
+        "hs_id": "bit-window-gym-east-01-u03",
+        "hs_link_kind": "bit_window",
+        "hs_link_radius_m": 0.54
+      },
+      "signature": "0CFBA789C1BBDEF56D3631168D60F80B44BE72FAC2DE2A3A462ED512A9B64E8B",
+      "type": "EMPTY"
+    },
+    "LNK_bit-window-gym-east-02-u01_A": {
+      "properties": {
+        "hs_bidirectional": true,
+        "hs_endpoint": "A",
+        "hs_id": "bit-window-gym-east-02-u01",
+        "hs_link_kind": "bit_window",
+        "hs_link_radius_m": 0.54
+      },
+      "signature": "5BB922185A1E6C7A47DD7019571A0621803DAC051AFD10A46C4931ECAB92720C",
+      "type": "EMPTY"
+    },
+    "LNK_bit-window-gym-east-02-u01_B": {
+      "properties": {
+        "hs_bidirectional": true,
+        "hs_endpoint": "B",
+        "hs_id": "bit-window-gym-east-02-u01",
+        "hs_link_kind": "bit_window",
+        "hs_link_radius_m": 0.54
+      },
+      "signature": "B705BFCD54BE1DE2E06F661B9FBB66C34826314462FE6394BB5E1C75124EB216",
+      "type": "EMPTY"
+    },
+    "LNK_bit-window-gym-east-03-u04_A": {
+      "properties": {
+        "hs_bidirectional": true,
+        "hs_endpoint": "A",
+        "hs_id": "bit-window-gym-east-03-u04",
+        "hs_link_kind": "bit_window",
+        "hs_link_radius_m": 0.54
+      },
+      "signature": "7B3254C24FA5E92A55DD32E03964849BBD651EBD574940317B06A0B2F0371323",
+      "type": "EMPTY"
+    },
+    "LNK_bit-window-gym-east-03-u04_B": {
+      "properties": {
+        "hs_bidirectional": true,
+        "hs_endpoint": "B",
+        "hs_id": "bit-window-gym-east-03-u04",
+        "hs_link_kind": "bit_window",
+        "hs_link_radius_m": 0.54
+      },
+      "signature": "185EB625ACC6145A3E18BB97B11EAB1E2860AC86749933DD9CA0C480C71CD07D",
+      "type": "EMPTY"
+    },
+    "LNK_bit-window-gym-north-02-u01_A": {
+      "properties": {
+        "hs_bidirectional": true,
+        "hs_endpoint": "A",
+        "hs_id": "bit-window-gym-north-02-u01",
+        "hs_link_kind": "bit_window",
+        "hs_link_radius_m": 0.54
+      },
+      "signature": "BF97CDEB9317E161230EFBC3D5D6E4366DE6900A13B473EE3BCE89F72B5630E7",
+      "type": "EMPTY"
+    },
+    "LNK_bit-window-gym-north-02-u01_B": {
+      "properties": {
+        "hs_bidirectional": true,
+        "hs_endpoint": "B",
+        "hs_id": "bit-window-gym-north-02-u01",
+        "hs_link_kind": "bit_window",
+        "hs_link_radius_m": 0.54
+      },
+      "signature": "CAAF06C3E3F1E2B0834F6992DD87A840408E09D3DBF2BB74187BA913BEF02391",
+      "type": "EMPTY"
+    },
+    "LNK_bit-window-gym-west-01-u04_A": {
+      "properties": {
+        "hs_bidirectional": true,
+        "hs_endpoint": "A",
+        "hs_id": "bit-window-gym-west-01-u04",
+        "hs_link_kind": "bit_window",
+        "hs_link_radius_m": 0.54
+      },
+      "signature": "ECD4D53C6B25D2BE8D6EB170F63023CC8DBB2241DAA51C815D2C7E8C5C3ADD85",
+      "type": "EMPTY"
+    },
+    "LNK_bit-window-gym-west-01-u04_B": {
+      "properties": {
+        "hs_bidirectional": true,
+        "hs_endpoint": "B",
+        "hs_id": "bit-window-gym-west-01-u04",
+        "hs_link_kind": "bit_window",
+        "hs_link_radius_m": 0.54
+      },
+      "signature": "54D5345636D2839C4E1585722B07FE0E55B0FB9139750B5C8D50D778C57E1109",
+      "type": "EMPTY"
+    },
+    "LNK_bit-window-gym-west-02-u02_A": {
+      "properties": {
+        "hs_bidirectional": true,
+        "hs_endpoint": "A",
+        "hs_id": "bit-window-gym-west-02-u02",
+        "hs_link_kind": "bit_window",
+        "hs_link_radius_m": 0.54
+      },
+      "signature": "CA2538F84E0B246FE14896F0023731960915C913BAEF6A9CA1F1B6D0221B1357",
+      "type": "EMPTY"
+    },
+    "LNK_bit-window-gym-west-02-u02_B": {
+      "properties": {
+        "hs_bidirectional": true,
+        "hs_endpoint": "B",
+        "hs_id": "bit-window-gym-west-02-u02",
+        "hs_link_kind": "bit_window",
+        "hs_link_radius_m": 0.54
+      },
+      "signature": "3051D31D61CA84ADEA5E425880633445DFEE8F8415DBBF687E86566A3B165E3B",
+      "type": "EMPTY"
+    },
+    "LNK_bit-window-gym-west-03-u01_A": {
+      "properties": {
+        "hs_bidirectional": true,
+        "hs_endpoint": "A",
+        "hs_id": "bit-window-gym-west-03-u01",
+        "hs_link_kind": "bit_window",
+        "hs_link_radius_m": 0.54
+      },
+      "signature": "82DEA0F15DC8B01836DFF6CA71B18F86231C13F48FC8FB9FC0F63EF1C8A313DA",
+      "type": "EMPTY"
+    },
+    "LNK_bit-window-gym-west-03-u01_B": {
+      "properties": {
+        "hs_bidirectional": true,
+        "hs_endpoint": "B",
+        "hs_id": "bit-window-gym-west-03-u01",
+        "hs_link_kind": "bit_window",
+        "hs_link_radius_m": 0.54
+      },
+      "signature": "536D5FD27AB4DF0CB224888FDD4A2B85028CFA2FB7D4A51D8041027957FD0BC5",
+      "type": "EMPTY"
+    },
+    "MRK_PlayerSpawn_Main": {
+      "properties": {
+        "hs_id": "player-spawn-main",
+        "hs_role": "player_spawn"
+      },
+      "signature": "4BBB886073F14DD9337D0FEE3EC7773602FB7CEAFD2BE112B7C10ED4446E1EBE",
+      "type": "EMPTY"
+    },
+    "NAV_Blocker_Gym": {
+      "properties": {
+        "hs_nav_role": "blocker"
+      },
+      "signature": "6D43E7632D4302DDBDB44012F70035BCA9FB8829B2248F3EE4F7CC575E536D26",
+      "type": "MESH"
+    },
+    "NAV_Blocker_Perimeter": {
+      "properties": {
+        "hs_nav_role": "blocker"
+      },
+      "signature": "10A0E9F31B731F15F7A948D44006482074502A4EAF5F1D4C57C2E458ED1012E1",
+      "type": "MESH"
+    },
+    "NAV_Blocker_School1F": {
+      "properties": {
+        "hs_nav_role": "blocker"
+      },
+      "signature": "CC2F40B9DB2C73FB3740171C476A92E33FB92A64B94CD5AA90C401F20CD69F11",
+      "type": "MESH"
+    },
+    "NAV_Blocker_SchoolUpper": {
+      "properties": {
+        "hs_nav_role": "blocker"
+      },
+      "signature": "CA9974201A9946CEE19B46438EE509B274BC7F3888FA38F14EB2872B5504BD84",
+      "type": "MESH"
+    },
+    "NAV_Blocker_StairClosed": {
+      "properties": {
+        "hs_nav_role": "blocker"
+      },
+      "signature": "7D0DF11FD94BC04D9C864D239DA6A54D7DDB616121E8418EEFAF820CA29B1883",
+      "type": "MESH"
+    },
+    "NAV_Walkable_EntryTransitions": {
+      "properties": {
+        "hs_nav_area": "door",
+        "hs_nav_role": "walkable"
+      },
+      "signature": "F5504AE429F2FFAE8475E5DC1CB3974F52C52197C9566383AFF555F23ED72142",
+      "type": "MESH"
+    },
+    "NAV_Walkable_Interior1F": {
+      "properties": {
+        "hs_nav_area": "ground",
+        "hs_nav_role": "walkable"
+      },
+      "signature": "10FA0827C2140724CAE7992CA49DE5DF69239842ADD42800746B917CD83B5869",
+      "type": "MESH"
+    },
+    "NAV_Walkable_Interior2F": {
+      "properties": {
+        "hs_nav_area": "ground",
+        "hs_nav_role": "walkable"
+      },
+      "signature": "3162005A8BCA1492477F2CC718B5AFDA70B28DC6F2AD18CA7DC95E0227F2FE21",
+      "type": "MESH"
+    },
+    "NAV_Walkable_Interior3F": {
+      "properties": {
+        "hs_nav_area": "ground",
+        "hs_nav_role": "walkable"
+      },
+      "signature": "8E10C8CF2C60DACCDF7ED2A60AA7C70D29C4F0AC075A8E523596364BBD9934B3",
+      "type": "MESH"
+    },
+    "NAV_Walkable_Interior4F": {
+      "properties": {
+        "hs_nav_area": "ground",
+        "hs_nav_role": "walkable"
+      },
+      "signature": "F135CFA100FE1435CA33843A4D8EF17BA03B085BBC385484B173250DB96E9467",
+      "type": "MESH"
+    },
+    "NAV_Walkable_Outdoor": {
+      "properties": {
+        "hs_nav_area": "outdoor",
+        "hs_nav_role": "walkable"
+      },
+      "signature": "8082C43D0B122F59790ECCE74D50F688F29E3A2B84A3970AA02815CCD8101124",
+      "type": "MESH"
+    },
+    "NAV_Walkable_Rooftop": {
+      "properties": {
+        "hs_nav_area": "ground",
+        "hs_nav_role": "walkable"
+      },
+      "signature": "6E1CD82D7DE7F9F0E8F39E2867374D52DB894A2B7AF104929F0E84F3AE29768B",
+      "type": "MESH"
+    },
+    "NAV_Walkable_Stairs": {
+      "properties": {
+        "hs_nav_area": "stairs",
+        "hs_nav_role": "walkable"
+      },
+      "signature": "B130924F964097D9F187F57371E6992713D195ADD8E43D184813509CCC2B018D",
+      "type": "MESH"
+    },
+    "NAV_Walkable_StairsNWUpper": {
+      "properties": {
+        "hs_nav_area": "ground",
+        "hs_nav_role": "walkable"
+      },
+      "signature": "6B395C299FF654798952080E4A14597EA95B535A9BF368DC8F2B977DD0C16606",
+      "type": "MESH"
+    },
+    "VIS_WindowFrame_F01_CourtyardNorth_Corridor_01": {
+      "properties": {
+        "hs_window_clear_height_m": 1.8,
+        "hs_window_layout_status": "final",
+        "hs_window_open_leaves": "",
+        "hs_window_panes": 4,
+        "hs_window_style": "paired_sliding_band",
+        "hs_window_unit_width_m": 2.4,
+        "hs_window_units": 2
+      },
+      "signature": "BAAB3DE5FA46DEAAD36CF5CAB0FC7A17866D07E4F164D42914C652D8A773E191",
+      "type": "MESH"
+    },
+    "VIS_WindowFrame_F01_CourtyardNorth_Corridor_02": {
+      "properties": {
+        "hs_window_clear_height_m": 1.8,
+        "hs_window_layout_status": "final",
+        "hs_window_open_leaves": "6",
+        "hs_window_panes": 8,
+        "hs_window_style": "paired_sliding_band",
+        "hs_window_unit_width_m": 2.4,
+        "hs_window_units": 4
+      },
+      "signature": "E5C3B2393CEE8E65EB00617A012F27C5486EB34938EC2F5114DAEC099F668A4D",
+      "type": "MESH"
+    },
+    "VIS_WindowFrame_F01_CourtyardNorth_Corridor_03": {
+      "properties": {
+        "hs_window_clear_height_m": 1.8,
+        "hs_window_layout_status": "final",
+        "hs_window_open_leaves": "",
+        "hs_window_panes": 2,
+        "hs_window_style": "paired_sliding_band",
+        "hs_window_unit_width_m": 2.4,
+        "hs_window_units": 1
+      },
+      "signature": "452D36C143B05AC89B7A5B01728E8E2523B3E7A5E52E4992B4DD6458E2089A97",
+      "type": "MESH"
+    },
+    "VIS_WindowFrame_F01_CourtyardWest_Corridor_02": {
+      "properties": {
+        "hs_window_clear_height_m": 1.8,
+        "hs_window_layout_status": "final",
+        "hs_window_open_leaves": "3",
+        "hs_window_panes": 4,
+        "hs_window_style": "paired_sliding_band",
+        "hs_window_unit_width_m": 2.4,
+        "hs_window_units": 2
+      },
+      "signature": "EE1A06975D97B6592F59AE1024EAA1EBE8EBD3A23F07F0822B1BE06F3972A848",
+      "type": "MESH"
+    },
+    "VIS_WindowFrame_F01_CourtyardWest_Corridor_03": {
+      "properties": {
+        "hs_window_clear_height_m": 1.8,
+        "hs_window_layout_status": "final",
+        "hs_window_open_leaves": "",
+        "hs_window_panes": 4,
+        "hs_window_style": "paired_sliding_band",
+        "hs_window_unit_width_m": 2.4,
+        "hs_window_units": 2
+      },
+      "signature": "522CDC8E98C9E5E5852074B2AD1C7D3C51D82D17F60558A8DBD610E4AEB2A329",
+      "type": "MESH"
+    },
+    "VIS_WindowFrame_F01_CourtyardWest_Corridor_04": {
+      "properties": {
+        "hs_window_clear_height_m": 1.8,
+        "hs_window_layout_status": "final",
+        "hs_window_open_leaves": "3",
+        "hs_window_panes": 4,
+        "hs_window_style": "paired_sliding_band",
+        "hs_window_unit_width_m": 2.4,
+        "hs_window_units": 2
+      },
+      "signature": "6DD65615698098B4571D3FAFFF8AB13EA2E8728669FE15F00307D15E5E674A80",
+      "type": "MESH"
+    },
+    "VIS_WindowFrame_F01_CourtyardWest_Corridor_05": {
+      "properties": {
+        "hs_window_clear_height_m": 1.8,
+        "hs_window_layout_status": "final",
+        "hs_window_open_leaves": "3",
+        "hs_window_panes": 4,
+        "hs_window_style": "paired_sliding_band",
+        "hs_window_unit_width_m": 2.4,
+        "hs_window_units": 2
+      },
+      "signature": "ECA3944F57ACDC7B998AC3E731C48D48061D21F4A0666ADD19ABF575C114532E",
+      "type": "MESH"
+    },
+    "VIS_WindowFrame_F01_North_Special_Room01_Set01": {
+      "properties": {
+        "hs_window_clear_height_m": 1.8,
+        "hs_window_layout_status": "final",
+        "hs_window_open_leaves": "",
+        "hs_window_panes": 4,
+        "hs_window_style": "paired_sliding_band",
+        "hs_window_unit_width_m": 2.4,
+        "hs_window_units": 2
+      },
+      "signature": "3FC9FC2D5CC1FF6BD1C71D792BE49DAC5A10B8C8B20DB36B0277157B8A5E9434",
+      "type": "MESH"
+    },
+    "VIS_WindowFrame_F01_North_Special_Room01_Set02": {
+      "properties": {
+        "hs_window_clear_height_m": 1.8,
+        "hs_window_layout_status": "final",
+        "hs_window_open_leaves": "1",
+        "hs_window_panes": 4,
+        "hs_window_style": "paired_sliding_band",
+        "hs_window_unit_width_m": 2.4,
+        "hs_window_units": 2
+      },
+      "signature": "1223D568242321ADEF492219DBA6AA0D26B623AE5E655874D35A0A2DE8099DE7",
+      "type": "MESH"
+    },
+    "VIS_WindowFrame_F01_North_Special_Room01_Set03": {
+      "properties": {
+        "hs_window_clear_height_m": 1.8,
+        "hs_window_layout_status": "final",
+        "hs_window_open_leaves": "",
+        "hs_window_panes": 4,
+        "hs_window_style": "paired_sliding_band",
+        "hs_window_unit_width_m": 2.4,
+        "hs_window_units": 2
+      },
+      "signature": "4EC6351DDDDC5BB6A4E1574F979A18A43E68C2047DEBC769CF42EE469AA1B87E",
+      "type": "MESH"
+    },
+    "VIS_WindowFrame_F01_North_Special_Room02_Set01": {
+      "properties": {
+        "hs_window_clear_height_m": 1.8,
+        "hs_window_layout_status": "final",
+        "hs_window_open_leaves": "2",
+        "hs_window_panes": 4,
+        "hs_window_style": "paired_sliding_band",
+        "hs_window_unit_width_m": 2.4,
+        "hs_window_units": 2
+      },
+      "signature": "90DC7248966C99E9C4362B071FBAB47AE57D9391BC73E6605BFCE2E235C02C9F",
+      "type": "MESH"
+    },
+    "VIS_WindowFrame_F01_North_Special_Room02_Set02": {
+      "properties": {
+        "hs_window_clear_height_m": 1.8,
+        "hs_window_layout_status": "final",
+        "hs_window_open_leaves": "",
+        "hs_window_panes": 4,
+        "hs_window_style": "paired_sliding_band",
+        "hs_window_unit_width_m": 2.4,
+        "hs_window_units": 2
+      },
+      "signature": "0665632A70CCBE6D2B5D84FA90618B0B826E6743F536E5F2DAAA4113EC43BD2B",
+      "type": "MESH"
+    },
+    "VIS_WindowFrame_F01_North_Special_Room02_Set03": {
+      "properties": {
+        "hs_window_clear_height_m": 1.8,
+        "hs_window_layout_status": "final",
+        "hs_window_open_leaves": "4",
+        "hs_window_panes": 4,
+        "hs_window_style": "paired_sliding_band",
+        "hs_window_unit_width_m": 2.4,
+        "hs_window_units": 2
+      },
+      "signature": "BEA83788F93DC86ACCFD4A2990DBBAF9F744BE34CCA49BBA57CBDB05C1EBE4C7",
+      "type": "MESH"
+    },
+    "VIS_WindowFrame_F01_North_StairNE": {
+      "properties": {
+        "hs_window_clear_height_m": 0.7,
+        "hs_window_layout_status": "final",
+        "hs_window_open_leaves": "",
+        "hs_window_panes": 2,
+        "hs_window_style": "paired_stair_transom",
+        "hs_window_unit_width_m": 1.8,
+        "hs_window_units": 1
+      },
+      "signature": "1DE9F7112FD1BC56617E470A3DC779D54F7D44CD2E1631E037AC08C2D22179D1",
+      "type": "MESH"
+    },
+    "VIS_WindowFrame_F01_North_StairNW": {
+      "properties": {
+        "hs_window_clear_height_m": 0.7,
+        "hs_window_layout_status": "final",
+        "hs_window_open_leaves": "",
+        "hs_window_panes": 2,
+        "hs_window_style": "paired_stair_transom",
+        "hs_window_unit_width_m": 1.8,
+        "hs_window_units": 1
+      },
+      "signature": "AE4E698BC1B46CDEA7B501B1D61C13E110645DA3EBDBCBCCA7BAAAB00EC63D78",
+      "type": "MESH"
+    },
+    "VIS_WindowFrame_F01_West_Ordinary_Room01": {
+      "properties": {
+        "hs_window_clear_height_m": 1.8,
+        "hs_window_layout_status": "final",
+        "hs_window_open_leaves": "7",
+        "hs_window_panes": 8,
+        "hs_window_style": "paired_sliding_band",
+        "hs_window_unit_width_m": 2.4,
+        "hs_window_units": 4
+      },
+      "signature": "01033D9A3B01CE42F8C661F70AE6F1658253BB08E3C07C66602776C31117FB08",
+      "type": "MESH"
+    },
+    "VIS_WindowFrame_F01_West_Special_01": {
+      "properties": {
+        "hs_window_clear_height_m": 1.8,
+        "hs_window_layout_status": "final",
+        "hs_window_open_leaves": "2",
+        "hs_window_panes": 8,
+        "hs_window_style": "paired_sliding_band",
+        "hs_window_unit_width_m": 2.4,
+        "hs_window_units": 4
+      },
+      "signature": "401817F59EB286640F690856427B858285DCA73107CEEBC0DD33D4EB1B984160",
+      "type": "MESH"
+    },
+    "VIS_WindowFrame_F01_West_StairSW": {
+      "properties": {
+        "hs_window_clear_height_m": 0.7,
+        "hs_window_layout_status": "final",
+        "hs_window_open_leaves": "",
+        "hs_window_panes": 2,
+        "hs_window_style": "paired_stair_transom",
+        "hs_window_unit_width_m": 1.8,
+        "hs_window_units": 1
+      },
+      "signature": "F27665FD6D276E1A05AC772A91D17AC1EF1CBFB2FC6A2EC3D5B09FD4052A4E83",
+      "type": "MESH"
+    },
+    "VIS_WindowFrame_F02_CourtyardNorth_Corridor_01": {
+      "properties": {
+        "hs_window_clear_height_m": 1.8,
+        "hs_window_layout_status": "final",
+        "hs_window_open_leaves": "4",
+        "hs_window_panes": 8,
+        "hs_window_style": "paired_sliding_band",
+        "hs_window_unit_width_m": 2.4,
+        "hs_window_units": 4
+      },
+      "signature": "AAAAC1A8B364D8BDA8A58D6992DAB1C08A43C522B2D0528D7BD882F9D7AB0869",
+      "type": "MESH"
+    },
+    "VIS_WindowFrame_F02_CourtyardNorth_Corridor_02": {
+      "properties": {
+        "hs_window_clear_height_m": 1.8,
+        "hs_window_layout_status": "final",
+        "hs_window_open_leaves": "2",
+        "hs_window_panes": 8,
+        "hs_window_style": "paired_sliding_band",
+        "hs_window_unit_width_m": 2.4,
+        "hs_window_units": 4
+      },
+      "signature": "2341B28ADA38F2406FE0CFD075321C7D1B1E1B86C01F9FACA519A318D62DFE92",
+      "type": "MESH"
+    },
+    "VIS_WindowFrame_F02_CourtyardNorth_Corridor_03": {
+      "properties": {
+        "hs_window_clear_height_m": 1.8,
+        "hs_window_layout_status": "final",
+        "hs_window_open_leaves": "2",
+        "hs_window_panes": 8,
+        "hs_window_style": "paired_sliding_band",
+        "hs_window_unit_width_m": 2.4,
+        "hs_window_units": 4
+      },
+      "signature": "D904A420BFFF056D23A007084F36D0C72ACBF4B329F26889934B2EF0D0AA9C7C",
+      "type": "MESH"
+    },
+    "VIS_WindowFrame_F02_CourtyardWest_Corridor_01": {
+      "properties": {
+        "hs_window_clear_height_m": 1.8,
+        "hs_window_layout_status": "final",
+        "hs_window_open_leaves": "",
+        "hs_window_panes": 4,
+        "hs_window_style": "paired_sliding_band",
+        "hs_window_unit_width_m": 2.4,
+        "hs_window_units": 2
+      },
+      "signature": "16F561578AAD79F979223AADD7A8A37FB7848762BE306A208F7C0FD867193A6B",
+      "type": "MESH"
+    },
+    "VIS_WindowFrame_F02_CourtyardWest_Corridor_02": {
+      "properties": {
+        "hs_window_clear_height_m": 1.8,
+        "hs_window_layout_status": "final",
+        "hs_window_open_leaves": "",
+        "hs_window_panes": 4,
+        "hs_window_style": "paired_sliding_band",
+        "hs_window_unit_width_m": 2.4,
+        "hs_window_units": 2
+      },
+      "signature": "E69A6CDC6A9C227C3972735319CA5DD1FC4943B744CA11B637BE01563636938F",
+      "type": "MESH"
+    },
+    "VIS_WindowFrame_F02_CourtyardWest_Corridor_03": {
+      "properties": {
+        "hs_window_clear_height_m": 1.8,
+        "hs_window_layout_status": "final",
+        "hs_window_open_leaves": "",
+        "hs_window_panes": 4,
+        "hs_window_style": "paired_sliding_band",
+        "hs_window_unit_width_m": 2.4,
+        "hs_window_units": 2
+      },
+      "signature": "F0234F3DDAEDBC852BEFEDE2C1AA5607C9AC2BA0CC0E97F6EDC0C1084BE5DD80",
+      "type": "MESH"
+    },
+    "VIS_WindowFrame_F02_CourtyardWest_Corridor_04": {
+      "properties": {
+        "hs_window_clear_height_m": 1.8,
+        "hs_window_layout_status": "final",
+        "hs_window_open_leaves": "3",
+        "hs_window_panes": 4,
+        "hs_window_style": "paired_sliding_band",
+        "hs_window_unit_width_m": 2.4,
+        "hs_window_units": 2
+      },
+      "signature": "3B3A66E5CB6A0026F36B8700BC8A3809367031E320FD3E508F97FDC4DB359093",
+      "type": "MESH"
+    },
+    "VIS_WindowFrame_F02_CourtyardWest_Corridor_05": {
+      "properties": {
+        "hs_window_clear_height_m": 1.8,
+        "hs_window_layout_status": "final",
+        "hs_window_open_leaves": "",
+        "hs_window_panes": 4,
+        "hs_window_style": "paired_sliding_band",
+        "hs_window_unit_width_m": 2.4,
+        "hs_window_units": 2
+      },
+      "signature": "BC3F98FB2DCC33AAE41B66C94CF5C79163BF760E1416AD76C7C297250E3E8F39",
+      "type": "MESH"
+    },
+    "VIS_WindowFrame_F02_North_Broadcast_Set01": {
+      "properties": {
+        "hs_window_clear_height_m": 1.8,
+        "hs_window_layout_status": "final",
+        "hs_window_open_leaves": "3",
+        "hs_window_panes": 4,
+        "hs_window_style": "paired_sliding_band",
+        "hs_window_unit_width_m": 2.4,
+        "hs_window_units": 2
+      },
+      "signature": "B9AEDEED11713FD3C25A088564DC3C4752BC4E523E98C106DE773F244828C517",
+      "type": "MESH"
+    },
+    "VIS_WindowFrame_F02_North_Special_Room03_Set01": {
+      "properties": {
+        "hs_window_clear_height_m": 1.8,
+        "hs_window_layout_status": "final",
+        "hs_window_open_leaves": "",
+        "hs_window_panes": 4,
+        "hs_window_style": "paired_sliding_band",
+        "hs_window_unit_width_m": 2.4,
+        "hs_window_units": 2
+      },
+      "signature": "5D5FBCE37AF0E1BAA1BF31ADFC866B5411BFC8DD8751E69BE2C9AA78E9141A59",
+      "type": "MESH"
+    },
+    "VIS_WindowFrame_F02_North_Special_Room03_Set02": {
+      "properties": {
+        "hs_window_clear_height_m": 1.8,
+        "hs_window_layout_status": "final",
+        "hs_window_open_leaves": "3",
+        "hs_window_panes": 4,
+        "hs_window_style": "paired_sliding_band",
+        "hs_window_unit_width_m": 2.4,
+        "hs_window_units": 2
+      },
+      "signature": "5D7A45FC201604F79CD538FDA3006AA0441F4A6E52B613B68D5B68714528E63D",
+      "type": "MESH"
+    },
+    "VIS_WindowFrame_F02_North_Special_Room03_Set03": {
+      "properties": {
+        "hs_window_clear_height_m": 1.8,
+        "hs_window_layout_status": "final",
+        "hs_window_open_leaves": "2",
+        "hs_window_panes": 4,
+        "hs_window_style": "paired_sliding_band",
+        "hs_window_unit_width_m": 2.4,
+        "hs_window_units": 2
+      },
+      "signature": "E9895B4064B0AA2A1DDF17C3E2CAC5EF43462DB7A245B8BD46BCF048E5B773FB",
+      "type": "MESH"
+    },
+    "VIS_WindowFrame_F02_North_StairNE": {
+      "properties": {
+        "hs_window_clear_height_m": 0.7,
+        "hs_window_layout_status": "final",
+        "hs_window_open_leaves": "",
+        "hs_window_panes": 2,
+        "hs_window_style": "paired_stair_transom",
+        "hs_window_unit_width_m": 1.8,
+        "hs_window_units": 1
+      },
+      "signature": "F1FDFD126665B6EFE38CFA9E8BE764A8B0F0AF153B9575C16FE51A821A2D2916",
+      "type": "MESH"
+    },
+    "VIS_WindowFrame_F02_North_StairNW": {
+      "properties": {
+        "hs_window_clear_height_m": 0.7,
+        "hs_window_layout_status": "final",
+        "hs_window_open_leaves": "",
+        "hs_window_panes": 2,
+        "hs_window_style": "paired_stair_transom",
+        "hs_window_unit_width_m": 1.8,
+        "hs_window_units": 1
+      },
+      "signature": "9CD9BB522302FDAF046BA76E51E1EB7A390F382E7D684826AA9A0EDF62785FFC",
+      "type": "MESH"
+    },
+    "VIS_WindowFrame_F02_North_StudentCouncil_Set01": {
+      "properties": {
+        "hs_window_clear_height_m": 1.8,
+        "hs_window_layout_status": "final",
+        "hs_window_open_leaves": "",
+        "hs_window_panes": 4,
+        "hs_window_style": "paired_sliding_band",
+        "hs_window_unit_width_m": 2.4,
+        "hs_window_units": 2
+      },
+      "signature": "70B68C54281EA4C4F2E63C67C2ABF52B1EB3BD7A0708A4E487D7CB09BB8F2631",
+      "type": "MESH"
+    },
+    "VIS_WindowFrame_F02_West_Ordinary_Room01": {
+      "properties": {
+        "hs_window_clear_height_m": 1.8,
+        "hs_window_layout_status": "final",
+        "hs_window_open_leaves": "4",
+        "hs_window_panes": 8,
+        "hs_window_style": "paired_sliding_band",
+        "hs_window_unit_width_m": 2.4,
+        "hs_window_units": 4
+      },
+      "signature": "81F9FDD042B6CCA3C9CBB4D6B81F7B0E78DD587E1F719F6A16456FCD1A06E527",
+      "type": "MESH"
+    },
+    "VIS_WindowFrame_F02_West_Ordinary_Room02": {
+      "properties": {
+        "hs_window_clear_height_m": 1.8,
+        "hs_window_layout_status": "final",
+        "hs_window_open_leaves": "2,3,6,7",
+        "hs_window_panes": 8,
+        "hs_window_style": "paired_sliding_band",
+        "hs_window_unit_width_m": 2.4,
+        "hs_window_units": 4
+      },
+      "signature": "64336A238651E99A4E4F135BCBD8F6D1AAF7E13210B49A6B257C3ACFDD9FC691",
+      "type": "MESH"
+    },
+    "VIS_WindowFrame_F02_West_Ordinary_Room03": {
+      "properties": {
+        "hs_window_clear_height_m": 1.8,
+        "hs_window_layout_status": "final",
+        "hs_window_open_leaves": "2",
+        "hs_window_panes": 8,
+        "hs_window_style": "paired_sliding_band",
+        "hs_window_unit_width_m": 2.4,
+        "hs_window_units": 4
+      },
+      "signature": "9DFA9D32E7B9880ED9F61B2F88D2DF5EEFA30EF0CDB00515BC6E868889F6DB8D",
+      "type": "MESH"
+    },
+    "VIS_WindowFrame_F02_West_StairSW": {
+      "properties": {
+        "hs_window_clear_height_m": 0.7,
+        "hs_window_layout_status": "final",
+        "hs_window_open_leaves": "",
+        "hs_window_panes": 2,
+        "hs_window_style": "paired_stair_transom",
+        "hs_window_unit_width_m": 1.8,
+        "hs_window_units": 1
+      },
+      "signature": "874911183B54889C9EED9857B160649F399DDE1266CBBE4120722042E44BE350",
+      "type": "MESH"
+    },
+    "VIS_WindowFrame_F03_CourtyardNorth_Corridor_01": {
+      "properties": {
+        "hs_window_clear_height_m": 1.8,
+        "hs_window_layout_status": "final",
+        "hs_window_open_leaves": "5",
+        "hs_window_panes": 8,
+        "hs_window_style": "paired_sliding_band",
+        "hs_window_unit_width_m": 2.4,
+        "hs_window_units": 4
+      },
+      "signature": "36CF7E8B5E3A0CDB2F7357AAEC4219D7CDCC11E28CCEEC87BF0CA52C9AFF107F",
+      "type": "MESH"
+    },
+    "VIS_WindowFrame_F03_CourtyardNorth_Corridor_02": {
+      "properties": {
+        "hs_window_clear_height_m": 1.8,
+        "hs_window_layout_status": "final",
+        "hs_window_open_leaves": "8",
+        "hs_window_panes": 8,
+        "hs_window_style": "paired_sliding_band",
+        "hs_window_unit_width_m": 2.4,
+        "hs_window_units": 4
+      },
+      "signature": "1A2FF116B28E37FB8707AAE60321F6F0FB88C04D448F255F8DD531324EA7DEFC",
+      "type": "MESH"
+    },
+    "VIS_WindowFrame_F03_CourtyardNorth_Corridor_03": {
+      "properties": {
+        "hs_window_clear_height_m": 1.8,
+        "hs_window_layout_status": "final",
+        "hs_window_open_leaves": "5",
+        "hs_window_panes": 8,
+        "hs_window_style": "paired_sliding_band",
+        "hs_window_unit_width_m": 2.4,
+        "hs_window_units": 4
+      },
+      "signature": "A0201A5E77AE04F3F86303C46D6EDE6F2AF4E68BEF4D30710F4DA36E4FB05FA1",
+      "type": "MESH"
+    },
+    "VIS_WindowFrame_F03_CourtyardWest_Corridor_01": {
+      "properties": {
+        "hs_window_clear_height_m": 1.8,
+        "hs_window_layout_status": "final",
+        "hs_window_open_leaves": "4",
+        "hs_window_panes": 4,
+        "hs_window_style": "paired_sliding_band",
+        "hs_window_unit_width_m": 2.4,
+        "hs_window_units": 2
+      },
+      "signature": "0F37465B17DF5E7907D7BB1ADB58467CD420A34387965984A4F2FEDBFEB64611",
+      "type": "MESH"
+    },
+    "VIS_WindowFrame_F03_CourtyardWest_Corridor_02": {
+      "properties": {
+        "hs_window_clear_height_m": 1.8,
+        "hs_window_layout_status": "final",
+        "hs_window_open_leaves": "4",
+        "hs_window_panes": 4,
+        "hs_window_style": "paired_sliding_band",
+        "hs_window_unit_width_m": 2.4,
+        "hs_window_units": 2
+      },
+      "signature": "BCA900CB11766FB04831F8996D8FA276EB7AB2D05921232C2B0579535BFB71F7",
+      "type": "MESH"
+    },
+    "VIS_WindowFrame_F03_CourtyardWest_Corridor_03": {
+      "properties": {
+        "hs_window_clear_height_m": 1.8,
+        "hs_window_layout_status": "final",
+        "hs_window_open_leaves": "",
+        "hs_window_panes": 4,
+        "hs_window_style": "paired_sliding_band",
+        "hs_window_unit_width_m": 2.4,
+        "hs_window_units": 2
+      },
+      "signature": "3F267729D1F2053409EA1D41FB85BDC22CEB37FC55F0078AA2EE5B9C3FC1A634",
+      "type": "MESH"
+    },
+    "VIS_WindowFrame_F03_CourtyardWest_Corridor_04": {
+      "properties": {
+        "hs_window_clear_height_m": 1.8,
+        "hs_window_layout_status": "final",
+        "hs_window_open_leaves": "2",
+        "hs_window_panes": 4,
+        "hs_window_style": "paired_sliding_band",
+        "hs_window_unit_width_m": 2.4,
+        "hs_window_units": 2
+      },
+      "signature": "AD751525195CC3845B27E0E70CBE69493BA4C4881AE6248D716313BD201CE560",
+      "type": "MESH"
+    },
+    "VIS_WindowFrame_F03_CourtyardWest_Corridor_05": {
+      "properties": {
+        "hs_window_clear_height_m": 1.8,
+        "hs_window_layout_status": "final",
+        "hs_window_open_leaves": "",
+        "hs_window_panes": 4,
+        "hs_window_style": "paired_sliding_band",
+        "hs_window_unit_width_m": 2.4,
+        "hs_window_units": 2
+      },
+      "signature": "95133D2504418130CE7489ABB463C6D344571C758B62AF6760277AE02C86EC0A",
+      "type": "MESH"
+    },
+    "VIS_WindowFrame_F03_North_Special_Room01_Set01": {
+      "properties": {
+        "hs_window_clear_height_m": 1.8,
+        "hs_window_layout_status": "final",
+        "hs_window_open_leaves": "1",
+        "hs_window_panes": 4,
+        "hs_window_style": "paired_sliding_band",
+        "hs_window_unit_width_m": 2.4,
+        "hs_window_units": 2
+      },
+      "signature": "675F84B5FF5E3AA8D9CD1A986C4E4EB2515B524B9B8A5DCC514301B91540E4A1",
+      "type": "MESH"
+    },
+    "VIS_WindowFrame_F03_North_Special_Room01_Set02": {
+      "properties": {
+        "hs_window_clear_height_m": 1.8,
+        "hs_window_layout_status": "final",
+        "hs_window_open_leaves": "",
+        "hs_window_panes": 4,
+        "hs_window_style": "paired_sliding_band",
+        "hs_window_unit_width_m": 2.4,
+        "hs_window_units": 2
+      },
+      "signature": "CDBB091D8D89EB863F6BE8AE3B4EE263FFA61F7BE710D5FDF3843A84F4760DCF",
+      "type": "MESH"
+    },
+    "VIS_WindowFrame_F03_North_Special_Room01_Set03": {
+      "properties": {
+        "hs_window_clear_height_m": 1.8,
+        "hs_window_layout_status": "final",
+        "hs_window_open_leaves": "",
+        "hs_window_panes": 4,
+        "hs_window_style": "paired_sliding_band",
+        "hs_window_unit_width_m": 2.4,
+        "hs_window_units": 2
+      },
+      "signature": "8499287EF539C92704FC1045CD46C5537D29E0EC355AD309D9D7CB907908161A",
+      "type": "MESH"
+    },
+    "VIS_WindowFrame_F03_North_Special_Room02_Set01": {
+      "properties": {
+        "hs_window_clear_height_m": 1.8,
+        "hs_window_layout_status": "final",
+        "hs_window_open_leaves": "1,4",
+        "hs_window_panes": 4,
+        "hs_window_style": "paired_sliding_band",
+        "hs_window_unit_width_m": 2.4,
+        "hs_window_units": 2
+      },
+      "signature": "545B0F84AA5B3846CF04F67C648DE28133B4FE4061A8867B876BDE1FFDDBEC74",
+      "type": "MESH"
+    },
+    "VIS_WindowFrame_F03_North_Special_Room02_Set02": {
+      "properties": {
+        "hs_window_clear_height_m": 1.8,
+        "hs_window_layout_status": "final",
+        "hs_window_open_leaves": "2,3",
+        "hs_window_panes": 4,
+        "hs_window_style": "paired_sliding_band",
+        "hs_window_unit_width_m": 2.4,
+        "hs_window_units": 2
+      },
+      "signature": "5174AC5E40D32B4E6EAF961F2B2F4078B33644FF3C0981389ABD2C8B795F7413",
+      "type": "MESH"
+    },
+    "VIS_WindowFrame_F03_North_Special_Room02_Set03": {
+      "properties": {
+        "hs_window_clear_height_m": 1.8,
+        "hs_window_layout_status": "final",
+        "hs_window_open_leaves": "1,4",
+        "hs_window_panes": 4,
+        "hs_window_style": "paired_sliding_band",
+        "hs_window_unit_width_m": 2.4,
+        "hs_window_units": 2
+      },
+      "signature": "7F4C7787FA00CE6355525BD9B0E4C3A0CBB0546F97CB1C459191423858C490B3",
+      "type": "MESH"
+    },
+    "VIS_WindowFrame_F03_North_StairNE": {
+      "properties": {
+        "hs_window_clear_height_m": 0.7,
+        "hs_window_layout_status": "final",
+        "hs_window_open_leaves": "",
+        "hs_window_panes": 2,
+        "hs_window_style": "paired_stair_transom",
+        "hs_window_unit_width_m": 1.8,
+        "hs_window_units": 1
+      },
+      "signature": "07515EB244BB59CC698076544A7826F593E90DE095B2B99A2B458BA56EF20142",
+      "type": "MESH"
+    },
+    "VIS_WindowFrame_F03_North_StairNW": {
+      "properties": {
+        "hs_window_clear_height_m": 0.7,
+        "hs_window_layout_status": "final",
+        "hs_window_open_leaves": "",
+        "hs_window_panes": 2,
+        "hs_window_style": "paired_stair_transom",
+        "hs_window_unit_width_m": 1.8,
+        "hs_window_units": 1
+      },
+      "signature": "AA37DAE47A8367C49B2C4008058CF9D8902DA5D7AB1B61B4A0B61AFF3CA406D9",
+      "type": "MESH"
+    },
+    "VIS_WindowFrame_F03_West_Ordinary_Room01": {
+      "properties": {
+        "hs_window_clear_height_m": 1.8,
+        "hs_window_layout_status": "final",
+        "hs_window_open_leaves": "5",
+        "hs_window_panes": 8,
+        "hs_window_style": "paired_sliding_band",
+        "hs_window_unit_width_m": 2.4,
+        "hs_window_units": 4
+      },
+      "signature": "E03C8F17ED201AC5C3947A6ACBBE5B1C5FFAE5B69E3FE2D3A4AA44A66DF7A3D2",
+      "type": "MESH"
+    },
+    "VIS_WindowFrame_F03_West_Ordinary_Room02": {
+      "properties": {
+        "hs_window_clear_height_m": 1.8,
+        "hs_window_layout_status": "final",
+        "hs_window_open_leaves": "2",
+        "hs_window_panes": 8,
+        "hs_window_style": "paired_sliding_band",
+        "hs_window_unit_width_m": 2.4,
+        "hs_window_units": 4
+      },
+      "signature": "EF099DEC5B818F24CF3AC1B73853818F48837CF765A3C8FCDA8C76409DA7550E",
+      "type": "MESH"
+    },
+    "VIS_WindowFrame_F03_West_Ordinary_Room03": {
+      "properties": {
+        "hs_window_clear_height_m": 1.8,
+        "hs_window_layout_status": "final",
+        "hs_window_open_leaves": "",
+        "hs_window_panes": 8,
+        "hs_window_style": "paired_sliding_band",
+        "hs_window_unit_width_m": 2.4,
+        "hs_window_units": 4
+      },
+      "signature": "CE1F3E44E08157EE6F340F891E374846BA779B943E49D9FA1B79815E9F291407",
+      "type": "MESH"
+    },
+    "VIS_WindowFrame_F03_West_StairSW": {
+      "properties": {
+        "hs_window_clear_height_m": 0.7,
+        "hs_window_layout_status": "final",
+        "hs_window_open_leaves": "",
+        "hs_window_panes": 2,
+        "hs_window_style": "paired_stair_transom",
+        "hs_window_unit_width_m": 1.8,
+        "hs_window_units": 1
+      },
+      "signature": "6180D55B042914C9EB0EECD795210398C3CB1A99948E63965F0964CDE41D7E9C",
+      "type": "MESH"
+    },
+    "VIS_WindowFrame_F04_CourtyardNorth_Corridor_01": {
+      "properties": {
+        "hs_window_clear_height_m": 1.8,
+        "hs_window_layout_status": "final",
+        "hs_window_open_leaves": "5",
+        "hs_window_panes": 8,
+        "hs_window_style": "paired_sliding_band",
+        "hs_window_unit_width_m": 2.4,
+        "hs_window_units": 4
+      },
+      "signature": "3CA737830F2A334F94F8DF708E3332CC7F4ACA2DBEE8FB8037B9B70CE6A90CFB",
+      "type": "MESH"
+    },
+    "VIS_WindowFrame_F04_CourtyardNorth_Corridor_02": {
+      "properties": {
+        "hs_window_clear_height_m": 1.8,
+        "hs_window_layout_status": "final",
+        "hs_window_open_leaves": "2",
+        "hs_window_panes": 8,
+        "hs_window_style": "paired_sliding_band",
+        "hs_window_unit_width_m": 2.4,
+        "hs_window_units": 4
+      },
+      "signature": "35723D47D06AF06BC3FA86F55246A95D205C4AA380A79485DECD90A955B4DEF9",
+      "type": "MESH"
+    },
+    "VIS_WindowFrame_F04_CourtyardNorth_Corridor_03": {
+      "properties": {
+        "hs_window_clear_height_m": 1.8,
+        "hs_window_layout_status": "final",
+        "hs_window_open_leaves": "6",
+        "hs_window_panes": 8,
+        "hs_window_style": "paired_sliding_band",
+        "hs_window_unit_width_m": 2.4,
+        "hs_window_units": 4
+      },
+      "signature": "38AA24FE2612723BC5E40EAAF0BCF5D4AC5F8404864348DBE6D283CB264B1597",
+      "type": "MESH"
+    },
+    "VIS_WindowFrame_F04_CourtyardWest_Corridor_01": {
+      "properties": {
+        "hs_window_clear_height_m": 1.8,
+        "hs_window_layout_status": "final",
+        "hs_window_open_leaves": "3",
+        "hs_window_panes": 4,
+        "hs_window_style": "paired_sliding_band",
+        "hs_window_unit_width_m": 2.4,
+        "hs_window_units": 2
+      },
+      "signature": "B86B3A0B94D8CFD33254C64872951B4DB077BB06FE3DD61D05358F2221676604",
+      "type": "MESH"
+    },
+    "VIS_WindowFrame_F04_CourtyardWest_Corridor_02": {
+      "properties": {
+        "hs_window_clear_height_m": 1.8,
+        "hs_window_layout_status": "final",
+        "hs_window_open_leaves": "",
+        "hs_window_panes": 4,
+        "hs_window_style": "paired_sliding_band",
+        "hs_window_unit_width_m": 2.4,
+        "hs_window_units": 2
+      },
+      "signature": "2EC78C41E5E48E69093EE18679FD42B989148E02F52FBAFDDA8EA3B17E8A5FF4",
+      "type": "MESH"
+    },
+    "VIS_WindowFrame_F04_CourtyardWest_Corridor_03": {
+      "properties": {
+        "hs_window_clear_height_m": 1.8,
+        "hs_window_layout_status": "final",
+        "hs_window_open_leaves": "3",
+        "hs_window_panes": 4,
+        "hs_window_style": "paired_sliding_band",
+        "hs_window_unit_width_m": 2.4,
+        "hs_window_units": 2
+      },
+      "signature": "57D83C3E0D23BACDE69563BD39D9AA40B374F6CD55A91B85F3E01F14F5D44F2D",
+      "type": "MESH"
+    },
+    "VIS_WindowFrame_F04_CourtyardWest_Corridor_04": {
+      "properties": {
+        "hs_window_clear_height_m": 1.8,
+        "hs_window_layout_status": "final",
+        "hs_window_open_leaves": "",
+        "hs_window_panes": 4,
+        "hs_window_style": "paired_sliding_band",
+        "hs_window_unit_width_m": 2.4,
+        "hs_window_units": 2
+      },
+      "signature": "13F850C52032AFA1892B0BE9035CC669BC3367618987B6CA8484E6864F2ADBB1",
+      "type": "MESH"
+    },
+    "VIS_WindowFrame_F04_CourtyardWest_Corridor_05": {
+      "properties": {
+        "hs_window_clear_height_m": 1.8,
+        "hs_window_layout_status": "final",
+        "hs_window_open_leaves": "2",
+        "hs_window_panes": 4,
+        "hs_window_style": "paired_sliding_band",
+        "hs_window_unit_width_m": 2.4,
+        "hs_window_units": 2
+      },
+      "signature": "B0740971837D0848A96DD3E14793953D069037A89F06C0F58F0FF4B2E8307681",
+      "type": "MESH"
+    },
+    "VIS_WindowFrame_F04_North_Special_Room01_Set01": {
+      "properties": {
+        "hs_window_clear_height_m": 1.8,
+        "hs_window_layout_status": "final",
+        "hs_window_open_leaves": "",
+        "hs_window_panes": 4,
+        "hs_window_style": "paired_sliding_band",
+        "hs_window_unit_width_m": 2.4,
+        "hs_window_units": 2
+      },
+      "signature": "97B4493078E0359AF3276DCDE64CA430AB8AA0BEFFE6A9EE6AB8BD10C44DCD84",
+      "type": "MESH"
+    },
+    "VIS_WindowFrame_F04_North_Special_Room01_Set02": {
+      "properties": {
+        "hs_window_clear_height_m": 1.8,
+        "hs_window_layout_status": "final",
+        "hs_window_open_leaves": "",
+        "hs_window_panes": 4,
+        "hs_window_style": "paired_sliding_band",
+        "hs_window_unit_width_m": 2.4,
+        "hs_window_units": 2
+      },
+      "signature": "04CDC575F1EE958BBBF4F05C1AF97002DB96FF85D131FC0FD329C0200428CDF5",
+      "type": "MESH"
+    },
+    "VIS_WindowFrame_F04_North_Special_Room01_Set03": {
+      "properties": {
+        "hs_window_clear_height_m": 1.8,
+        "hs_window_layout_status": "final",
+        "hs_window_open_leaves": "",
+        "hs_window_panes": 4,
+        "hs_window_style": "paired_sliding_band",
+        "hs_window_unit_width_m": 2.4,
+        "hs_window_units": 2
+      },
+      "signature": "ADB8C15C22D227CBBDC254CC7B7A98189B157BC76E48BDEF70CD9A8D3CD29B46",
+      "type": "MESH"
+    },
+    "VIS_WindowFrame_F04_North_Special_Room02_Set01": {
+      "properties": {
+        "hs_window_clear_height_m": 1.8,
+        "hs_window_layout_status": "final",
+        "hs_window_open_leaves": "3",
+        "hs_window_panes": 4,
+        "hs_window_style": "paired_sliding_band",
+        "hs_window_unit_width_m": 2.4,
+        "hs_window_units": 2
+      },
+      "signature": "E3C4B6CB4B6426E682237B192D871AE5B57EA8E92432A2327D027664B340D3AF",
+      "type": "MESH"
+    },
+    "VIS_WindowFrame_F04_North_Special_Room02_Set02": {
+      "properties": {
+        "hs_window_clear_height_m": 1.8,
+        "hs_window_layout_status": "final",
+        "hs_window_open_leaves": "2",
+        "hs_window_panes": 4,
+        "hs_window_style": "paired_sliding_band",
+        "hs_window_unit_width_m": 2.4,
+        "hs_window_units": 2
+      },
+      "signature": "E522F35A092CCBC7D79F802126D00AEFCFF3C428E9617329ABB0BD01BA85EC86",
+      "type": "MESH"
+    },
+    "VIS_WindowFrame_F04_North_Special_Room02_Set03": {
+      "properties": {
+        "hs_window_clear_height_m": 1.8,
+        "hs_window_layout_status": "final",
+        "hs_window_open_leaves": "",
+        "hs_window_panes": 4,
+        "hs_window_style": "paired_sliding_band",
+        "hs_window_unit_width_m": 2.4,
+        "hs_window_units": 2
+      },
+      "signature": "392A1F63EDE199DB2A8CE2D0FD1C0072B70C118BA35E6A9363707400CB0371A4",
+      "type": "MESH"
+    },
+    "VIS_WindowFrame_F04_North_StairNW": {
+      "properties": {
+        "hs_window_clear_height_m": 0.7,
+        "hs_window_layout_status": "final",
+        "hs_window_open_leaves": "",
+        "hs_window_panes": 2,
+        "hs_window_style": "paired_stair_transom",
+        "hs_window_unit_width_m": 1.8,
+        "hs_window_units": 1
+      },
+      "signature": "3CF91BE4BADA6756404C0E0B4D93C5E252F2A420EB8C76E87E7A5406A661D590",
+      "type": "MESH"
+    },
+    "VIS_WindowFrame_F04_West_Ordinary_Room01": {
+      "properties": {
+        "hs_window_clear_height_m": 1.8,
+        "hs_window_layout_status": "final",
+        "hs_window_open_leaves": "7",
+        "hs_window_panes": 8,
+        "hs_window_style": "paired_sliding_band",
+        "hs_window_unit_width_m": 2.4,
+        "hs_window_units": 4
+      },
+      "signature": "3726055886322F693CBB0870EA1132BE3CDB135650615BAD4A52DD0C9B4DC668",
+      "type": "MESH"
+    },
+    "VIS_WindowFrame_F04_West_Ordinary_Room02": {
+      "properties": {
+        "hs_window_clear_height_m": 1.8,
+        "hs_window_layout_status": "final",
+        "hs_window_open_leaves": "4",
+        "hs_window_panes": 8,
+        "hs_window_style": "paired_sliding_band",
+        "hs_window_unit_width_m": 2.4,
+        "hs_window_units": 4
+      },
+      "signature": "373CA42FCF714D33D7CB7C532EB68EC38DF0E28E25E331E48F4427E4268C6D91",
+      "type": "MESH"
+    },
+    "VIS_WindowFrame_F04_West_Ordinary_Room03": {
+      "properties": {
+        "hs_window_clear_height_m": 1.8,
+        "hs_window_layout_status": "final",
+        "hs_window_open_leaves": "1,4,5,8",
+        "hs_window_panes": 8,
+        "hs_window_style": "paired_sliding_band",
+        "hs_window_unit_width_m": 2.4,
+        "hs_window_units": 4
+      },
+      "signature": "8321B7433D68F265B2C5D1F0B97D0E3422AF0248E0C9DE2AB84FCE44FAAF11F5",
+      "type": "MESH"
+    },
+    "VIS_WindowFrame_GymStorage_North_01": {
+      "properties": {
+        "hs_window_clear_height_m": 1.2,
+        "hs_window_layout_status": "final",
+        "hs_window_open_leaves": "",
+        "hs_window_panes": 1,
+        "hs_window_style": "small_fixed"
+      },
+      "signature": "3B602AEBDFE4D2E9AEAAED8F7C9E03FB299C2B48E3F61B82B2E8756A3AD25871",
+      "type": "MESH"
+    },
+    "VIS_WindowFrame_Gym_East_01": {
+      "properties": {
+        "hs_window_clear_height_m": 1.8,
+        "hs_window_layout_status": "final",
+        "hs_window_open_leaves": "5",
+        "hs_window_panes": 8,
+        "hs_window_style": "paired_sliding_band",
+        "hs_window_unit_width_m": 2.4,
+        "hs_window_units": 4
+      },
+      "signature": "F666B938569001728FC53C751CA92ED9FFB9959B6A4226E0EDABD299E4246D19",
+      "type": "MESH"
+    },
+    "VIS_WindowFrame_Gym_East_02": {
+      "properties": {
+        "hs_window_clear_height_m": 1.8,
+        "hs_window_layout_status": "final",
+        "hs_window_open_leaves": "1",
+        "hs_window_panes": 8,
+        "hs_window_style": "paired_sliding_band",
+        "hs_window_unit_width_m": 2.4,
+        "hs_window_units": 4
+      },
+      "signature": "102A7690515CAA1E1CF2C3D11FF9C5B5B2AD2DE7A8BEE17E1BE41226A36B9326",
+      "type": "MESH"
+    },
+    "VIS_WindowFrame_Gym_East_03": {
+      "properties": {
+        "hs_window_clear_height_m": 1.8,
+        "hs_window_layout_status": "final",
+        "hs_window_open_leaves": "8",
+        "hs_window_panes": 8,
+        "hs_window_style": "paired_sliding_band",
+        "hs_window_unit_width_m": 2.4,
+        "hs_window_units": 4
+      },
+      "signature": "FD9CBC761D0BAE25ABFA130E442794DB2BCD47BFA9E1084002C323B865C71913",
+      "type": "MESH"
+    },
+    "VIS_WindowFrame_Gym_North_02": {
+      "properties": {
+        "hs_window_clear_height_m": 1.8,
+        "hs_window_layout_status": "final",
+        "hs_window_open_leaves": "1",
+        "hs_window_panes": 8,
+        "hs_window_style": "paired_sliding_band",
+        "hs_window_unit_width_m": 2.4,
+        "hs_window_units": 4
+      },
+      "signature": "7744EBA62327499EA07675CFFFAF902BE26FA07B066A73F4283C9769FBCD1EC0",
+      "type": "MESH"
+    },
+    "VIS_WindowFrame_Gym_West_01": {
+      "properties": {
+        "hs_window_clear_height_m": 1.8,
+        "hs_window_layout_status": "final",
+        "hs_window_open_leaves": "8",
+        "hs_window_panes": 8,
+        "hs_window_style": "paired_sliding_band",
+        "hs_window_unit_width_m": 2.4,
+        "hs_window_units": 4
+      },
+      "signature": "E4E566558FEED8F311358F5E57BC61629B4D95EF63F7C8877224510ED092CBC7",
+      "type": "MESH"
+    },
+    "VIS_WindowFrame_Gym_West_02": {
+      "properties": {
+        "hs_window_clear_height_m": 1.8,
+        "hs_window_layout_status": "final",
+        "hs_window_open_leaves": "4",
+        "hs_window_panes": 8,
+        "hs_window_style": "paired_sliding_band",
+        "hs_window_unit_width_m": 2.4,
+        "hs_window_units": 4
+      },
+      "signature": "F58D5162C99F22D71EB9BD719F6EFBE5AF83526619D507BEEDF68971752AEE5C",
+      "type": "MESH"
+    },
+    "VIS_WindowFrame_Gym_West_03": {
+      "properties": {
+        "hs_window_clear_height_m": 1.8,
+        "hs_window_layout_status": "final",
+        "hs_window_open_leaves": "1",
+        "hs_window_panes": 8,
+        "hs_window_style": "paired_sliding_band",
+        "hs_window_unit_width_m": 2.4,
+        "hs_window_units": 4
+      },
+      "signature": "A56805D6971FFB793E1AEEF1F5CD639C53B1B70F1F7CE928A65A9510E5A57DF5",
+      "type": "MESH"
+    },
+    "VIS_WindowGlass_F01_CourtyardNorth_Corridor_01": {
+      "properties": {
+        "hs_window_clear_height_m": 1.8,
+        "hs_window_layout_status": "final",
+        "hs_window_open_leaves": "",
+        "hs_window_panes": 4,
+        "hs_window_style": "paired_sliding_band",
+        "hs_window_unit_width_m": 2.4,
+        "hs_window_units": 2
+      },
+      "signature": "979AE3515301F0A8CC1522580A8E6C394AC16B3BC185F7F05EE23F688617B4F2",
+      "type": "MESH"
+    },
+    "VIS_WindowGlass_F01_CourtyardNorth_Corridor_02": {
+      "properties": {
+        "hs_window_clear_height_m": 1.8,
+        "hs_window_layout_status": "final",
+        "hs_window_open_leaves": "6",
+        "hs_window_panes": 8,
+        "hs_window_style": "paired_sliding_band",
+        "hs_window_unit_width_m": 2.4,
+        "hs_window_units": 4
+      },
+      "signature": "C6475080CA16C73092B295CFCB43253AAB6642DC1EB6B1B3A1D282D26478D5A0",
+      "type": "MESH"
+    },
+    "VIS_WindowGlass_F01_CourtyardNorth_Corridor_03": {
+      "properties": {
+        "hs_window_clear_height_m": 1.8,
+        "hs_window_layout_status": "final",
+        "hs_window_open_leaves": "",
+        "hs_window_panes": 2,
+        "hs_window_style": "paired_sliding_band",
+        "hs_window_unit_width_m": 2.4,
+        "hs_window_units": 1
+      },
+      "signature": "6817C6E2013544F7A0F11508DBE7FF9FA263EB51C900BF2FCAE92AE88607B4AB",
+      "type": "MESH"
+    },
+    "VIS_WindowGlass_F01_CourtyardWest_Corridor_02": {
+      "properties": {
+        "hs_window_clear_height_m": 1.8,
+        "hs_window_layout_status": "final",
+        "hs_window_open_leaves": "3",
+        "hs_window_panes": 4,
+        "hs_window_style": "paired_sliding_band",
+        "hs_window_unit_width_m": 2.4,
+        "hs_window_units": 2
+      },
+      "signature": "9542F09D51F59E15DFEF9F37D0BC9A5117A61C1EB40FD60DD2447BCA3B7C7A94",
+      "type": "MESH"
+    },
+    "VIS_WindowGlass_F01_CourtyardWest_Corridor_03": {
+      "properties": {
+        "hs_window_clear_height_m": 1.8,
+        "hs_window_layout_status": "final",
+        "hs_window_open_leaves": "",
+        "hs_window_panes": 4,
+        "hs_window_style": "paired_sliding_band",
+        "hs_window_unit_width_m": 2.4,
+        "hs_window_units": 2
+      },
+      "signature": "D7A5E7C03A46EE4CD679A8F10820FDCB275101605D42E15A86665272E765B2A0",
+      "type": "MESH"
+    },
+    "VIS_WindowGlass_F01_CourtyardWest_Corridor_04": {
+      "properties": {
+        "hs_window_clear_height_m": 1.8,
+        "hs_window_layout_status": "final",
+        "hs_window_open_leaves": "3",
+        "hs_window_panes": 4,
+        "hs_window_style": "paired_sliding_band",
+        "hs_window_unit_width_m": 2.4,
+        "hs_window_units": 2
+      },
+      "signature": "0A8267082A59AC964426E96FA68E92540901BCD1D26A0A716BFF207AA3F01B38",
+      "type": "MESH"
+    },
+    "VIS_WindowGlass_F01_CourtyardWest_Corridor_05": {
+      "properties": {
+        "hs_window_clear_height_m": 1.8,
+        "hs_window_layout_status": "final",
+        "hs_window_open_leaves": "3",
+        "hs_window_panes": 4,
+        "hs_window_style": "paired_sliding_band",
+        "hs_window_unit_width_m": 2.4,
+        "hs_window_units": 2
+      },
+      "signature": "4DD686B4D94D8962CA2181940A2690F07665FC5E365970371356475CADE77F63",
+      "type": "MESH"
+    },
+    "VIS_WindowGlass_F01_North_Special_Room01_Set01": {
+      "properties": {
+        "hs_window_clear_height_m": 1.8,
+        "hs_window_layout_status": "final",
+        "hs_window_open_leaves": "",
+        "hs_window_panes": 4,
+        "hs_window_style": "paired_sliding_band",
+        "hs_window_unit_width_m": 2.4,
+        "hs_window_units": 2
+      },
+      "signature": "BF616788A0AEDABD3C74D7324B1E706239EA460B06D9D1B26A8212BE453EE37A",
+      "type": "MESH"
+    },
+    "VIS_WindowGlass_F01_North_Special_Room01_Set02": {
+      "properties": {
+        "hs_window_clear_height_m": 1.8,
+        "hs_window_layout_status": "final",
+        "hs_window_open_leaves": "1",
+        "hs_window_panes": 4,
+        "hs_window_style": "paired_sliding_band",
+        "hs_window_unit_width_m": 2.4,
+        "hs_window_units": 2
+      },
+      "signature": "0E63C80D6B381F1EEDC33ECB34BCA3EC9DB125D6CAFBAB1A9B57A274C9271D28",
+      "type": "MESH"
+    },
+    "VIS_WindowGlass_F01_North_Special_Room01_Set03": {
+      "properties": {
+        "hs_window_clear_height_m": 1.8,
+        "hs_window_layout_status": "final",
+        "hs_window_open_leaves": "",
+        "hs_window_panes": 4,
+        "hs_window_style": "paired_sliding_band",
+        "hs_window_unit_width_m": 2.4,
+        "hs_window_units": 2
+      },
+      "signature": "B56FCFDDE1F0B2F91BEB4954D54C6D6121F04D234FEDE068C95A1CCBF4CE0562",
+      "type": "MESH"
+    },
+    "VIS_WindowGlass_F01_North_Special_Room02_Set01": {
+      "properties": {
+        "hs_window_clear_height_m": 1.8,
+        "hs_window_layout_status": "final",
+        "hs_window_open_leaves": "2",
+        "hs_window_panes": 4,
+        "hs_window_style": "paired_sliding_band",
+        "hs_window_unit_width_m": 2.4,
+        "hs_window_units": 2
+      },
+      "signature": "0A461EF2C0F0C43CBD4FC22ADE33BFA6CA3319E39EB6B8CB1A34E00ED688E08B",
+      "type": "MESH"
+    },
+    "VIS_WindowGlass_F01_North_Special_Room02_Set02": {
+      "properties": {
+        "hs_window_clear_height_m": 1.8,
+        "hs_window_layout_status": "final",
+        "hs_window_open_leaves": "",
+        "hs_window_panes": 4,
+        "hs_window_style": "paired_sliding_band",
+        "hs_window_unit_width_m": 2.4,
+        "hs_window_units": 2
+      },
+      "signature": "F9937F34E1756B4C3BEDDFA96E83F14DF272D74C0849DF0F367E3167F0A3821F",
+      "type": "MESH"
+    },
+    "VIS_WindowGlass_F01_North_Special_Room02_Set03": {
+      "properties": {
+        "hs_window_clear_height_m": 1.8,
+        "hs_window_layout_status": "final",
+        "hs_window_open_leaves": "4",
+        "hs_window_panes": 4,
+        "hs_window_style": "paired_sliding_band",
+        "hs_window_unit_width_m": 2.4,
+        "hs_window_units": 2
+      },
+      "signature": "FF710FFFB6B36E43374A5DDF8660FCE2EC13DBB9CA3FF7DE4D2279ACB848F68D",
+      "type": "MESH"
+    },
+    "VIS_WindowGlass_F01_North_StairNE": {
+      "properties": {
+        "hs_window_clear_height_m": 0.7,
+        "hs_window_layout_status": "final",
+        "hs_window_open_leaves": "",
+        "hs_window_panes": 2,
+        "hs_window_style": "paired_stair_transom",
+        "hs_window_unit_width_m": 1.8,
+        "hs_window_units": 1
+      },
+      "signature": "D993BB2A6D44E44E1D8AFC7DEBBAC607A553B620D9D625CF89892E670EB236F1",
+      "type": "MESH"
+    },
+    "VIS_WindowGlass_F01_North_StairNW": {
+      "properties": {
+        "hs_window_clear_height_m": 0.7,
+        "hs_window_layout_status": "final",
+        "hs_window_open_leaves": "",
+        "hs_window_panes": 2,
+        "hs_window_style": "paired_stair_transom",
+        "hs_window_unit_width_m": 1.8,
+        "hs_window_units": 1
+      },
+      "signature": "09ACC9563DD40AD91657CACC038552CE2B23F45B990FFD9AC4EEDCD60FB63A92",
+      "type": "MESH"
+    },
+    "VIS_WindowGlass_F01_West_Ordinary_Room01": {
+      "properties": {
+        "hs_window_clear_height_m": 1.8,
+        "hs_window_layout_status": "final",
+        "hs_window_open_leaves": "7",
+        "hs_window_panes": 8,
+        "hs_window_style": "paired_sliding_band",
+        "hs_window_unit_width_m": 2.4,
+        "hs_window_units": 4
+      },
+      "signature": "5219F3EDFDEF6AD5D0659F7889BA2AAFE98EB4FCFBD1E8542134AA1CC36769D9",
+      "type": "MESH"
+    },
+    "VIS_WindowGlass_F01_West_Special_01": {
+      "properties": {
+        "hs_window_clear_height_m": 1.8,
+        "hs_window_layout_status": "final",
+        "hs_window_open_leaves": "2",
+        "hs_window_panes": 8,
+        "hs_window_style": "paired_sliding_band",
+        "hs_window_unit_width_m": 2.4,
+        "hs_window_units": 4
+      },
+      "signature": "A9CD6546B9FF2695872E5E60F903339BE68497B5C988B988A8EA87F19EB513A2",
+      "type": "MESH"
+    },
+    "VIS_WindowGlass_F01_West_StairSW": {
+      "properties": {
+        "hs_window_clear_height_m": 0.7,
+        "hs_window_layout_status": "final",
+        "hs_window_open_leaves": "",
+        "hs_window_panes": 2,
+        "hs_window_style": "paired_stair_transom",
+        "hs_window_unit_width_m": 1.8,
+        "hs_window_units": 1
+      },
+      "signature": "B00E72E0B19F02B61415563F943DEE46A3F21F669A2AFBD259C273ACE4A2C602",
+      "type": "MESH"
+    },
+    "VIS_WindowGlass_F02_CourtyardNorth_Corridor_01": {
+      "properties": {
+        "hs_window_clear_height_m": 1.8,
+        "hs_window_layout_status": "final",
+        "hs_window_open_leaves": "4",
+        "hs_window_panes": 8,
+        "hs_window_style": "paired_sliding_band",
+        "hs_window_unit_width_m": 2.4,
+        "hs_window_units": 4
+      },
+      "signature": "252836198D875C7B6F7FEBC23165B073EC0AFE06B0DAD1247EC4F5CDA78ADD55",
+      "type": "MESH"
+    },
+    "VIS_WindowGlass_F02_CourtyardNorth_Corridor_02": {
+      "properties": {
+        "hs_window_clear_height_m": 1.8,
+        "hs_window_layout_status": "final",
+        "hs_window_open_leaves": "2",
+        "hs_window_panes": 8,
+        "hs_window_style": "paired_sliding_band",
+        "hs_window_unit_width_m": 2.4,
+        "hs_window_units": 4
+      },
+      "signature": "75455344369BC1B7CB839E28D67021BC0EB6CF4C7124EB2E3063B0C787138A2A",
+      "type": "MESH"
+    },
+    "VIS_WindowGlass_F02_CourtyardNorth_Corridor_03": {
+      "properties": {
+        "hs_window_clear_height_m": 1.8,
+        "hs_window_layout_status": "final",
+        "hs_window_open_leaves": "2",
+        "hs_window_panes": 8,
+        "hs_window_style": "paired_sliding_band",
+        "hs_window_unit_width_m": 2.4,
+        "hs_window_units": 4
+      },
+      "signature": "95C9B70F4D5E1783275B8D058D921535B0C5970CD64F950D07D589F58C9E2840",
+      "type": "MESH"
+    },
+    "VIS_WindowGlass_F02_CourtyardWest_Corridor_01": {
+      "properties": {
+        "hs_window_clear_height_m": 1.8,
+        "hs_window_layout_status": "final",
+        "hs_window_open_leaves": "",
+        "hs_window_panes": 4,
+        "hs_window_style": "paired_sliding_band",
+        "hs_window_unit_width_m": 2.4,
+        "hs_window_units": 2
+      },
+      "signature": "4A822DD17979C6EB092F35427FFD69D5C4458F1100FA1028CB43891B9118F1A3",
+      "type": "MESH"
+    },
+    "VIS_WindowGlass_F02_CourtyardWest_Corridor_02": {
+      "properties": {
+        "hs_window_clear_height_m": 1.8,
+        "hs_window_layout_status": "final",
+        "hs_window_open_leaves": "",
+        "hs_window_panes": 4,
+        "hs_window_style": "paired_sliding_band",
+        "hs_window_unit_width_m": 2.4,
+        "hs_window_units": 2
+      },
+      "signature": "3D53A9B3E642A43EE86F12E19C2CAB1060308AA96E6529835BE42E1A8D314989",
+      "type": "MESH"
+    },
+    "VIS_WindowGlass_F02_CourtyardWest_Corridor_03": {
+      "properties": {
+        "hs_window_clear_height_m": 1.8,
+        "hs_window_layout_status": "final",
+        "hs_window_open_leaves": "",
+        "hs_window_panes": 4,
+        "hs_window_style": "paired_sliding_band",
+        "hs_window_unit_width_m": 2.4,
+        "hs_window_units": 2
+      },
+      "signature": "4D981E5FFF042B4C29B76F45B27E0A43D810E75D343081C03070E41B8C4E1BCD",
+      "type": "MESH"
+    },
+    "VIS_WindowGlass_F02_CourtyardWest_Corridor_04": {
+      "properties": {
+        "hs_window_clear_height_m": 1.8,
+        "hs_window_layout_status": "final",
+        "hs_window_open_leaves": "3",
+        "hs_window_panes": 4,
+        "hs_window_style": "paired_sliding_band",
+        "hs_window_unit_width_m": 2.4,
+        "hs_window_units": 2
+      },
+      "signature": "423187FA5A9D01AFE6CBDB1E2CB6F1486F604830BBC2195A68BE2DFB70570884",
+      "type": "MESH"
+    },
+    "VIS_WindowGlass_F02_CourtyardWest_Corridor_05": {
+      "properties": {
+        "hs_window_clear_height_m": 1.8,
+        "hs_window_layout_status": "final",
+        "hs_window_open_leaves": "",
+        "hs_window_panes": 4,
+        "hs_window_style": "paired_sliding_band",
+        "hs_window_unit_width_m": 2.4,
+        "hs_window_units": 2
+      },
+      "signature": "DE84E64286F67DCAED00F7B7682DADB0F4CFF835383133A214E49AE7B6D47FF0",
+      "type": "MESH"
+    },
+    "VIS_WindowGlass_F02_North_Broadcast_Set01": {
+      "properties": {
+        "hs_window_clear_height_m": 1.8,
+        "hs_window_layout_status": "final",
+        "hs_window_open_leaves": "3",
+        "hs_window_panes": 4,
+        "hs_window_style": "paired_sliding_band",
+        "hs_window_unit_width_m": 2.4,
+        "hs_window_units": 2
+      },
+      "signature": "C69EA2966259D675F42B42FFC13A3163D6E5674829EEE9688FA953462E1D22DD",
+      "type": "MESH"
+    },
+    "VIS_WindowGlass_F02_North_Special_Room03_Set01": {
+      "properties": {
+        "hs_window_clear_height_m": 1.8,
+        "hs_window_layout_status": "final",
+        "hs_window_open_leaves": "",
+        "hs_window_panes": 4,
+        "hs_window_style": "paired_sliding_band",
+        "hs_window_unit_width_m": 2.4,
+        "hs_window_units": 2
+      },
+      "signature": "13B733CB05C245F205AD46D2C3D2412A23A59A150D2B24B45D7074BB86D66CD1",
+      "type": "MESH"
+    },
+    "VIS_WindowGlass_F02_North_Special_Room03_Set02": {
+      "properties": {
+        "hs_window_clear_height_m": 1.8,
+        "hs_window_layout_status": "final",
+        "hs_window_open_leaves": "3",
+        "hs_window_panes": 4,
+        "hs_window_style": "paired_sliding_band",
+        "hs_window_unit_width_m": 2.4,
+        "hs_window_units": 2
+      },
+      "signature": "B86E5125BF5FAF68348490E97A2C926936DD59E87071D5D000FD976F36F9545F",
+      "type": "MESH"
+    },
+    "VIS_WindowGlass_F02_North_Special_Room03_Set03": {
+      "properties": {
+        "hs_window_clear_height_m": 1.8,
+        "hs_window_layout_status": "final",
+        "hs_window_open_leaves": "2",
+        "hs_window_panes": 4,
+        "hs_window_style": "paired_sliding_band",
+        "hs_window_unit_width_m": 2.4,
+        "hs_window_units": 2
+      },
+      "signature": "6D38FB870F550F84F879C623072A226E619DB5302CE0BEB471CFA5827650F8A2",
+      "type": "MESH"
+    },
+    "VIS_WindowGlass_F02_North_StairNE": {
+      "properties": {
+        "hs_window_clear_height_m": 0.7,
+        "hs_window_layout_status": "final",
+        "hs_window_open_leaves": "",
+        "hs_window_panes": 2,
+        "hs_window_style": "paired_stair_transom",
+        "hs_window_unit_width_m": 1.8,
+        "hs_window_units": 1
+      },
+      "signature": "A08359DE03990F1ADE3C7A67C67D9AE33F8FD81472A60FCACEA02B7E143B4EB4",
+      "type": "MESH"
+    },
+    "VIS_WindowGlass_F02_North_StairNW": {
+      "properties": {
+        "hs_window_clear_height_m": 0.7,
+        "hs_window_layout_status": "final",
+        "hs_window_open_leaves": "",
+        "hs_window_panes": 2,
+        "hs_window_style": "paired_stair_transom",
+        "hs_window_unit_width_m": 1.8,
+        "hs_window_units": 1
+      },
+      "signature": "6601FE79E01C44A2FD973F492CF6132E192222EF49B2329773E2F5667932A8AA",
+      "type": "MESH"
+    },
+    "VIS_WindowGlass_F02_North_StudentCouncil_Set01": {
+      "properties": {
+        "hs_window_clear_height_m": 1.8,
+        "hs_window_layout_status": "final",
+        "hs_window_open_leaves": "",
+        "hs_window_panes": 4,
+        "hs_window_style": "paired_sliding_band",
+        "hs_window_unit_width_m": 2.4,
+        "hs_window_units": 2
+      },
+      "signature": "114E43056223F61113CD8D729C4DE4695F8921BDD667AE2732E423DD42B1E756",
+      "type": "MESH"
+    },
+    "VIS_WindowGlass_F02_West_Ordinary_Room01": {
+      "properties": {
+        "hs_window_clear_height_m": 1.8,
+        "hs_window_layout_status": "final",
+        "hs_window_open_leaves": "4",
+        "hs_window_panes": 8,
+        "hs_window_style": "paired_sliding_band",
+        "hs_window_unit_width_m": 2.4,
+        "hs_window_units": 4
+      },
+      "signature": "B18F1F1C822D148F7B927D972070D771EDA35F9C4376D741706527683A388477",
+      "type": "MESH"
+    },
+    "VIS_WindowGlass_F02_West_Ordinary_Room02": {
+      "properties": {
+        "hs_window_clear_height_m": 1.8,
+        "hs_window_layout_status": "final",
+        "hs_window_open_leaves": "2,3,6,7",
+        "hs_window_panes": 8,
+        "hs_window_style": "paired_sliding_band",
+        "hs_window_unit_width_m": 2.4,
+        "hs_window_units": 4
+      },
+      "signature": "75C72A7FA44F73717B55A1BCADFE14447B4BE83CBA97D28F2E745E611FB3ABC5",
+      "type": "MESH"
+    },
+    "VIS_WindowGlass_F02_West_Ordinary_Room03": {
+      "properties": {
+        "hs_window_clear_height_m": 1.8,
+        "hs_window_layout_status": "final",
+        "hs_window_open_leaves": "2",
+        "hs_window_panes": 8,
+        "hs_window_style": "paired_sliding_band",
+        "hs_window_unit_width_m": 2.4,
+        "hs_window_units": 4
+      },
+      "signature": "7F134773F2F0CE7703D9637D0E339507EDE0019DE1649522BA9F7952EE6EC55D",
+      "type": "MESH"
+    },
+    "VIS_WindowGlass_F02_West_StairSW": {
+      "properties": {
+        "hs_window_clear_height_m": 0.7,
+        "hs_window_layout_status": "final",
+        "hs_window_open_leaves": "",
+        "hs_window_panes": 2,
+        "hs_window_style": "paired_stair_transom",
+        "hs_window_unit_width_m": 1.8,
+        "hs_window_units": 1
+      },
+      "signature": "3C3775801FB978BA2C7B20819C728EE1F3A83A307FDEE503A5E6B591F8A852CB",
+      "type": "MESH"
+    },
+    "VIS_WindowGlass_F03_CourtyardNorth_Corridor_01": {
+      "properties": {
+        "hs_window_clear_height_m": 1.8,
+        "hs_window_layout_status": "final",
+        "hs_window_open_leaves": "5",
+        "hs_window_panes": 8,
+        "hs_window_style": "paired_sliding_band",
+        "hs_window_unit_width_m": 2.4,
+        "hs_window_units": 4
+      },
+      "signature": "30CEC83C8699C0C6AE3DEDB2BA05E6069C7590E82082A88CC0FAB58FB6D6B791",
+      "type": "MESH"
+    },
+    "VIS_WindowGlass_F03_CourtyardNorth_Corridor_02": {
+      "properties": {
+        "hs_window_clear_height_m": 1.8,
+        "hs_window_layout_status": "final",
+        "hs_window_open_leaves": "8",
+        "hs_window_panes": 8,
+        "hs_window_style": "paired_sliding_band",
+        "hs_window_unit_width_m": 2.4,
+        "hs_window_units": 4
+      },
+      "signature": "DAC5F791BBC8962EB100A6B91AE2F72404FB99862416FFBF1E9FF35B2715FEC5",
+      "type": "MESH"
+    },
+    "VIS_WindowGlass_F03_CourtyardNorth_Corridor_03": {
+      "properties": {
+        "hs_window_clear_height_m": 1.8,
+        "hs_window_layout_status": "final",
+        "hs_window_open_leaves": "5",
+        "hs_window_panes": 8,
+        "hs_window_style": "paired_sliding_band",
+        "hs_window_unit_width_m": 2.4,
+        "hs_window_units": 4
+      },
+      "signature": "846FCCC37E7F2FD952AED1CCAF22073DA4A01D245110E4F578EECB0B78058D11",
+      "type": "MESH"
+    },
+    "VIS_WindowGlass_F03_CourtyardWest_Corridor_01": {
+      "properties": {
+        "hs_window_clear_height_m": 1.8,
+        "hs_window_layout_status": "final",
+        "hs_window_open_leaves": "4",
+        "hs_window_panes": 4,
+        "hs_window_style": "paired_sliding_band",
+        "hs_window_unit_width_m": 2.4,
+        "hs_window_units": 2
+      },
+      "signature": "C0126DBAC58FF8A304DCCE4A7809066485D563EEE06AC0D0BB1BDA96B6E0EAED",
+      "type": "MESH"
+    },
+    "VIS_WindowGlass_F03_CourtyardWest_Corridor_02": {
+      "properties": {
+        "hs_window_clear_height_m": 1.8,
+        "hs_window_layout_status": "final",
+        "hs_window_open_leaves": "4",
+        "hs_window_panes": 4,
+        "hs_window_style": "paired_sliding_band",
+        "hs_window_unit_width_m": 2.4,
+        "hs_window_units": 2
+      },
+      "signature": "B3F7A5C3561E931946DB7520805D7A35573A7E012BEF5D03524EA6D5B4AC9C5F",
+      "type": "MESH"
+    },
+    "VIS_WindowGlass_F03_CourtyardWest_Corridor_03": {
+      "properties": {
+        "hs_window_clear_height_m": 1.8,
+        "hs_window_layout_status": "final",
+        "hs_window_open_leaves": "",
+        "hs_window_panes": 4,
+        "hs_window_style": "paired_sliding_band",
+        "hs_window_unit_width_m": 2.4,
+        "hs_window_units": 2
+      },
+      "signature": "74F5248A5AEDAA059DD276965EF2F9063E69AB5829AF46C930EF739B6DC94D3C",
+      "type": "MESH"
+    },
+    "VIS_WindowGlass_F03_CourtyardWest_Corridor_04": {
+      "properties": {
+        "hs_window_clear_height_m": 1.8,
+        "hs_window_layout_status": "final",
+        "hs_window_open_leaves": "2",
+        "hs_window_panes": 4,
+        "hs_window_style": "paired_sliding_band",
+        "hs_window_unit_width_m": 2.4,
+        "hs_window_units": 2
+      },
+      "signature": "3AD5B341FF2B2217424EAD1008E9A574865119EFE8CD07AF0BF214AA9A922836",
+      "type": "MESH"
+    },
+    "VIS_WindowGlass_F03_CourtyardWest_Corridor_05": {
+      "properties": {
+        "hs_window_clear_height_m": 1.8,
+        "hs_window_layout_status": "final",
+        "hs_window_open_leaves": "",
+        "hs_window_panes": 4,
+        "hs_window_style": "paired_sliding_band",
+        "hs_window_unit_width_m": 2.4,
+        "hs_window_units": 2
+      },
+      "signature": "42F107E6B24492FA3F0CB964A8E4678A41CECFC9D8499575058AFE6878E6770E",
+      "type": "MESH"
+    },
+    "VIS_WindowGlass_F03_North_Special_Room01_Set01": {
+      "properties": {
+        "hs_window_clear_height_m": 1.8,
+        "hs_window_layout_status": "final",
+        "hs_window_open_leaves": "1",
+        "hs_window_panes": 4,
+        "hs_window_style": "paired_sliding_band",
+        "hs_window_unit_width_m": 2.4,
+        "hs_window_units": 2
+      },
+      "signature": "23E3678D6ADBFB5F46CD57F0F1886DC7130BA92BDD0E53043CF10181C1686057",
+      "type": "MESH"
+    },
+    "VIS_WindowGlass_F03_North_Special_Room01_Set02": {
+      "properties": {
+        "hs_window_clear_height_m": 1.8,
+        "hs_window_layout_status": "final",
+        "hs_window_open_leaves": "",
+        "hs_window_panes": 4,
+        "hs_window_style": "paired_sliding_band",
+        "hs_window_unit_width_m": 2.4,
+        "hs_window_units": 2
+      },
+      "signature": "B85EF97627845949AADCAC95D54A46C6B87D8A0B132D46181CCE41834909B230",
+      "type": "MESH"
+    },
+    "VIS_WindowGlass_F03_North_Special_Room01_Set03": {
+      "properties": {
+        "hs_window_clear_height_m": 1.8,
+        "hs_window_layout_status": "final",
+        "hs_window_open_leaves": "",
+        "hs_window_panes": 4,
+        "hs_window_style": "paired_sliding_band",
+        "hs_window_unit_width_m": 2.4,
+        "hs_window_units": 2
+      },
+      "signature": "40811E386C164AF08B5819BD734E68DE70D94807891DCF26273CF23584D6CC08",
+      "type": "MESH"
+    },
+    "VIS_WindowGlass_F03_North_Special_Room02_Set01": {
+      "properties": {
+        "hs_window_clear_height_m": 1.8,
+        "hs_window_layout_status": "final",
+        "hs_window_open_leaves": "1,4",
+        "hs_window_panes": 4,
+        "hs_window_style": "paired_sliding_band",
+        "hs_window_unit_width_m": 2.4,
+        "hs_window_units": 2
+      },
+      "signature": "156C70B065E71D6E2F9D5368EB7231CE47FE6D565D7310D183461647540E75F8",
+      "type": "MESH"
+    },
+    "VIS_WindowGlass_F03_North_Special_Room02_Set02": {
+      "properties": {
+        "hs_window_clear_height_m": 1.8,
+        "hs_window_layout_status": "final",
+        "hs_window_open_leaves": "2,3",
+        "hs_window_panes": 4,
+        "hs_window_style": "paired_sliding_band",
+        "hs_window_unit_width_m": 2.4,
+        "hs_window_units": 2
+      },
+      "signature": "CC2ACD648AB418145B957579A89A9F88A9EC08866739ACDB8D20F7E100D6491F",
+      "type": "MESH"
+    },
+    "VIS_WindowGlass_F03_North_Special_Room02_Set03": {
+      "properties": {
+        "hs_window_clear_height_m": 1.8,
+        "hs_window_layout_status": "final",
+        "hs_window_open_leaves": "1,4",
+        "hs_window_panes": 4,
+        "hs_window_style": "paired_sliding_band",
+        "hs_window_unit_width_m": 2.4,
+        "hs_window_units": 2
+      },
+      "signature": "21B671AFF86A260B5F97B3DA890FB9A80E5204A42CA4EB8B72C8F290D37F68FD",
+      "type": "MESH"
+    },
+    "VIS_WindowGlass_F03_North_StairNE": {
+      "properties": {
+        "hs_window_clear_height_m": 0.7,
+        "hs_window_layout_status": "final",
+        "hs_window_open_leaves": "",
+        "hs_window_panes": 2,
+        "hs_window_style": "paired_stair_transom",
+        "hs_window_unit_width_m": 1.8,
+        "hs_window_units": 1
+      },
+      "signature": "1CDED8F6E079353CFBF51AEE2F913261C465D0F9A0CDBEF86BBFD2A388518188",
+      "type": "MESH"
+    },
+    "VIS_WindowGlass_F03_North_StairNW": {
+      "properties": {
+        "hs_window_clear_height_m": 0.7,
+        "hs_window_layout_status": "final",
+        "hs_window_open_leaves": "",
+        "hs_window_panes": 2,
+        "hs_window_style": "paired_stair_transom",
+        "hs_window_unit_width_m": 1.8,
+        "hs_window_units": 1
+      },
+      "signature": "4EA5C1545F3FBB39DCD7B37B7785A168EB96C5CDB481DD722F151237CFEEF936",
+      "type": "MESH"
+    },
+    "VIS_WindowGlass_F03_West_Ordinary_Room01": {
+      "properties": {
+        "hs_window_clear_height_m": 1.8,
+        "hs_window_layout_status": "final",
+        "hs_window_open_leaves": "5",
+        "hs_window_panes": 8,
+        "hs_window_style": "paired_sliding_band",
+        "hs_window_unit_width_m": 2.4,
+        "hs_window_units": 4
+      },
+      "signature": "A0C2F0D58FC001AFC3440FBCF6D5B617AD52106BB893FC339E2D5ACA44BFA30B",
+      "type": "MESH"
+    },
+    "VIS_WindowGlass_F03_West_Ordinary_Room02": {
+      "properties": {
+        "hs_window_clear_height_m": 1.8,
+        "hs_window_layout_status": "final",
+        "hs_window_open_leaves": "2",
+        "hs_window_panes": 8,
+        "hs_window_style": "paired_sliding_band",
+        "hs_window_unit_width_m": 2.4,
+        "hs_window_units": 4
+      },
+      "signature": "150701B43C5AA0023187796862C52F707FF3E4D31AC6A2F19F567D7213042F7A",
+      "type": "MESH"
+    },
+    "VIS_WindowGlass_F03_West_Ordinary_Room03": {
+      "properties": {
+        "hs_window_clear_height_m": 1.8,
+        "hs_window_layout_status": "final",
+        "hs_window_open_leaves": "",
+        "hs_window_panes": 8,
+        "hs_window_style": "paired_sliding_band",
+        "hs_window_unit_width_m": 2.4,
+        "hs_window_units": 4
+      },
+      "signature": "F253C76176D00BEC1F6BA86BD3ECCA06822D2803B208F476428FA6AA90A2DBEB",
+      "type": "MESH"
+    },
+    "VIS_WindowGlass_F03_West_StairSW": {
+      "properties": {
+        "hs_window_clear_height_m": 0.7,
+        "hs_window_layout_status": "final",
+        "hs_window_open_leaves": "",
+        "hs_window_panes": 2,
+        "hs_window_style": "paired_stair_transom",
+        "hs_window_unit_width_m": 1.8,
+        "hs_window_units": 1
+      },
+      "signature": "D06BFA2C3B97076AB437E5FDC023D4B4414C7AFC3EA1A7916FEBFE1A2C276BA3",
+      "type": "MESH"
+    },
+    "VIS_WindowGlass_F04_CourtyardNorth_Corridor_01": {
+      "properties": {
+        "hs_window_clear_height_m": 1.8,
+        "hs_window_layout_status": "final",
+        "hs_window_open_leaves": "5",
+        "hs_window_panes": 8,
+        "hs_window_style": "paired_sliding_band",
+        "hs_window_unit_width_m": 2.4,
+        "hs_window_units": 4
+      },
+      "signature": "35B835011E3F54F3D46244289675B83526EA1E73BE24C0E10142A2C34DE53741",
+      "type": "MESH"
+    },
+    "VIS_WindowGlass_F04_CourtyardNorth_Corridor_02": {
+      "properties": {
+        "hs_window_clear_height_m": 1.8,
+        "hs_window_layout_status": "final",
+        "hs_window_open_leaves": "2",
+        "hs_window_panes": 8,
+        "hs_window_style": "paired_sliding_band",
+        "hs_window_unit_width_m": 2.4,
+        "hs_window_units": 4
+      },
+      "signature": "A9C546B03A06AA2A0B129EF479970267BC6C0252068E3D63756BD9F1AEE5DF65",
+      "type": "MESH"
+    },
+    "VIS_WindowGlass_F04_CourtyardNorth_Corridor_03": {
+      "properties": {
+        "hs_window_clear_height_m": 1.8,
+        "hs_window_layout_status": "final",
+        "hs_window_open_leaves": "6",
+        "hs_window_panes": 8,
+        "hs_window_style": "paired_sliding_band",
+        "hs_window_unit_width_m": 2.4,
+        "hs_window_units": 4
+      },
+      "signature": "2FFB946329424F8593124DEBB6093758EAE60353C2F5729F71C277DD725F259B",
+      "type": "MESH"
+    },
+    "VIS_WindowGlass_F04_CourtyardWest_Corridor_01": {
+      "properties": {
+        "hs_window_clear_height_m": 1.8,
+        "hs_window_layout_status": "final",
+        "hs_window_open_leaves": "3",
+        "hs_window_panes": 4,
+        "hs_window_style": "paired_sliding_band",
+        "hs_window_unit_width_m": 2.4,
+        "hs_window_units": 2
+      },
+      "signature": "9516D85622861EE3AEBBF299659A169D60EFF2A74B87E93223FF08A0AA471CAC",
+      "type": "MESH"
+    },
+    "VIS_WindowGlass_F04_CourtyardWest_Corridor_02": {
+      "properties": {
+        "hs_window_clear_height_m": 1.8,
+        "hs_window_layout_status": "final",
+        "hs_window_open_leaves": "",
+        "hs_window_panes": 4,
+        "hs_window_style": "paired_sliding_band",
+        "hs_window_unit_width_m": 2.4,
+        "hs_window_units": 2
+      },
+      "signature": "DC0BB59E5B08ED489702E0E4439A36E9804BF258A46E1AA8F91E46AD96A63775",
+      "type": "MESH"
+    },
+    "VIS_WindowGlass_F04_CourtyardWest_Corridor_03": {
+      "properties": {
+        "hs_window_clear_height_m": 1.8,
+        "hs_window_layout_status": "final",
+        "hs_window_open_leaves": "3",
+        "hs_window_panes": 4,
+        "hs_window_style": "paired_sliding_band",
+        "hs_window_unit_width_m": 2.4,
+        "hs_window_units": 2
+      },
+      "signature": "0953A19A20F8E27432F28EE6C821F6577DE4A870A3EBE3A30B9CF2D4BC9C0869",
+      "type": "MESH"
+    },
+    "VIS_WindowGlass_F04_CourtyardWest_Corridor_04": {
+      "properties": {
+        "hs_window_clear_height_m": 1.8,
+        "hs_window_layout_status": "final",
+        "hs_window_open_leaves": "",
+        "hs_window_panes": 4,
+        "hs_window_style": "paired_sliding_band",
+        "hs_window_unit_width_m": 2.4,
+        "hs_window_units": 2
+      },
+      "signature": "7069FF35DFDB53ACB0416418ED981CE469E7231364630D2504D7D51B884FDBDB",
+      "type": "MESH"
+    },
+    "VIS_WindowGlass_F04_CourtyardWest_Corridor_05": {
+      "properties": {
+        "hs_window_clear_height_m": 1.8,
+        "hs_window_layout_status": "final",
+        "hs_window_open_leaves": "2",
+        "hs_window_panes": 4,
+        "hs_window_style": "paired_sliding_band",
+        "hs_window_unit_width_m": 2.4,
+        "hs_window_units": 2
+      },
+      "signature": "90E1E1AC951CDA26102F221B5AA0B52CBEFC96730067C7E627E89EA6FAF83607",
+      "type": "MESH"
+    },
+    "VIS_WindowGlass_F04_North_Special_Room01_Set01": {
+      "properties": {
+        "hs_window_clear_height_m": 1.8,
+        "hs_window_layout_status": "final",
+        "hs_window_open_leaves": "",
+        "hs_window_panes": 4,
+        "hs_window_style": "paired_sliding_band",
+        "hs_window_unit_width_m": 2.4,
+        "hs_window_units": 2
+      },
+      "signature": "81EDD236A94075EE405ADD8E34C611799F21C333E354736B3D5CC79CC640AC42",
+      "type": "MESH"
+    },
+    "VIS_WindowGlass_F04_North_Special_Room01_Set02": {
+      "properties": {
+        "hs_window_clear_height_m": 1.8,
+        "hs_window_layout_status": "final",
+        "hs_window_open_leaves": "",
+        "hs_window_panes": 4,
+        "hs_window_style": "paired_sliding_band",
+        "hs_window_unit_width_m": 2.4,
+        "hs_window_units": 2
+      },
+      "signature": "D16D5AFB4EF97C4BA0DFBDBBB9DDB676F7D9D502DB50CDCBC0C54E0D3F700273",
+      "type": "MESH"
+    },
+    "VIS_WindowGlass_F04_North_Special_Room01_Set03": {
+      "properties": {
+        "hs_window_clear_height_m": 1.8,
+        "hs_window_layout_status": "final",
+        "hs_window_open_leaves": "",
+        "hs_window_panes": 4,
+        "hs_window_style": "paired_sliding_band",
+        "hs_window_unit_width_m": 2.4,
+        "hs_window_units": 2
+      },
+      "signature": "51516FA99B616E75C5AC7A7FBE979F701AEE89C62CE5198804D7C5D007D1E565",
+      "type": "MESH"
+    },
+    "VIS_WindowGlass_F04_North_Special_Room02_Set01": {
+      "properties": {
+        "hs_window_clear_height_m": 1.8,
+        "hs_window_layout_status": "final",
+        "hs_window_open_leaves": "3",
+        "hs_window_panes": 4,
+        "hs_window_style": "paired_sliding_band",
+        "hs_window_unit_width_m": 2.4,
+        "hs_window_units": 2
+      },
+      "signature": "8C2800CE5EB2B0BF4AF9B58FF5048CBAA2FCCE918932379BCD54CE3951F8853D",
+      "type": "MESH"
+    },
+    "VIS_WindowGlass_F04_North_Special_Room02_Set02": {
+      "properties": {
+        "hs_window_clear_height_m": 1.8,
+        "hs_window_layout_status": "final",
+        "hs_window_open_leaves": "2",
+        "hs_window_panes": 4,
+        "hs_window_style": "paired_sliding_band",
+        "hs_window_unit_width_m": 2.4,
+        "hs_window_units": 2
+      },
+      "signature": "1EBB0697DD9302BCD0396BAF97BE7DBCB3955CB284854BB89A6FFF07CF92218D",
+      "type": "MESH"
+    },
+    "VIS_WindowGlass_F04_North_Special_Room02_Set03": {
+      "properties": {
+        "hs_window_clear_height_m": 1.8,
+        "hs_window_layout_status": "final",
+        "hs_window_open_leaves": "",
+        "hs_window_panes": 4,
+        "hs_window_style": "paired_sliding_band",
+        "hs_window_unit_width_m": 2.4,
+        "hs_window_units": 2
+      },
+      "signature": "21CC25A0EFF6C163F7866BD6BD62A88A8CE81A922A572D98B62CA2DFB65ED8F4",
+      "type": "MESH"
+    },
+    "VIS_WindowGlass_F04_North_StairNW": {
+      "properties": {
+        "hs_window_clear_height_m": 0.7,
+        "hs_window_layout_status": "final",
+        "hs_window_open_leaves": "",
+        "hs_window_panes": 2,
+        "hs_window_style": "paired_stair_transom",
+        "hs_window_unit_width_m": 1.8,
+        "hs_window_units": 1
+      },
+      "signature": "7B49CC98BDBEB61CBA9C48A7A1F10D409A48378D8BF18AE2CFE7B9881BC7AA45",
+      "type": "MESH"
+    },
+    "VIS_WindowGlass_F04_West_Ordinary_Room01": {
+      "properties": {
+        "hs_window_clear_height_m": 1.8,
+        "hs_window_layout_status": "final",
+        "hs_window_open_leaves": "7",
+        "hs_window_panes": 8,
+        "hs_window_style": "paired_sliding_band",
+        "hs_window_unit_width_m": 2.4,
+        "hs_window_units": 4
+      },
+      "signature": "093C5C05FC48CF4678ECA1143399BA0B920E1C3C8464C098AFAE3FDD9A226111",
+      "type": "MESH"
+    },
+    "VIS_WindowGlass_F04_West_Ordinary_Room02": {
+      "properties": {
+        "hs_window_clear_height_m": 1.8,
+        "hs_window_layout_status": "final",
+        "hs_window_open_leaves": "4",
+        "hs_window_panes": 8,
+        "hs_window_style": "paired_sliding_band",
+        "hs_window_unit_width_m": 2.4,
+        "hs_window_units": 4
+      },
+      "signature": "72EF8CAECAAF290AA9AEFDB636A31951FCDC87B86C256C1CB0AABCE1C23A5995",
+      "type": "MESH"
+    },
+    "VIS_WindowGlass_F04_West_Ordinary_Room03": {
+      "properties": {
+        "hs_window_clear_height_m": 1.8,
+        "hs_window_layout_status": "final",
+        "hs_window_open_leaves": "1,4,5,8",
+        "hs_window_panes": 8,
+        "hs_window_style": "paired_sliding_band",
+        "hs_window_unit_width_m": 2.4,
+        "hs_window_units": 4
+      },
+      "signature": "DF38C0E3FCB911AFCA97A7C23370EDA32A3376E79062763436C45C4C516B05BF",
+      "type": "MESH"
+    },
+    "VIS_WindowGlass_GymStorage_North_01": {
+      "properties": {
+        "hs_window_clear_height_m": 1.2,
+        "hs_window_layout_status": "final",
+        "hs_window_open_leaves": "",
+        "hs_window_panes": 1,
+        "hs_window_style": "small_fixed"
+      },
+      "signature": "9B4EF6749D1B5D82AB24DD031A672D87B2287857D57EA2E99BE20FA8A5CB85F1",
+      "type": "MESH"
+    },
+    "VIS_WindowGlass_Gym_East_01": {
+      "properties": {
+        "hs_window_clear_height_m": 1.8,
+        "hs_window_layout_status": "final",
+        "hs_window_open_leaves": "5",
+        "hs_window_panes": 8,
+        "hs_window_style": "paired_sliding_band",
+        "hs_window_unit_width_m": 2.4,
+        "hs_window_units": 4
+      },
+      "signature": "DF84027B20F45D678D1A609583A763B982CA92D5DD2F16230D4B020B88F92CEF",
+      "type": "MESH"
+    },
+    "VIS_WindowGlass_Gym_East_02": {
+      "properties": {
+        "hs_window_clear_height_m": 1.8,
+        "hs_window_layout_status": "final",
+        "hs_window_open_leaves": "1",
+        "hs_window_panes": 8,
+        "hs_window_style": "paired_sliding_band",
+        "hs_window_unit_width_m": 2.4,
+        "hs_window_units": 4
+      },
+      "signature": "FEFBC02726A2CB76B4FF4F4E3A1AE861A70AAB1372672712834E5DEE37DFA3A6",
+      "type": "MESH"
+    },
+    "VIS_WindowGlass_Gym_East_03": {
+      "properties": {
+        "hs_window_clear_height_m": 1.8,
+        "hs_window_layout_status": "final",
+        "hs_window_open_leaves": "8",
+        "hs_window_panes": 8,
+        "hs_window_style": "paired_sliding_band",
+        "hs_window_unit_width_m": 2.4,
+        "hs_window_units": 4
+      },
+      "signature": "869E8B5447AF43B9DDA3E21676EA09FF8C8D2B82FFADBA0C45843D98AC1095EF",
+      "type": "MESH"
+    },
+    "VIS_WindowGlass_Gym_North_02": {
+      "properties": {
+        "hs_window_clear_height_m": 1.8,
+        "hs_window_layout_status": "final",
+        "hs_window_open_leaves": "1",
+        "hs_window_panes": 8,
+        "hs_window_style": "paired_sliding_band",
+        "hs_window_unit_width_m": 2.4,
+        "hs_window_units": 4
+      },
+      "signature": "2BA02438ADE49964A579F51089596865582283FEACE395C2260B51C481F987BC",
+      "type": "MESH"
+    },
+    "VIS_WindowGlass_Gym_West_01": {
+      "properties": {
+        "hs_window_clear_height_m": 1.8,
+        "hs_window_layout_status": "final",
+        "hs_window_open_leaves": "8",
+        "hs_window_panes": 8,
+        "hs_window_style": "paired_sliding_band",
+        "hs_window_unit_width_m": 2.4,
+        "hs_window_units": 4
+      },
+      "signature": "F9AAB60295BC8F18E6844E57F3545ED3E8D5EC7C5CE9A46FCDE8C95F8A2741F9",
+      "type": "MESH"
+    },
+    "VIS_WindowGlass_Gym_West_02": {
+      "properties": {
+        "hs_window_clear_height_m": 1.8,
+        "hs_window_layout_status": "final",
+        "hs_window_open_leaves": "4",
+        "hs_window_panes": 8,
+        "hs_window_style": "paired_sliding_band",
+        "hs_window_unit_width_m": 2.4,
+        "hs_window_units": 4
+      },
+      "signature": "A017C1546E1F5CB9A6005C9C2D4DCE07BD2CB60C137D03C42F9DE8AB0B0BCEC9",
+      "type": "MESH"
+    },
+    "VIS_WindowGlass_Gym_West_03": {
+      "properties": {
+        "hs_window_clear_height_m": 1.8,
+        "hs_window_layout_status": "final",
+        "hs_window_open_leaves": "1",
+        "hs_window_panes": 8,
+        "hs_window_style": "paired_sliding_band",
+        "hs_window_unit_width_m": 2.4,
+        "hs_window_units": 4
+      },
+      "signature": "887D21723BFD2B899DCBC877618DDA8CAC46F94054C4A674DFD8CA978F18325B",
+      "type": "MESH"
+    },
+    "VOL_BitSpawn_Courtyard": {
+      "properties": {
+        "hs_id": "bit-spawn-courtyard",
+        "hs_role": "bit_spawn"
+      },
+      "signature": "7BCBCEE0415CFEA6F6E4796640404AB0E9451DB08D724B20C3CEF1A22E8AFBB6",
+      "type": "MESH"
+    },
+    "VOL_NpcSpawn_Courtyard": {
+      "properties": {
+        "hs_id": "npc-spawn-courtyard",
+        "hs_role": "npc_spawn"
+      },
+      "signature": "E9A2C1A5B4ECD0B113BBCCA5D67CB6799F2DD87216C7FE876B74872D78EB2D70",
+      "type": "MESH"
+    },
+    "VOL_PoolWater": {
+      "properties": {
+        "hs_id": "pool-water",
+        "hs_role": "water"
+      },
+      "signature": "D2D42A32CD8C1A1084B23ECD516797580777B87BBD27F211616552F4D1BCCD66",
+      "type": "MESH"
+    }
+  },
+  "source": {
+    "blend_sha256": "E337B9F30F32AB49B0DDC369F961C9CD19B31AAA5F5344C503293294A1C8649A",
+    "glb_sha256": "2374F735E794A41DC14C0EEDACBDB586326176E800CAC7B9B80DA427F93DB664",
+    "navmesh_sha256": "7326422B609D810E8736B48A08EC819AA962848769A718E175463FE6191A5347",
+    "prop_library_sha256": "71E461799D915B046483C9B2343C13818AC12203F94C3481E857E56DDA4F09A4"
+  }
+}

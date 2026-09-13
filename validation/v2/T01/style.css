@@ -1,0 +1,157 @@
+:root {
+  color: #edf5ff;
+  background: #071019;
+  font-family:
+    "Yu Gothic UI", "Noto Sans JP", system-ui, -apple-system, sans-serif;
+  font-synthesis: none;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+main {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+}
+
+#render-canvas {
+  width: 100%;
+  height: 100%;
+  display: block;
+  touch-action: none;
+  outline: none;
+}
+
+.panel {
+  position: fixed;
+  inset: 18px 18px auto auto;
+  width: min(440px, calc(100vw - 36px));
+  max-height: calc(100vh - 36px);
+  overflow: auto;
+  padding: 20px;
+  border: 1px solid rgb(143 184 224 / 35%);
+  border-radius: 14px;
+  background: rgb(7 16 25 / 90%);
+  box-shadow: 0 18px 54px rgb(0 0 0 / 45%);
+  backdrop-filter: blur(12px);
+}
+
+.eyebrow {
+  margin: 0 0 4px;
+  color: #87b9e7;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+}
+
+h1 {
+  margin: 0;
+  font-size: 1.3rem;
+}
+
+.summary {
+  margin: 12px 0;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: #17283a;
+}
+
+.summary[data-state="passed"] {
+  color: #aaf7c2;
+  background: #123524;
+}
+
+.summary[data-state="failed"] {
+  color: #ffd0d0;
+  background: #4a1d25;
+}
+
+.controls {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+button {
+  min-height: 38px;
+  border: 1px solid #48759f;
+  border-radius: 7px;
+  color: #edf5ff;
+  background: #173451;
+  cursor: pointer;
+}
+
+button:hover:not(:disabled) {
+  background: #22547d;
+}
+
+button:disabled {
+  cursor: wait;
+  opacity: 0.45;
+}
+
+.metrics {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 4px 12px;
+  margin: 14px 0;
+  font-size: 0.8rem;
+}
+
+.metrics dt {
+  color: #8faac2;
+}
+
+.metrics dd {
+  margin: 0;
+  font-family: Consolas, monospace;
+  text-align: right;
+}
+
+.check-results {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 0.82rem;
+}
+
+.check-results li {
+  padding: 8px 10px;
+  border-left: 4px solid #8295a7;
+  background: rgb(255 255 255 / 5%);
+}
+
+.check-results li[data-ok="true"] {
+  border-left-color: #42d477;
+}
+
+.check-results li[data-ok="false"] {
+  border-left-color: #ff6f75;
+}
+
+.check-results strong,
+.check-results span {
+  display: block;
+}
+
+.check-results span {
+  margin-top: 2px;
+  color: #abc0d2;
+  font-family: Consolas, monospace;
+  font-size: 0.75rem;
+}
+
+@media (max-width: 720px) {
+  .panel {
+    inset: auto 10px 10px;
+    width: calc(100vw - 20px);
+    max-height: 46vh;
+  }
+}

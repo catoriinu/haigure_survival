@@ -1,0 +1,7 @@
+{
+  "extends": "../../../tsconfig.json",
+  "compilerOptions": {
+    "types": ["vite/client"]
+  },
+  "include": ["stressWorkload.test.ts", "measurement.test.ts", "measurementLifecycle.test.ts"]
+}

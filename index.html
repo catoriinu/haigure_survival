@@ -3,6 +3,11 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="icon" href="data:," />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' ws: wss:; media-src 'self' data: blob:; worker-src 'self' blob:; object-src 'none'; base-uri 'self'"
+    />
     <title>HAIGURE SURVIVAL</title>
   </head>
   <body>
@@ -18,13 +23,14 @@
         <div id="titleStatusSlot">
           <div id="titleStartHint"></div>
           <div id="titleMessage">NOW LOADING</div>
+          <div id="startupDiagnosticsMessage" aria-live="polite"></div>
         </div>
         <div id="titleMode">サバイバルモード</div>
       </div>
-      <div id="titleVersion">ver. 1.3.1</div>
+      <div id="titleVersion">V2</div>
     </div>
     <div id="crosshair"></div>
     <div id="fadeOverlay"></div>
-    <script type="module" src="/src/main.ts"></script>
+    <script type="module" src="/src/v2/bootstrap.ts"></script>
   </body>
 </html>

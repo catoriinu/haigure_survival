@@ -1,31 +1,42 @@
-# HAIGURE SURVIVAL
+# HAIGURE SURVIVAL V2
 
 ハイグレ洗脳されたい人向け一人称視点サバイバルゲームです。
 
+V2では学校を舞台にした3Dステージでのサバイバルをお楽しみいただけます。机や椅子が散乱した侵略初期の雰囲気を再現しています。  
+窓をすり抜ける光線や、扉・階段・エレベーターを使った立体的な攻防戦に加え、ミッション、仲間の同行・共闘、全校放送などの新機能をお楽しみください。  
+
 ソースコードのみ配布しています。  
-ゲームはウェブブラウザ上で起動します（推奨：Google Chrome）。ローカルでの起動方法は「必須手順」を参照してください。  
-各種素材は各自でご用意ください。導入方法は「任意手順」を参照してください。  
+ゲームはウェブブラウザ上で起動します（推奨：Google Chrome）。ローカルでの起動方法は「[必須手順](#必須手順ゲームをブラウザで起動するまで)」を参照してください。  
+各種素材は各自でご用意ください。導入方法は「[任意手順](#任意手順準備した素材をゲームに読み込ませるには)」を参照してください。  
 
 バグ報告、機能追加提案などがありましたらissueを立ててください。
 
-## ブラウザゲーム版
+## ブラウザゲーム版（V2）
 
-**https://catoriinu.itch.io/haigure-survival**
+**https://catoriinu.itch.io/haigure-survival-v2**
 
 パスワード：ローマ字風7文字（ヒントはゲームのタイトル）
 
 ブラウザゲーム版では無料・事前準備不要でゲームをプレイすることができます。  
 ただしSE以外は無音、NPCもデフォルトのままです。  
-素材を読み込ませてプレイしたい場合や、パラメータの微調整を行いたい場合は、  
-以下の「必須手順」および「任意手順」を参照して準備を行ってください。  
+
+## V1とV2の違い
+
+V1は、シンプルなモデルの3Dマップを舞台にしたゲームで、複数のステージやさまざまなギミックを楽しめます。
+
+V1が遊びたい方は、[こちらのページ（最新版はv1.3.1）](https://github.com/catoriinu/haigure_survival/releases/tag/v1.3.1)からダウンロードしてください。
+
+ブラウザゲーム版（V1）： **https://catoriinu.itch.io/haigure-survival**
+
+パスワード：ローマ字風7文字（ヒントはゲームのタイトル）
 
 ## 起動準備
 
 ### 必須手順（ゲームをブラウザで起動するまで）
-1. Node.js 18 以上（npm 同梱）をインストールする。
+1. Node.jsの最新LTS版（npm 同梱）をインストールする。
    - 公式サイト（https://nodejs.org/ ）から LTS をダウンロードして実行する。
    - 画面の指示に従ってインストールを完了する。
-   - 既にインストール済みであれば、この手順はスキップしてよい。
+   - 既に最新LTS版をインストール済みであれば、この手順はスキップしてよい。
 2. このリポジトリのソースコードをダウンロードし、解凍する。
    - GitHub画面内の`Code`ボタン → `Download ZIP`ボタンでダウンロード可能。gitコマンドが使えるなら`git clone`でも可
    - フォルダごと任意の場所へコピーする。
@@ -44,7 +55,7 @@
 5. 開発用のサーバーを起動する。
    - `npm run dev` コマンドを実行する。
 6. ブラウザで以下の動作確認用URLにアクセスする。
-   - http://localhost:5175
+   - [http://localhost:5175](http://localhost:5175)
 7. ゲーム終了時には、開発用のサーバーを停止する。
    - PowerShellまたはターミナルで `Ctrl + C`
 
@@ -58,7 +69,7 @@
 ### 任意手順（準備した素材をゲームに読み込ませるには）
 
 #### 素材用フォルダ構成
-- `public/` 配下には任意でステージデータや各種素材を置くことができる。
+- `public/` 配下に各種素材を置くことができる。V1の音声・キャラクター画像は、ファイル名を変えずに同じ場所へ配置できる。
   - フォルダ構成:
     ```
     public/
@@ -68,17 +79,17 @@
     │  └─ voice/
     ├─ picture/
     │  └─ chara/
-    └─ stage/
+    └─ stage-assets/  （同梱の3Dステージ資産）
     ```
   - キャラクターフォルダ名の命名規則（実装準拠）:
     - `public/picture/chara/` は先頭2文字が音声ID（2桁）と一致するフォルダだけが優先割り当て対象（例: `05_big_sister`）。一致させない場合は任意名でよい。
-    - `public/audio/voice/` はフォルダ名を参照しないため任意（管理上は「2桁ID + 任意文字列」にしておくと分かりやすい）。
-    - `public/audio/bgm/` / `public/audio/se/` / `public/stage/` はキャラクターフォルダ不要。
+    - `public/audio/voice/` は再生時には登録パスを使うためフォルダ名は任意。自ボイスの選択肢に表示する場合は「2桁ID + 任意文字列」にする。
+    - `public/audio/bgm/` / `public/audio/se/` / `public/stage-assets/` はキャラクターフォルダ不要。
 
 #### BGM
 - `public/audio/bgm/` に `mp3` を配置する。
-  - ステージ JSON の `meta.name` と同名の `<name>.mp3` があれば、それを優先再生する。
-    - 例: `public/stage/laboratory.json` の `meta.name` が `laboratory` の場合は `public/audio/bgm/laboratory.mp3`
+  - ステージIDと同名の `<name>.mp3` があれば、それを優先再生する。
+    - 例: 学校のステージIDは `school` なので、`public/audio/bgm/school.mp3` があれば優先する。
   - 一致するファイルがない場合は、`public/audio/bgm/` 内の `mp3` からランダム再生する。
   - `public/audio/bgm/` に `mp3` が一つもない場合は再生しない。
 
@@ -89,12 +100,12 @@
   - ビットが狙いを定める音: `aim.mp3`
   - ビームの発射音: `BeamShotR_DownLong.mp3` / `BeamShotR_Down.mp3` / `BeamShotR_DownShort.mp3` / `BeamShotR_Up.mp3` / `BeamShotR_UpShort.mp3` / `BeamShotR_UpHighShort.mp3`
   - ビームの命中音: `BeamHit_Rev.mp3` / `BeamHit_RevLong.mp3` / `BeamHit_RevLongFast.mp3`
-  - アラームマス発動音: `alarm.mp3`
+  - アラーム発動音: `alarm.mp3`
   - ファイルが存在しない場合はエラー無しで再生しない。
 
 #### VOICE
 - `public/audio/voice/` 配下に `wav` を配置し、`src/audio/voiceManifest.json` にキャラクターIDと状態ごとの配列で登録する。
-  - キャラクターフォルダ名は任意（実装では参照しない）。管理上は「2桁ID + 任意文字列」にしておくと分かりやすい（例: `public/audio/voice/01_devil/`）。JSONのキーは2桁IDのみを使う（例: `"01"`）。
+  - キャラクターフォルダ名は任意。自ボイスの選択肢に表示する場合は「2桁ID + 任意文字列」にする（例: `public/audio/voice/01_devil/`）。JSONのキーは2桁IDのみを使う（例: `"01"`）。
   - JSONのパスは `/audio/voice/` を省いた相対パスで記載する（例: `public/audio/voice/01_devil/悪_110ハイグレ.wav` → `01_devil/悪_110ハイグレ.wav`）。
   - 実装側で `/audio/voice/` を補完して再生する。
   - 状態ごとの配列が空、または項目が無い場合は無音でスキップする（フォールバックなし）。
@@ -144,35 +155,9 @@
   - キャラディレクトリ名の先頭2文字（2桁ID）が音声IDと一致する場合は、そのIDに対して1キャラ分だけ優先割り当てする。
   - 画像の使い回しが発生する場合はランダム割り当てになり、同じIDが一致するかどうかは抽選結果次第（一致しても問題なし）。
 
-## 調整可能項目
+## NPCの洗脳後の状態遷移
 
-### ゲーム全体の設定
-- `src/main.ts`: `minimapReadoutVisible`（ミニマップ座標表示ボックスの表示切替。true=表示、false=非表示（デフォルト））
-
-### ビット関連の設定
-- `src/main.ts`: `redBitSpawnChance`（赤ビット（通常の3倍の性能を持つビット）の出現確率。0-1の確率で判定し、デフォルトは0.05）
-- `src/game/bits.ts`: `bitModeMuzzleColorEnabled`（ビットの先端球のモード別色変更。true=モードに応じて色が変わる、false=初期色のまま固定（デフォルト））
-
-### プレイヤー、NPCの光線命中・「銃なしに触れたら洗脳」演出の設定
-- `src/main.ts`: `playerHitDuration`（プレイヤーが光線命中後に点滅状態を繰り返す継続時間（秒）。デフォルトは3）
-- `src/game/npcs.ts`: `npcHitDuration`（NPCが光線命中後に点滅状態を繰り返す継続時間（秒）。デフォルトは3）
-- `src/main.ts`: `playerHitFadeDuration`（プレイヤーの点滅状態後、`hit-a`（光線命中：ハイレグ姿）のまま光がフェードする時間（秒）。デフォルトは1）
-- `src/game/npcs.ts`: `npcHitFadeDuration`（NPCの点滅状態後、`hit-a`（光線命中：ハイレグ姿）のまま光がフェードする時間（秒）。デフォルトは1）
-- `src/main.ts`: `playerHitFlickerInterval`（プレイヤー光線命中時の光の点滅の切り替え間隔（秒）。小さくしすぎると光の刺激が強いため要注意。デフォルトは0.12）
-- `src/game/npcs.ts`: `npcHitFlickerInterval`（NPC光線命中時の光の点滅の切り替え間隔（秒）。小さくしすぎると光の刺激が強いため要注意。デフォルトは0.12）
-- `src/game/npcs.ts`: `noGunTouchBrainwashDuration`（`銃なしに触れたら洗脳` ON時の接触洗脳演出時間（秒）。デフォルトは4）
-- `src/game/portraitSprites.ts`: `noGunTouchBrainwashBlendStepCount`（`銃なしに触れたら洗脳` 演出の `hit-b`→`hit-a` 切り替え段階数。値を上げるほど切り替わりは滑らかになるが、起動時の読み込み時間は長くなる。デフォルトは16）
-
-### プレイヤー、NPCの「銃なし」時の接触判定距離の設定
-- `src/main.ts`: `playerNoGunTouchContactRadius`（プレイヤーが `brainwash-complete-no-gun` のときに接触判定へ使う半径。デフォルトは`0.5`）
-- `src/game/npcs.ts`: `npcNoGunTouchContactRadius`（NPCが `brainwash-complete-no-gun` のときに接触判定へ使う半径。デフォルトは`0.27`）
-
-### NPCの洗脳後の状態遷移の設定
-- `src/game/npcs.ts`: `npcBrainwashInProgressTransitionConfig.decisionDelay`（`brainwash-in-progress` の遷移判定を行う間隔（秒）。デフォルトは10。「洗脳進行中を経ずに即洗脳」ON時は強制的に0となる）
-- `src/game/npcs.ts`: `npcBrainwashInProgressTransitionConfig.stayChance`（`brainwash-in-progress` の判定時に同状態を継続する確率。`1 - npcBrainwashInProgressTransitionConfig.stayChance` の確率で `brainwash-complete-haigure` へ遷移。デフォルトは0.5。「洗脳進行中を経ずに即洗脳」ON時は強制的に0となる）
-- `src/game/npcs.ts`: `npcBrainwashCompleteHaigureDecisionDelay`（`brainwash-complete-haigure` から次状態への遷移判定間隔（秒）。デフォルトは10）
-
-#### 遷移図
+以下はデフォルト状態での状態遷移図です。タイトル画面の「洗脳」の設定で変更ができます。
 ```mermaid
 stateDiagram-v2
     state "brainwash-in-progress" as brainwashInProgress
@@ -196,34 +181,22 @@ stateDiagram-v2
 
     [*] --> brainwashInProgress
 
-    brainwashInProgress --> inProgressDecision: npcBrainwashInProgressTransitionConfig.decisionDelay秒ごと判定
-    inProgressDecision --> brainwashInProgress: 継続<br/>Math.random() < npcBrainwashInProgressTransitionConfig.stayChance<br/>(デフォルト 0.5)
-    inProgressDecision --> brainwashCompleteHaigure: 遷移<br/>Math.random() >= npcBrainwashInProgressTransitionConfig.stayChance<br/>(デフォルト 0.5)
+    brainwashInProgress --> inProgressDecision: 10秒ごと判定
+    inProgressDecision --> brainwashInProgress: 継続（50%）
+    inProgressDecision --> brainwashCompleteHaigure: 遷移（50%）
 
-    brainwashCompleteHaigure --> haigureStayDecision: npcBrainwashCompleteHaigureDecisionDelay秒ごと判定
-    haigureStayDecision --> brainwashCompleteHaigure: 継続<br/>Math.random() < stayChance<br/>(BRAINWASH SETTINGS のポーズ% / 100)
-    haigureStayDecision --> gunNoGunDecision: 分岐へ<br/>Math.random() >= stayChance
-    gunNoGunDecision --> brainwashCompleteGun: toGun = true<br/>(Math.random() < toGunChance)
-    gunNoGunDecision --> brainwashCompleteNoGun: toGun = false<br/>(>= toGunChance)
+    brainwashCompleteHaigure --> haigureStayDecision: 10秒ごと判定
+    haigureStayDecision --> brainwashCompleteHaigure: 継続（10%）
+    haigureStayDecision --> gunNoGunDecision: 分岐へ（90%）
+    gunNoGunDecision --> brainwashCompleteGun: 銃あり（50%）
+    gunNoGunDecision --> brainwashCompleteNoGun: 銃なし（50%）
 ```
 
-### トラップルーム用設定
-- `src/game/trap/system.ts`: `trapInitialVolleyCount`（トラップ光線の初回値。`1`なら回を追うごとに`1,3,6,10,15...`と増加していく。デフォルトは`1`）
-- `src/game/trap/system.ts`: `trapWallSelectionWeight`（発射セル抽選で壁セルに掛ける重み。床セルの重みは常に`1`。値を小さくするほど壁が選ばれにくくなり、`0`で壁は抽選対象外。デフォルトは`0.5`）
-
-### アラームセル用設定
-- `src/game/alarm/system.ts`: `alarmSelectionInterval`（アラームセルを追加抽選する間隔（秒）。デフォルトは`5`）
-- `src/game/alarm/system.ts`: `alarmInfluenceRadiusCells`（アラーム発動時に強制追跡対象とする洗脳済みNPCの判定半径（セル数）。`layout.cellSize * alarmInfluenceRadiusCells` の平面距離で判定。デフォルトは`50`）
-
-### ダッシュ機能、スタミナゲージ関連の設定
-- `src/main.ts`: `showStaminaGauge`（スタミナゲージの表示切替。隠したい場合は`false`にすること。デフォルトは`true`）
-- `src/ui/input.ts`: `handleDashKey()`（ダッシュキー判定。デフォルトは`ShiftLeft` / `ShiftRight`。別キーにしたい場合は関数内コメントに従って `KeyboardEvent.code` を変更すること）
-- `src/main.ts`: `playerStaminaMaxTenths`（スタミナゲージの最大値を0.1単位で管理する値。`150`で最大`15.0`。デフォルトは`150`）
-- `src/main.ts`: `playerStaminaRecoverInterval`（スタミナが`0.1`回復する間隔（秒）。デフォルトは`0.2`。実際の回復量は毎秒`0.5`）
-- `src/main.ts`: `playerDashSpeedMultiplier`（ダッシュ時の移動速度倍率。デフォルトは`2.0`）
-
 ## 制作者用メモ：HTML5ゲームとしてのビルド手順
-1. public配下から、配布したくない素材ファイルを退避する。
+1. `public/` 配下には配布してよい素材だけを置き、配布したくない素材ファイルを退避する。
+   - 配置したファイルは、同じフォルダ構成・ファイル名で配布物に含まれる。音声・キャラクター画像を置かなくてもビルド・プレイできる。
+   - ブラウザゲーム版はSEだけを置いてビルドする。BGM・VOICE・キャラクター画像は置かない。
+   - 同梱の `stage-assets/` と `LICENSES/` はそのまま残す。
 2. 配布用ビルドを作成する。
    - `npm run build:renderer`
 3. dist配下の成果物を `index.html` がZIP直下になる形で圧縮する。

@@ -13,7 +13,10 @@ type TitleOverlayControllerOptions = {
 };
 
 export type TitleOverlayController = {
+  setStartHintMessage: (message: string) => void;
   setInstantExecutionMode: (enabled: boolean) => void;
+  setError: (message: string) => void;
+  clearError: () => void;
   createLoadingSession: (initialTotal?: number) => TitleOverlayLoadingSession;
 };
 
@@ -47,6 +50,7 @@ export const createTitleOverlayController = ({
   let loadingTotal = 0;
   let loadingDotCount = 0;
   let loadingDotTimerId: number | null = null;
+  let errorMessage: string | null = null;
 
   const buildTitleDots = () => ".".repeat(loadingDotCount);
   const buildTitleProgress = () => `${loadingCompleted} / ${loadingTotal}`;
@@ -56,6 +60,10 @@ export const createTitleOverlayController = ({
       : defaultModeMessage;
   };
   const syncMessage = () => {
+    titleMessageElement.classList.toggle(
+      "title-message--error",
+      errorMessage !== null
+    );
     if (activeLoadingSessionCount > 0) {
       titleMessageElement.style.display = "flex";
       titleStartHintElement.style.display = "none";
@@ -64,6 +72,16 @@ export const createTitleOverlayController = ({
       titleMessageDotsElement.style.display = "";
       titleMessageProgressElement.textContent = buildTitleProgress();
       titleMessageProgressElement.style.display = "";
+      return;
+    }
+    if (errorMessage !== null) {
+      titleMessageElement.style.display = "flex";
+      titleStartHintElement.style.display = "none";
+      titleMessageLabelElement.textContent = errorMessage;
+      titleMessageDotsElement.textContent = "";
+      titleMessageDotsElement.style.display = "none";
+      titleMessageProgressElement.textContent = "";
+      titleMessageProgressElement.style.display = "none";
       return;
     }
     titleMessageElement.style.display = "none";
@@ -110,9 +128,20 @@ export const createTitleOverlayController = ({
   syncMessage();
 
   return {
+    setStartHintMessage: (message) => {
+      titleStartHintElement.textContent = message;
+    },
     setInstantExecutionMode: (enabled) => {
       instantExecutionMode = enabled;
       syncModeMessage();
+      syncMessage();
+    },
+    setError: (message) => {
+      errorMessage = message;
+      syncMessage();
+    },
+    clearError: () => {
+      errorMessage = null;
       syncMessage();
     },
     createLoadingSession: (initialTotal = 0) => {
