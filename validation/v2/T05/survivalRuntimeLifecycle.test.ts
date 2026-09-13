@@ -535,6 +535,85 @@ export const runSurvivalNoGunRestraintTests = async (
   return Object.freeze(checks);
 };
 
+const runExecutionBitFacingTests = async (
+  scene: Scene,
+  stage: StageSpatialSession
+): Promise<readonly SurvivalRuntimeLifecycleCheck[]> => {
+  const checks: SurvivalRuntimeLifecycleCheck[] = [];
+  for (const targetIds of [["npc_0"], ["player"], ["npc_0", "npc_1"], ["player", "npc_0"]]) {
+    const playerSpawn = requireFirstFixturePlayerSpawn(stage);
+    const player = createFakePlayer(playerSpawn);
+    const characterVisuals = await createDefaultV2CharacterVisualRuntime(
+      scene, ["player", "npc_0", "npc_1"]
+    );
+    let runtime: V2SurvivalRuntime | null = null;
+    try {
+      runtime = createV2SurvivalRuntime({
+        scene, stage, playerSpawn, player, characterVisuals,
+        initialPlayerState: "normal",
+        showGroundShadows: false,
+        random: () => 0.9,
+        npcSpawnRandom: createV2SeededRandom(20260913),
+        bitSpawnRandom: createV2SeededRandom(20260914),
+        playerMissionRandom: createV2SeededRandom(1),
+        npcMissionRandom: createV2SeededRandom(2),
+        broadcastMissionRandom: createV2SeededRandom(3),
+        getOrbVisibilityPredicate: () => () => true,
+        population: {
+          npcCount: 2, initialBrainwashedNpcCount: 0,
+          initialBitCount: 6, maximumBitCount: 6,
+          bitReinforcementIntervalSeconds: 10
+        },
+        features: { missionEnabled: false, alarmEnabled: false },
+        startupScenario: {
+          method: targetIds.includes("player") ? "player-bit" : "npc-bit",
+          venueId: "assembly-courtyard",
+          targetActorIds: targetIds,
+          audienceNpcIds: ["npc_0", "npc_1"].filter((id) => !targetIds.includes(id)),
+          npcShooterIds: [],
+          bitShooterIds: Array.from({ length: 6 }, (_, index) => `v2_bit_${index}`),
+          playerRole: targetIds.includes("player") ? "target" : "observer"
+        },
+        brainwashSettings: {
+          instantBrainwash: false, brainwashOnNoGunTouch: false,
+          gunPercent: 0, noGunPercent: 100
+        },
+        performanceDiagnostics: null,
+        performanceWorkloadScenario: null,
+        releaseStageTraversalForScriptedPhase: () => {},
+        selectNavigationRoute: selectDistanceNavigationRoute
+      });
+      runtime.activateStartupScenario();
+      const checkDirection = () => {
+        const targets = runtime!.getHumanTargets();
+        return Math.min(...Array.from({ length: 6 }, (_, index) => {
+          const root = scene.getTransformNodeByName(`v2_bit_${index}`)!;
+          root.computeWorldMatrix(true);
+          const target = targets.find((entry) => entry.id === targetIds[index % targetIds.length])!;
+          return Vector3.Dot(
+            root.getDirection(Vector3.Forward()).normalize(),
+            target.aimPosition.subtract(root.position).normalize()
+          );
+        }));
+      };
+      const initial = checkDirection();
+      const frame = runtime.update(0.1, 0.1, null, createInitialMissionElevatorSnapshots(stage));
+      const waiting = checkDirection();
+      runtime.replayExecution();
+      const replay = checkDirection();
+      checks.push({
+        name: `BIT初期照準・待機・リプレイ: ${targetIds.join("/")}`,
+        ok: initial > 0.999999 && waiting > 0.999999 && replay > 0.999999 && frame.phase === "execution",
+        detail: `内積: 開始=${initial}, 待機=${waiting}, リプレイ=${replay}`
+      });
+    } finally {
+      runtime?.dispose();
+      characterVisuals.dispose();
+    }
+  }
+  return checks;
+};
+
 const runInstantExecutionReplayTest = async (
   scene: Scene,
   stage: StageSpatialSession
@@ -1376,6 +1455,7 @@ export const runSurvivalRuntimeLifecycleTests = async (
   }
 
   checks.push(...await runSurvivalNoGunRestraintTests(scene, lifecycleStage));
+  checks.push(...await runExecutionBitFacingTests(scene, lifecycleStage));
   checks.push(await runInstantExecutionReplayTest(scene, lifecycleStage));
   return Object.freeze(checks);
 };

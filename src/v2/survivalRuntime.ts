@@ -1262,7 +1262,17 @@ constructionDependencies: V2SurvivalConstructionDependencies = Object.freeze({})
           })
         )
       );
-      bitSystem.faceBitsAt(player.getEyePosition());
+      const targetById = new Map(
+        rebuildHumanTargets().map((target) => [target.id, target] as const)
+      );
+      bitSystem.faceBitsAt(
+        executionFrame.assignments.flatMap((assignment) =>
+          assignment.shooterIds.map((id) => ({
+            id,
+            aimPosition: targetById.get(assignment.targetId)!.aimPosition
+          }))
+        )
+      );
     }
     for (const target of rebuildHumanTargets()) {
       targetNavigationAreaTracker.relocate(
