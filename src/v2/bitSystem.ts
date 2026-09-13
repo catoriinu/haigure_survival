@@ -103,7 +103,7 @@ import { V2_TRANSPARENT_ALPHA_INDEX_SPATIAL } from "./v2TransparentRenderingOrde
 
 const BIT_BODY_HEIGHT = 0.15;
 const BIT_BODY_DIAMETER = 0.12;
-const BIT_MUZZLE_DIAMETER = 0.03;
+const BIT_MUZZLE_DIAMETER = 0.033;
 const BIT_MUZZLE_OFFSET = BIT_BODY_HEIGHT / 2 + 0.02;
 const BIT_ACTOR_RADIUS = BIT_FLIGHT_BODY_RADIUS_WORLD_UNITS;
 export const V2_BIT_INDOOR_SPAWN_PROBABILITY = 0.5;
@@ -699,17 +699,20 @@ const createSharedMaterials = (scene: Scene) => {
   try {
     body = new StandardMaterial("v2BitBodyMaterial", scene);
     body.diffuseColor = new Color3(0.08, 0.08, 0.09);
-    body.specularColor = new Color3(0.35, 0.35, 0.4);
+    body.specularColor = new Color3(0.5, 0.5, 0.55);
+    body.specularPower = 48;
 
     redBody = new StandardMaterial("v2RedBitBodyMaterial", scene);
     redBody.diffuseColor = new Color3(0.72, 0.04, 0.06);
     redBody.emissiveColor = new Color3(0.24, 0.01, 0.01);
-    redBody.specularColor = new Color3(0.55, 0.18, 0.18);
+    redBody.specularColor = new Color3(0.65, 0.3, 0.3);
+    redBody.specularPower = 48;
 
     muzzle = new StandardMaterial("v2BitMuzzleMaterial", scene);
     muzzle.diffuseColor = Color3.White();
     muzzle.emissiveColor = Color3.Black();
-    muzzle.specularColor = Color3.Black();
+    muzzle.specularColor = new Color3(1, 1, 1);
+    muzzle.specularPower = 64;
 
     return { body, redBody, muzzle };
   } catch (error) {
