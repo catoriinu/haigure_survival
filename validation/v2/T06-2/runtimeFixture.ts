@@ -55,6 +55,14 @@ export type SyntheticStageFixtureOptions = Readonly<{
     centerY: number;
     height: number;
   }>;
+  bitSpawnRegions?: readonly SyntheticBitSpawnRegion[];
+}>;
+
+export type SyntheticBitSpawnRegion = Readonly<{
+  id: string;
+  spaceKind: BitFlightZone["spaceKind"];
+  minimumX: number;
+  maximumX: number;
 }>;
 
 export const countSceneResources = (scene: Scene): SceneResourceCounts =>
@@ -171,33 +179,39 @@ const createHumanNavigation = (
 };
 
 const createBitNavigation = (
-  surfaceTriangles: readonly NavigationSurfaceTriangle[]
+  surfaceTriangles: readonly NavigationSurfaceTriangle[],
+  regions: readonly SyntheticBitSpawnRegion[]
 ): Readonly<{
   navigation: BitFlightNavigationWorld;
-  bandRef: BitFlightBandRef;
+  bandRefs: readonly BitFlightBandRef[];
 }> => {
-  const zoneId = toBitFlightZoneId("t06-2-zone");
-  const bandId = toBitFlightBandId("t06-2-band");
-  const bandRef = createBitFlightBandRef(zoneId, bandId);
-  const zone: BitFlightZone = Object.freeze({
-    id: zoneId,
-    spaceKind: "indoor"
-  });
-  const band: BitFlightBand = Object.freeze({
-    zoneId,
-    id: bandId,
+  const zones: readonly BitFlightZone[] = regions.map((region) => Object.freeze({
+    id: toBitFlightZoneId(`${region.id}-zone`),
+    spaceKind: region.spaceKind
+  }));
+  const bands: readonly BitFlightBand[] = regions.map((region, index) => Object.freeze({
+    zoneId: zones[index].id,
+    id: toBitFlightBandId(`${region.id}-band`),
     minimumCenterHeight: 1,
     maximumCenterHeight: 1.4
-  });
+  }));
+  const bandRefs = bands.map((band) => createBitFlightBandRef(band.zoneId, band.id));
+  const findBandIndex = (ref: BitFlightBandRef) =>
+    bands.findIndex((band) => band.zoneId === ref.zoneId && band.id === ref.bandId);
+  const containsPosition = (index: number, position: Vector3) =>
+    position.x >= regions[index].minimumX &&
+    position.x <= regions[index].maximumX &&
+    Math.abs(position.z) <= 5;
   const clampHeight = (height: number) =>
-    Math.min(band.maximumCenterHeight, Math.max(band.minimumCenterHeight, height));
+    Math.min(1.4, Math.max(1, height));
   const createLocation = (
+    ref: BitFlightBandRef,
     position: Vector3,
     heightMode: BitFlightLocation["heightMode"] = "band"
   ): BitFlightLocation =>
     Object.freeze({
-      zoneId,
-      bandId,
+      zoneId: ref.zoneId,
+      bandId: ref.bandId,
       surface: Object.freeze({
         position: new Vector3(position.x, 0, position.z),
         polygonRef: 1
@@ -210,9 +224,12 @@ const createBitNavigation = (
     destination: BitFlightLocation,
     policy: BitFlightRoutePolicy
   ): BitFlightRoute | null => {
+    if (start.zoneId !== destination.zoneId || start.bandId !== destination.bandId) {
+      return null;
+    }
     const step: BitFlightSurfaceRouteStep = Object.freeze({
       kind: "surface",
-      band: bandRef,
+      band: createBitFlightBandRef(start.zoneId, start.bandId),
       points: Object.freeze([start, destination]),
       distance: Vector3.Distance(
         start.surface.position,
@@ -231,28 +248,27 @@ const createBitNavigation = (
   };
 
   const navigation: BitFlightNavigationWorld = Object.freeze({
-    zones: Object.freeze([zone]),
-    bands: Object.freeze([band]),
+    zones: Object.freeze(zones),
+    bands: Object.freeze(bands),
     transitions: Object.freeze([]),
     getZone: (id: Parameters<BitFlightNavigationWorld["getZone"]>[0]) =>
-      id === zoneId ? zone : null,
+      zones.find((zone) => zone.id === id) ?? null,
     getBand: (ref: BitFlightBandRef) =>
-      ref.zoneId === zoneId && ref.bandId === bandId ? band : null,
+      bands.find((band) => band.zoneId === ref.zoneId && band.id === ref.bandId) ?? null,
     getSurfaceTriangles: (ref: BitFlightBandRef) =>
-      ref.zoneId === zoneId && ref.bandId === bandId
+      findBandIndex(ref) >= 0
         ? surfaceTriangles
         : Object.freeze([]),
-    projectPointInBand: (ref: BitFlightBandRef, position: Vector3) =>
-      ref.zoneId === zoneId &&
-      ref.bandId === bandId &&
-      Math.abs(position.x) <= 5 &&
-      Math.abs(position.z) <= 5
-        ? createLocation(position)
-        : null,
+    projectPointInBand: (ref: BitFlightBandRef, position: Vector3) => {
+      const index = findBandIndex(ref);
+      return index >= 0 && containsPosition(index, position)
+        ? createLocation(ref, position)
+        : null;
+    },
     findLocationCandidates: (position: Vector3) =>
-      Math.abs(position.x) <= 5 && Math.abs(position.z) <= 5
-        ? Object.freeze([createLocation(position)])
-        : Object.freeze([]),
+      Object.freeze(bandRefs.flatMap((ref, index) =>
+        containsPosition(index, position) ? [createLocation(ref, position)] : []
+      )),
     findRoute: (
       start: BitFlightLocation,
       destination: BitFlightLocation,
@@ -272,6 +288,7 @@ const createBitNavigation = (
       selection: BitFlightHeightSelection
     ) =>
       createLocation(
+        location,
         new Vector3(
           location.surface.position.x,
           selection.center.y,
@@ -280,19 +297,19 @@ const createBitNavigation = (
         selection.heightMode
       ),
     constrainMovement: (
-      _start: BitFlightLocation,
+      start: BitFlightLocation,
       destination: Vector3,
       heightMode: BitFlightLocation["heightMode"]
     ) =>
-      Math.abs(destination.x) <= 5 && Math.abs(destination.z) <= 5
-        ? createLocation(destination, heightMode)
+      containsPosition(findBandIndex(start), destination)
+        ? createLocation(start, destination, heightMode)
         : null,
     randomPointAround: () => null,
     getTransitionsFrom: () => Object.freeze([]),
     createDebugMeshes: () => Object.freeze([]),
     dispose: () => {}
   });
-  return Object.freeze({ navigation, bandRef });
+  return Object.freeze({ navigation, bandRefs: Object.freeze(bandRefs) });
 };
 
 const createPlayerSpawn = (
@@ -369,7 +386,15 @@ export const createSyntheticStageFixture = (
   ground.position.y = -0.05;
   ground.computeWorldMatrix(true);
   const humanNavigation = createHumanNavigation(surfaceTriangles, ground);
-  const bitNavigationFixture = createBitNavigation(surfaceTriangles);
+  const bitSpawnRegions = options.bitSpawnRegions ?? Object.freeze([
+    Object.freeze({
+      id: "t06-2",
+      spaceKind: "indoor" as const,
+      minimumX: -5,
+      maximumX: 5
+    })
+  ]);
+  const bitNavigationFixture = createBitNavigation(surfaceTriangles, bitSpawnRegions);
 
   const npcSpawnMesh = MeshBuilder.CreateBox(
     "t06-2-npc-spawn-mesh",
@@ -378,17 +403,6 @@ export const createSyntheticStageFixture = (
   );
   npcSpawnMesh.position.y = 0.5;
   npcSpawnMesh.computeWorldMatrix(true);
-  const bitSpawnMesh = MeshBuilder.CreateBox(
-    "t06-2-bit-spawn-mesh",
-    {
-      width: 10,
-      height: options.bitSpawnBounds?.height ?? 2,
-      depth: 10
-    },
-    scene
-  );
-  bitSpawnMesh.position.y = options.bitSpawnBounds?.centerY ?? 0.5;
-  bitSpawnMesh.computeWorldMatrix(true);
   const npcSpawn: StageVolume = Object.freeze({
     id: "t06-2-npc-spawn",
     role: "npc_spawn",
@@ -398,14 +412,27 @@ export const createSyntheticStageFixture = (
     navigationAreaId: null,
     mesh: npcSpawnMesh
   });
-  const bitSpawn: StageVolume = Object.freeze({
-    id: "t06-2-bit-spawn",
-    role: "bit_spawn",
-    bitFlightBand: bitNavigationFixture.bandRef,
-    playerSpawnId: null,
-    npcSpawnBiasWeight: null,
-    navigationAreaId: null,
-    mesh: bitSpawnMesh
+  const bitSpawns: readonly StageVolume[] = bitSpawnRegions.map((region, index) => {
+    const mesh = MeshBuilder.CreateBox(`${region.id}-bit-spawn-mesh`, {
+      width: region.maximumX - region.minimumX,
+      height: options.bitSpawnBounds?.height ?? 2,
+      depth: 10
+    }, scene);
+    mesh.position.set(
+      (region.minimumX + region.maximumX) / 2,
+      options.bitSpawnBounds?.centerY ?? 0.5,
+      0
+    );
+    mesh.computeWorldMatrix(true);
+    return Object.freeze({
+      id: `${region.id}-bit-spawn`,
+      role: "bit_spawn" as const,
+      bitFlightBand: bitNavigationFixture.bandRefs[index],
+      playerSpawnId: null,
+      npcSpawnBiasWeight: null,
+      navigationAreaId: null,
+      mesh
+    });
   });
   const selectedPlayerSpawn = createPlayerSpawn(
     scene,
@@ -423,7 +450,7 @@ export const createSyntheticStageFixture = (
   ]);
   const volumes = Object.freeze([
     npcSpawn,
-    bitSpawn,
+    ...bitSpawns,
     ...selectedPlayerSpawn.npcSpawnBiasVolumes,
     ...otherPlayerSpawn.npcSpawnBiasVolumes,
     selectedPlayerSpawn.exclusionVolume,

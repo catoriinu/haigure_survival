@@ -1,6 +1,6 @@
 # HAIGURE SURVIVAL 技術・アーキテクチャ仕様書
 
-更新日: 2026-09-06
+更新日: 2026-09-12
 対象バージョン: v1.3.1実装記録（V2現行規定を追補）
 v1.3.1実装記録の基準develop: `0c8b438`
 
@@ -70,7 +70,7 @@ V2性能計測は`src/v2/performanceDiagnostics.ts`の同一collectorを使用�
 - 体力の更新は`playing`中に限り、他フェーズでは消費・回復timerをリセットする。`createV2PlayerController`の`dashMode`と`update`のゲーム進行・Player状態を必須入力とし、旧Runtimeを参照しない。新sessionとPlayerのspawn resetで体力を初期化する。
 - `src/ui/v2PlayerStatusHud.ts`は通常モードの`playing`中だけ左の体力ゲージを表示する。通常色は`#f5f5f5`、洗脳系状態はV1と同じ`#ff66b5`。高さ800px以下ではミニマップ右の現在位置表示の下へ縮小配置し、操作説明への重なりを避ける。タイトル・終了・session破棄時に消す。
 - `V2SurvivalFrame.noGunRestrainedTargetIds`は現在Player銃なしの近接拘束とNPCの`captures[].targetId`を重複除去して公開する。拘束する側のNPCや通常被弾による移動停止は対象へ含めず、表示側で距離を再判定しない。
-- NPC拘束は`v2CharacterVisualRuntime`が補間済み足元へ高さ0.3mの赤い帯を描画する。幅はCharacter画像、向きはupright時に水平yawへ合わせる。camera-facing時はカメラの上方向とbillboardを使い、Spriteと同じview平面の下端へ合わせる。下端alpha約0.96から上端0への共有グラデーション、2秒周期の明滅を使用する。alpha cutoffと深度書込・小さなdepth biasでCharacter、壁、ガラスの前後関係を保つ。帯MeshをActor、共有Material／TextureをCharacter Runtimeが破棄する。
+- NPC拘束は`v2CharacterVisualRuntime`が補間済み足元へ高さ0.3mの赤い帯を描画する。幅はCharacter画像、向きはupright時に水平yawへ合わせる。camera-facing時はカメラの上方向とbillboardを使い、Character面の下端へ合わせる。下端alpha約0.96から上端0への共有グラデーション、2秒周期の明滅を使用する。複数人が拘束しても帯は1本・同じ濃さとする。帯をCharacter面からカメラ側へ実座標で0.001だけ離し、同一深度の衝突を避けたうえで、壁・ガラスを含む透明面の深度順に合成する。帯自身は不透明な深度を書かない。帯MeshをActor、共有Material／TextureをCharacter Runtimeが破棄する。
 - Player拘束は画面下辺40pxの赤いグラデーションを2秒周期で明滅させる。通常・デバッグ共通で、拘束解除と`playing`終了時に消す。既存の拘束距離・時間・移動可否は変更しない。
 - タイトルの機能名は「アラーム床」とし、保存fieldは従来の`features.alarmEnabled`を維持する。
 
@@ -83,6 +83,15 @@ V2性能計測は`src/v2/performanceDiagnostics.ts`の同一collectorを使用�
 - Mission HUDはサバイバルかつMission有効の場合だけ生成する。通常プレイでは進行中ミッション、整列・公開処刑・処刑完了ではミッション結果を表示する。タイトルといきなり公開処刑では表示しない。
 
 以下の第1～16節はv1.3.1／旧T02時点の実装を追跡する付録として残す。V2実装との不一致は本節、`docs/spec_stage_runtime_v2.md`、`docs/spec_stage_assets_v2.md`を優先する。
+
+### 0.6 V2の透明面とカメラ深度
+
+- 通常Sceneは材質生成前に`configureV2TransparentDepthComposition`を設定する。BITの出現球・本体、光線の本体・先端・軌跡・命中演出、ガラス・カーテン、Character・拘束帯を、カメラからの各画素の深度順にsource-over合成する。物体カテゴリやMesh中心の距離で前後を決めない。
+- `V2DepthPeelingRenderer`は前後2層ずつ描画し、4回ごとに深度texture全体を1画素へ最大値縮約して残層を調べる。未処理の面があれば同一フレームで続け、固定の層数で打ち切らない。画面端の1画素、端数の画面寸法も残層判定へ含める。
+- 透明面は不透明な深度を書かない。光線の不可視depth proxyとカーテンのdepth pre-passを使用しない。不透明壁は遮蔽し、alpha=1のBITは透明合成内で奥を隠す。PNG・vertex・instance・visibilityを反映したalpha=0の断片は色と深度の両方から除外する。各材質の片面・両面設定は維持する。
+- Characterはupright・camera-facingとも同じPlaneと材質の合成経路を使う。向きだけをyaw／billboardで切り替え、PNGの半透明輪郭、Playerのfade、拘束帯も同じ深度契約を適用する。最終Engine破棄後の再起動でも材質pluginを再登録する。
+- GPU回帰は実`createV2BitSystem`、実`createV2BeamSystem`のhardware Instance、学校GLB由来PBRガラスを使用する。独立したsource-over参照と比較し、前後交換、逆視点、斜視、交差面、多重光線、35層、透明PNG、拘束帯、不透明壁、resize・空フレーム・disposeを対象とする。設定値の一致だけを表示結果の合格としない。
+- Babylon.js 6.49の内部MRT接続は`v2DepthPeelingRenderer.ts`へ集約する。Babylon更新時は上記GPU回帰と通常学校画面を再検証する。
 
 ## 1. v1.3.1／旧T02実装付録の位置付け
 

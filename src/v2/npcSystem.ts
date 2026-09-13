@@ -79,7 +79,14 @@ import {
 } from "./npcTraversal";
 import type { V2PlayerGunFireEvent } from "./playerCombatSystem";
 import { createV2FollowerFireDirection } from "./followerFireDirection";
+import { getV2NpcPatrolDistanceMeters, V2_NPC_PATROL_TUNING } from "./npcPatrolPolicy";
 import type { V2CharacterVisualRuntime } from "./v2CharacterVisualRuntime";
+
+import {
+  V2_NPC_EVADE_TUNING, selectV2NpcEvadePersonality,
+  selectNpcEvadeDestination, npcEvadeSegmentDistanceSquared,
+  type V2NpcEvadePersonality, type V2NpcEvadeReason
+} from "./npcEvadePolicy";
 
 const NPC_SEARCH_SPEED = 0.2;
 export const V2_NPC_CHASE_SPEED = 0.3;
@@ -294,6 +301,12 @@ export type V2NpcTrackingSnapshot = Readonly<{
   traversalState: V2NpcTraversalState;
   pursuitPhase: V2PursuitPhase;
   evadeThreatIds: readonly string[];
+  evadePersonality: V2NpcEvadePersonality;
+  evadeDestination: Vector3 | null;
+  evadeSelectionReason: V2NpcEvadeReason | null;
+  evadeVisibleThreatIds: readonly string[];
+  evadeDirectThreatIds: readonly string[];
+  evadeRememberedThreatIds: readonly string[];
   locationMission: V2NpcLocationMissionSnapshot | null;
 }>;
 
@@ -430,6 +443,13 @@ export type V2NpcFrameView = Readonly<{
   autonomousThreatSightCheckCount: number;
   autonomousThreatVisibleCount: number;
   autonomousThreatMaximumSourceCount: number;
+  evadeEvaluationCount: number;
+  evadeCandidateCount: number;
+  evadeEvaluationMilliseconds: number;
+  evadeMaximumWaitSeconds: number;
+  evadeDestinationChangeCount: number;
+  evadeDirectionReversalCount: number;
+  autonomousThreatRememberedCount: number;
   frameViewBuildSequence: number;
 }>;
 
@@ -458,6 +478,13 @@ const EMPTY_V2_NPC_FRAME_VIEW: V2NpcFrameView = Object.freeze({
   autonomousThreatSightCheckCount: 0,
   autonomousThreatVisibleCount: 0,
   autonomousThreatMaximumSourceCount: 0,
+  evadeEvaluationCount: 0,
+  evadeCandidateCount: 0,
+  evadeEvaluationMilliseconds: 0,
+  evadeMaximumWaitSeconds: 0,
+  evadeDestinationChangeCount: 0,
+  evadeDirectionReversalCount: 0,
+  autonomousThreatRememberedCount: 0,
   frameViewBuildSequence: 0
 });
 
@@ -595,6 +622,9 @@ type NpcRuntime = {
   lastState: V2CharacterState;
   wanderDestination: NavigationLocation | null;
   wanderWaitSeconds: number;
+  unseenTargetSeconds: number;
+  patrolDirectionAngle: number | null;
+  patrolDistanceMeters: number;
   restSlot: NavigationLocation | null;
   restSlotAreaId: string | null;
   restSlotKey: string | null;
@@ -613,7 +643,18 @@ type NpcRuntime = {
   evadeThreatSightClear: boolean;
   evadeThreatSetKey: string;
   evadeNavigationReplanPriority: NpcNavigationReplanPriority;
-  readonly autonomousVisualThreats: Map<string, NpcEvadeThreat>;
+  readonly evadeOrdinal: number;
+  readonly evadePersonality: V2NpcEvadePersonality;
+  evadeRequestedAtSeconds: number | null;
+  evadeRequestReason: V2NpcEvadeReason;
+  evadeSelectionReason: V2NpcEvadeReason | null;
+  evadeNextEvaluationSeconds: number;
+  evadeSelectedAtSeconds: number;
+  evadeDirection: Vector3 | null;
+  evadePerceptionChanged: boolean;
+  readonly evadeThreatScratch: NpcEvadeThreat[];
+  readonly evadeDirectThreatIds: Set<string>;
+  readonly autonomousVisualThreats: Map<string, NpcRememberedThreat>;
   alertLeaderId: string | null;
   alertRemainingSeconds: number;
   pursuitPhase: V2PursuitPhase;
@@ -674,6 +715,14 @@ type NpcEvadeThreat = Readonly<{
   sightClear: boolean;
   provenance: "direct" | "autonomous";
 }>;
+
+type NpcRememberedThreat = {
+  sourceId: string;
+  sourceAimPosition: Vector3;
+  sightClear: boolean;
+  provenance: "autonomous";
+  lastSeenSeconds: number;
+};
 
 type NpcEvadeThreatsByTargetId = Map<
   string,
@@ -1024,6 +1073,17 @@ class SchoolV2NpcSystem implements V2NpcSystem {
   private currentTargetSightCursor = 0;
   private personalityRetargetCredit = 0;
   private personalityRetargetCursor = 0;
+  private evadeEvaluationCount = 0;
+  private evadeCandidateCount = 0;
+  private evadeEvaluationMilliseconds = 0;
+  private evadeMaximumWaitSeconds = 0;
+  private evadeDestinationChangeCount = 0;
+  private evadeDirectionReversalCount = 0;
+  private autonomousThreatRememberedCount = 0;
+  private readonly evadeEvaluationQueue: NpcRuntime[] = [];
+  private readonly grantedEvadeEvaluations = new Set<string>();
+  private readonly evadeCandidateScratch: NavigationLocation[] = [];
+  private readonly evadeCandidatePosition = Vector3.Zero();
   private autonomousThreatSightCredit = 1;
   private autonomousThreatSightCursor = 0;
   private externalThreats: readonly V2NpcExternalThreat[] =
@@ -1298,6 +1358,9 @@ class SchoolV2NpcSystem implements V2NpcSystem {
           lastState: initialState,
           wanderDestination: null,
           wanderWaitSeconds: this.nextWanderWait(),
+          unseenTargetSeconds: 0,
+          patrolDirectionAngle: null,
+          patrolDistanceMeters: 0,
           restSlot: null,
           restSlotAreaId: null,
           restSlotKey: null,
@@ -1321,6 +1384,17 @@ class SchoolV2NpcSystem implements V2NpcSystem {
           evadeThreatSetKey: "",
           evadeNavigationReplanPriority: 5,
           autonomousVisualThreats: new Map(),
+          evadeOrdinal: index,
+          evadePersonality: selectV2NpcEvadePersonality(index),
+          evadeRequestedAtSeconds: null,
+          evadeRequestReason: "initial",
+          evadeSelectionReason: null,
+          evadeNextEvaluationSeconds: 0,
+          evadeSelectedAtSeconds: 0,
+          evadeDirection: null,
+          evadePerceptionChanged: false,
+          evadeThreatScratch: [],
+          evadeDirectThreatIds: new Set(),
           alertLeaderId: null,
           alertRemainingSeconds: 0,
           pursuitPhase: "detail",
@@ -1425,6 +1499,13 @@ class SchoolV2NpcSystem implements V2NpcSystem {
     this.autonomousThreatSightCheckCount = 0;
     this.autonomousThreatVisibleCount = 0;
     this.autonomousThreatMaximumSourceCount = 0;
+    this.evadeEvaluationCount = 0;
+    this.evadeCandidateCount = 0;
+    this.evadeEvaluationMilliseconds = 0;
+    this.evadeMaximumWaitSeconds = 0;
+    this.evadeDestinationChangeCount = 0;
+    this.evadeDirectionReversalCount = 0;
+    this.autonomousThreatRememberedCount = 0;
     this.restSlotOccupancyPrepared = false;
 
     for (const npc of this.npcs) {
@@ -1433,6 +1514,16 @@ class SchoolV2NpcSystem implements V2NpcSystem {
         npc.personalityRetargetCooldownSeconds - deltaSeconds
       );
       const previousState = npc.lastState;
+      if (
+        (previousState === "brainwash-complete-gun" ||
+          previousState === "brainwash-complete-no-gun") &&
+        npc.sprite.isVisible && npc.capture === null &&
+        !this.aiSuspended &&
+        !this.hostileActionsSuspended &&
+        isV2NpcTraversalWalkingEnabled(npc.traversalState)
+      ) {
+        npc.unseenTargetSeconds += deltaSeconds;
+      }
       const stateDeltaSeconds =
         npc.command.mode !== "none" &&
         npc.stateSnapshot.state === "brainwash-complete-haigure"
@@ -1590,8 +1681,7 @@ class SchoolV2NpcSystem implements V2NpcSystem {
       this.collectAutonomousThreatObservers();
     this.invalidateAutonomousVisualTargets(
       autonomousCombatNpcs,
-      targetsById,
-      capturedTargetIds
+      targetsById
     );
     const currentTargetSightCandidates =
       this.collectCurrentTargetSightCandidates(
@@ -1616,7 +1706,11 @@ class SchoolV2NpcSystem implements V2NpcSystem {
         npc.autonomousVisualThreats.clear();
         continue;
       }
-      for (const threat of npc.autonomousVisualThreats.values()) {
+      for (const [sourceId, threat] of npc.autonomousVisualThreats) {
+        if (this.traversalElapsedSeconds - threat.lastSeenSeconds >= V2_NPC_EVADE_TUNING.memorySeconds) {
+          npc.autonomousVisualThreats.delete(sourceId);
+          continue;
+        }
         threatenedIds.add(npc.id);
         addNpcEvadeThreat(
           threatSourcesByTargetId,
@@ -1624,18 +1718,15 @@ class SchoolV2NpcSystem implements V2NpcSystem {
           threat
         );
       }
-      this.autonomousThreatVisibleCount +=
-        npc.autonomousVisualThreats.size;
-      this.autonomousThreatMaximumSourceCount = Math.max(
-        this.autonomousThreatMaximumSourceCount,
-        npc.autonomousVisualThreats.size
-      );
+
+
     }
     const personalityRetargetNpcIds =
       this.schedulePersonalityRetargetQueries(
         autonomousCombatNpcs,
         deltaSeconds
       );
+    const missionCombatNpcIds = new Set<string>();
     for (let npcIndex = 0; npcIndex < this.npcs.length; npcIndex += 1) {
       const npc = this.npcs[npcIndex];
       if (!npc.sprite.isVisible) {
@@ -1651,10 +1742,9 @@ class SchoolV2NpcSystem implements V2NpcSystem {
       const state = npc.stateSnapshot.state;
       if (
         this.hostileActionsSuspended &&
-        isV2BrainwashState(state) &&
-        npc.locationMission === null
+        isV2BrainwashState(state)
       ) {
-        this.clearNavigationAgent(npc);
+        if (npc.locationMission === null) this.clearNavigationAgent(npc);
         continue;
       }
       if (
@@ -1684,6 +1774,7 @@ class SchoolV2NpcSystem implements V2NpcSystem {
       }
       if (
         npc.locationMission !== null &&
+        npc.locationMission.assignment.source !== "normal" &&
         npc.alarmTargetQueue.length === 0 &&
         npc.targetProvenance !== "alert"
       ) {
@@ -1695,11 +1786,13 @@ class SchoolV2NpcSystem implements V2NpcSystem {
         state,
         targetSpatialIndex,
         targetsById,
-        capturedTargetIds,
         currentTargetSightNpcIds.has(npc.id),
         personalityRetargetNpcIds.has(npc.id)
       );
       if (!target) {
+        if (npc.locationMission !== null) {
+          continue;
+        }
         this.updateSearchingNpc(
           npc,
           playerFrameTarget,
@@ -1709,6 +1802,7 @@ class SchoolV2NpcSystem implements V2NpcSystem {
         continue;
       }
 
+      if (npc.locationMission !== null) missionCombatNpcIds.add(npc.id);
       threatenedIds.add(target.id);
       addNpcEvadeThreat(
         threatSourcesByTargetId,
@@ -1750,7 +1844,8 @@ class SchoolV2NpcSystem implements V2NpcSystem {
       deltaSeconds,
       playerFrameTarget,
       currentTargetSightNpcIds,
-      threatenedIds
+      threatenedIds,
+      capturedTargetIds
     );
     const locationMissionNpcIds = new Set<string>();
     for (let npcIndex = 0; npcIndex < this.npcs.length; npcIndex += 1) {
@@ -1765,10 +1860,11 @@ class SchoolV2NpcSystem implements V2NpcSystem {
         this.hasReplanPermission(npcIndex),
         threatenedIds.has(npc.id),
         breakawayActiveNpcIds.has(npc.id) ||
-          leaveActiveNpcIds.has(npc.id)
+          leaveActiveNpcIds.has(npc.id) || missionCombatNpcIds.has(npc.id)
       );
     }
 
+    this.prepareEvadeEvaluations(threatSourcesByTargetId, capturedTargetIds);
     for (let npcIndex = 0; npcIndex < this.npcs.length; npcIndex += 1) {
       const npc = this.npcs[npcIndex];
       if (!npc.sprite.isVisible) {
@@ -1824,7 +1920,7 @@ class SchoolV2NpcSystem implements V2NpcSystem {
         }
         this.updateEvadingNpc(
           npc,
-          Object.freeze([...threats.values()]),
+          npc.evadeThreatScratch,
           deltaSeconds,
           this.hasReplanPermission(npcIndex)
         );
@@ -3911,8 +4007,8 @@ class SchoolV2NpcSystem implements V2NpcSystem {
     );
     for (const npcId of schedule.npcIds) {
       const npc = this.requireNpc(npcId);
-      const hadVisualThreat = npc.autonomousVisualThreats.size > 0;
-      npc.autonomousVisualThreats.clear();
+      for (const threat of npc.autonomousVisualThreats.values()) threat.sightClear = false;
+      npc.evadePerceptionChanged = true;
       this.autonomousThreatSightCheckCount += 1;
       const origin = toAimPosition(npc.footPosition);
       for (const target of targetSpatialIndex.query(
@@ -3920,23 +4016,15 @@ class SchoolV2NpcSystem implements V2NpcSystem {
         NPC_VISION_RANGE
       )) {
         if (
-          target.kind === "npc" &&
           isV2BrainwashState(target.state) &&
+          target.state !== "brainwash-in-progress" &&
           this.isAutonomousThreatVisible(
             npc,
             origin,
             target.aimPosition
           )
         ) {
-          npc.autonomousVisualThreats.set(
-            target.id,
-            Object.freeze({
-              sourceId: target.id,
-              sourceAimPosition: target.aimPosition.clone(),
-              sightClear: true,
-              provenance: "autonomous" as const
-            })
-          );
+          this.rememberVisualThreat(npc, target.id, target.aimPosition);
         }
       }
       for (const actor of this.autonomousThreatActorSpatialIndex.queryToRef(
@@ -3951,24 +4039,24 @@ class SchoolV2NpcSystem implements V2NpcSystem {
             actor.center
           )
         ) {
-          npc.autonomousVisualThreats.set(
-            actor.id,
-            Object.freeze({
-              sourceId: actor.id,
-              sourceAimPosition: actor.center.clone(),
-              sightClear: true,
-              provenance: "autonomous" as const
-            })
-          );
+          this.rememberVisualThreat(npc, actor.id, actor.center);
         }
       }
-      if (
-        hadVisualThreat ||
-        npc.autonomousVisualThreats.size > 0
-      ) {
-        npc.wanderDestination = null;
-        this.clearNavigationAgent(npc);
-      }
+
+    }
+  }
+
+  private rememberVisualThreat(npc: NpcRuntime, sourceId: string, position: Vector3) {
+    const previous = npc.autonomousVisualThreats.get(sourceId);
+    if (previous) {
+      previous.sourceAimPosition.copyFrom(position);
+      previous.sightClear = true;
+      previous.lastSeenSeconds = this.traversalElapsedSeconds;
+    } else {
+      npc.autonomousVisualThreats.set(sourceId, {
+        sourceId, sourceAimPosition: position.clone(), sightClear: true,
+        provenance: "autonomous", lastSeenSeconds: this.traversalElapsedSeconds
+      });
     }
   }
 
@@ -4026,8 +4114,7 @@ class SchoolV2NpcSystem implements V2NpcSystem {
 
   private invalidateAutonomousVisualTargets(
     npcs: readonly NpcRuntime[],
-    targetsById: ReadonlyMap<string, V2HumanTargetSnapshot>,
-    capturedTargetIds: ReadonlySet<string>
+    targetsById: ReadonlyMap<string, V2HumanTargetSnapshot>
   ) {
     for (const npc of npcs) {
       if (npc.targetProvenance !== "visual" || !npc.targetId) {
@@ -4036,7 +4123,6 @@ class SchoolV2NpcSystem implements V2NpcSystem {
       const target = targetsById.get(npc.targetId);
       if (
         !target ||
-        capturedTargetIds.has(target.id) ||
         !this.isTargetable(npc, target)
       ) {
         this.clearTarget(npc);
@@ -4289,6 +4375,7 @@ class SchoolV2NpcSystem implements V2NpcSystem {
   }
 
   private clearAutonomousState(npc: NpcRuntime) {
+    this.resetEvadeDecision(npc);
     npc.autonomousVisualThreats.clear();
     npc.evadeThreatSetKey = "";
     npc.evadeThreatId = null;
@@ -4392,7 +4479,8 @@ class SchoolV2NpcSystem implements V2NpcSystem {
     deltaSeconds: number,
     playerTarget: V2HumanTargetSnapshot,
     currentTargetSightNpcIds: ReadonlySet<string>,
-    threatenedNpcIds: ReadonlySet<string>
+    threatenedNpcIds: ReadonlySet<string>,
+    capturedTargetIds: ReadonlySet<string>
   ) {
     const playerElevatorTraversal = this.playerElevatorTraversal;
     const continuingPlayerElevatorTraversal =
@@ -4531,6 +4619,10 @@ class SchoolV2NpcSystem implements V2NpcSystem {
     for (let npcIndex = 0; npcIndex < this.npcs.length; npcIndex += 1) {
       const npc = this.npcs[npcIndex];
       if (npc.command.mode === "follow") {
+        if (capturedTargetIds.has(npc.id)) {
+          this.clearNavigationAgent(npc);
+          continue;
+        }
         this.updateFollowMovement(
           npc,
           followerCount,
@@ -4575,6 +4667,8 @@ class SchoolV2NpcSystem implements V2NpcSystem {
       npc.command.mode !== "none" ||
       npc.alarmTargetQueue.length > 0 ||
       npc.targetProvenance === "alert" ||
+      (mission.assignment.source === "normal" &&
+        npc.targetProvenance === "visual" && npc.targetId !== null) ||
       npc.capture !== null ||
       npc.breakawayRemainingSeconds > 0 ||
       higherPriorityMovementConsumed ||
@@ -4622,6 +4716,10 @@ class SchoolV2NpcSystem implements V2NpcSystem {
     deltaSeconds: number,
     allowPathRecalculation: boolean
   ) {
+    // 乗車接近・乗降中は、車内のPlayerへの近さで経路を終了しない。
+    const followingElevator =
+      npc.command.followElevatorDestination !== null ||
+      isV2NpcElevatorTraversalState(npc.traversalState);
     let destination: Vector3 | null = null;
     let usesFormationAnchor = false;
     const lastSeen = npc.command.followLastSeenFootPosition;
@@ -4657,7 +4755,7 @@ class SchoolV2NpcSystem implements V2NpcSystem {
         destination = centralDestination;
       }
     }
-    if (destination && usesFormationAnchor) {
+    if (destination && usesFormationAnchor && !followingElevator) {
       const formationDistance = Vector3.Distance(
         npc.footPosition,
         destination
@@ -4670,7 +4768,7 @@ class SchoolV2NpcSystem implements V2NpcSystem {
         npc.command.followMovementStopped = true;
       }
     }
-    if (npc.command.followMovementStopped) {
+    if (npc.command.followMovementStopped && !followingElevator) {
       destination = null;
     }
     if (!destination) {
@@ -4697,6 +4795,7 @@ class SchoolV2NpcSystem implements V2NpcSystem {
       ? destination
       : playerTarget.footPosition;
     if (
+      !followingElevator &&
       npc.command.followLostSightSeconds === 0 &&
       Vector3.Distance(npc.footPosition, stopTarget) <= stopDistance
     ) {
@@ -4817,6 +4916,11 @@ class SchoolV2NpcSystem implements V2NpcSystem {
     if (previousState === currentState) {
       return;
     }
+    if (!isV2AliveState(currentState)) {
+      this.resetEvadeDecision(npc);
+      npc.autonomousVisualThreats.clear();
+      npc.evadeThreatSetKey = "";
+    }
     this.clearRestSlot(npc);
     if (
       currentState !== "brainwash-complete-gun" &&
@@ -4887,7 +4991,11 @@ class SchoolV2NpcSystem implements V2NpcSystem {
         continue;
       }
       const target = targetsById.get(npc.capture.targetId);
-      if (!target || !this.isTargetable(npc, target)) {
+      if (
+        !target || !this.isTargetable(npc, target) ||
+        Vector3.DistanceSquared(npc.footPosition, target.footPosition) >
+          V2_NPC_CAPTURE_RADIUS * V2_NPC_CAPTURE_RADIUS
+      ) {
         this.releaseCaptureImmediately(npc);
         continue;
       }
@@ -4947,7 +5055,6 @@ class SchoolV2NpcSystem implements V2NpcSystem {
     state: "brainwash-complete-gun" | "brainwash-complete-no-gun",
     targetSpatialIndex: V2HumanTargetSpatialIndex,
     targetsById: ReadonlyMap<string, V2HumanTargetSnapshot>,
-    capturedTargetIds: ReadonlySet<string>,
     runCurrentTargetSightCheck: boolean,
     runPersonalityRetargetQuery: boolean
   ) {
@@ -4983,6 +5090,7 @@ class SchoolV2NpcSystem implements V2NpcSystem {
             toAimPosition(npc.footPosition),
             target.aimPosition
           ) === null;
+        if (npc.visualTargetSightClear) this.resetUnseenPatrol(npc);
       }
       return target;
     }
@@ -4998,7 +5106,6 @@ class SchoolV2NpcSystem implements V2NpcSystem {
       currentTarget = targetsById.get(npc.targetId) ?? null;
       if (
         !currentTarget ||
-        capturedTargetIds.has(currentTarget.id) ||
         !this.isTargetable(npc, currentTarget)
       ) {
         this.clearTarget(npc);
@@ -5042,7 +5149,6 @@ class SchoolV2NpcSystem implements V2NpcSystem {
           toAimPosition(npc.footPosition),
           NPC_VISION_RANGE
         ),
-        capturedTargetIds,
         "target-id",
         sightResults!
       );
@@ -5091,14 +5197,14 @@ class SchoolV2NpcSystem implements V2NpcSystem {
         toAimPosition(npc.footPosition),
         NPC_VISION_RANGE
       ),
-      capturedTargetIds,
       personality === "nearest-visible"
         ? "target-id"
         : "source-order",
       sightResults!
     );
     if (!visibleTarget) {
-      this.clearTarget(npc);
+      // 空振りの索敵は、標的を持たないNPCの徘徊・Mission経路を破棄しない。
+      if (npc.targetId !== null) this.clearTarget(npc);
       npc.visualSightCheckPriority = false;
       return null;
     }
@@ -5136,6 +5242,7 @@ class SchoolV2NpcSystem implements V2NpcSystem {
         this.clearNavigationAgent(npc);
       }
       npc.gunVisualPursuitMode = "live";
+      this.resetUnseenPatrol(npc);
       npc.gunLastSeenFootPosition = target.footPosition.clone();
       npc.gunLastSeenPathPlanned = false;
       return true;
@@ -5751,7 +5858,6 @@ class SchoolV2NpcSystem implements V2NpcSystem {
     }
     if (
       target.alive &&
-      !capturedTargetIds.has(target.id) &&
       Vector3.Distance(npc.footPosition, target.footPosition) <=
         V2_NPC_CAPTURE_RADIUS
     ) {
@@ -5912,6 +6018,7 @@ class SchoolV2NpcSystem implements V2NpcSystem {
     allowPathRecalculation: boolean
   ) {
     const returningFromEvade = npc.evadeThreatSetKey.length > 0;
+    this.resetEvadeDecision(npc);
     npc.evadeThreatId = null;
     npc.evadeThreatSightClear = false;
     npc.evadeThreatSetKey = "";
@@ -5955,12 +6062,24 @@ class SchoolV2NpcSystem implements V2NpcSystem {
     if (movement.state === "waiting-for-path") {
       return;
     }
+    const patrolPreviousX = npc.footPosition.x;
+    const patrolPreviousZ = npc.footPosition.z;
     const moved = this.applyNavigationMovement(npc, movement.location);
+    if (npc.patrolDirectionAngle !== null) {
+      npc.patrolDistanceMeters += Math.hypot(
+        npc.footPosition.x - patrolPreviousX,
+        npc.footPosition.z - patrolPreviousZ
+      ) / BLENDER_METERS_TO_WORLD_UNITS;
+    }
     if (
       !moved ||
       movement.state === "arrived" ||
       movement.state === "unreachable"
     ) {
+      if (!moved || movement.state === "unreachable") {
+        npc.patrolDirectionAngle = null;
+        npc.patrolDistanceMeters = 0;
+      }
       this.clearNavigationAgent(npc);
       npc.wanderDestination = null;
       npc.wanderWaitSeconds = this.nextWanderWait();
@@ -5968,46 +6087,111 @@ class SchoolV2NpcSystem implements V2NpcSystem {
     }
   }
 
-  private updateEvadingNpc(
-    npc: NpcRuntime,
-    threats: readonly NpcEvadeThreat[],
-    deltaSeconds: number,
-    allowPathRecalculation: boolean
-  ) {
-    const orderedThreats = [...threats].sort((left, right) => {
-      const distanceDifference =
-        Vector3.DistanceSquared(
-          npc.footPosition,
-          left.sourceAimPosition
-        ) -
-        Vector3.DistanceSquared(
-          npc.footPosition,
-          right.sourceAimPosition
-        );
-      return (
-        distanceDifference ||
-        left.sourceId.localeCompare(right.sourceId)
-      );
+  private resetEvadeDecision(npc: NpcRuntime) {
+    npc.evadeRequestedAtSeconds = null;
+    npc.evadeNextEvaluationSeconds = 0;
+    npc.evadeDirection = null;
+    npc.evadeSelectionReason = null;
+    npc.evadePerceptionChanged = false;
+    npc.evadeThreatScratch.length = 0;
+    npc.evadeDirectThreatIds.clear();
+  }
+
+  private requestEvadeEvaluation(npc: NpcRuntime, reason: V2NpcEvadeReason) {
+    if (npc.evadeRequestedAtSeconds === null) {
+      npc.evadeRequestedAtSeconds = this.traversalElapsedSeconds;
+      npc.evadeRequestReason = reason;
+    } else if (reason !== "periodic") {
+      npc.evadeRequestReason = reason;
+    }
+  }
+
+  private prepareEvadeEvaluations(threatsByTargetId: NpcEvadeThreatsByTargetId, capturedIds: ReadonlySet<string>) {
+    const now = this.traversalElapsedSeconds;
+    const tuning = V2_NPC_EVADE_TUNING;
+    this.evadeEvaluationQueue.length = 0;
+    this.grantedEvadeEvaluations.clear();
+    for (const npc of this.npcs) {
+      const threats = threatsByTargetId.get(npc.id);
+      if (!npc.sprite.isVisible || !isV2AliveState(npc.stateSnapshot.state) ||
+          npc.command.mode === "follow" || capturedIds.has(npc.id) || !threats || threats.size === 0) {
+        this.resetEvadeDecision(npc);
+        continue;
+      }
+      npc.evadeThreatScratch.length = 0;
+      npc.evadeDirectThreatIds.clear();
+      for (const threat of threats.values()) {
+        npc.evadeThreatScratch.push(threat);
+        if (threat.provenance === "direct") {
+          npc.evadeDirectThreatIds.add(threat.sourceId);
+          const remembered = npc.autonomousVisualThreats.get(threat.sourceId);
+          if (remembered) {
+            remembered.sourceAimPosition.copyFrom(threat.sourceAimPosition);
+            remembered.lastSeenSeconds = now;
+          } else {
+            npc.autonomousVisualThreats.set(threat.sourceId, {
+              sourceId: threat.sourceId, sourceAimPosition: threat.sourceAimPosition.clone(),
+              sightClear: false, provenance: "autonomous", lastSeenSeconds: now
+            });
+          }
+        }
+      }
+      let visibleThreatCount = 0;
+      for (const threat of npc.autonomousVisualThreats.values()) {
+        if (threat.sightClear) visibleThreatCount += 1;
+        else if (!npc.evadeDirectThreatIds.has(threat.sourceId)) this.autonomousThreatRememberedCount += 1;
+      }
+      this.autonomousThreatVisibleCount += visibleThreatCount;
+      this.autonomousThreatMaximumSourceCount = Math.max(this.autonomousThreatMaximumSourceCount, visibleThreatCount);
+      const entering = npc.evadeThreatSetKey.length === 0;
+      if (entering) {
+        npc.wanderDestination = null;
+        this.clearRestSlot(npc);
+        this.clearNavigationAgent(npc);
+      }
+      const due = now >= npc.evadeNextEvaluationSeconds;
+      if ((entering || !npc.wanderDestination) && due) this.requestEvadeEvaluation(npc, "initial");
+      else if (due) this.requestEvadeEvaluation(npc, "periodic");
+      if ((npc.evadePerceptionChanged || due) && npc.wanderDestination) {
+        const origin = toAimPosition(npc.footPosition);
+        const endpoint = origin.add(npc.forward.scale(V2_NPC_CHASE_SPEED));
+        const danger = npc.evadeThreatScratch.some((threat) =>
+          npcEvadeSegmentDistanceSquared(origin, endpoint, threat.sourceAimPosition) < tuning.dangerDistance ** 2);
+        if (danger) this.requestEvadeEvaluation(npc, "danger");
+      }
+      npc.evadePerceptionChanged = false;
+      if (npc.evadeRequestedAtSeconds !== null && isV2NpcTraversalWalkingEnabled(npc.traversalState)) {
+        this.evadeMaximumWaitSeconds = Math.max(this.evadeMaximumWaitSeconds, now - npc.evadeRequestedAtSeconds);
+        this.evadeEvaluationQueue.push(npc);
+      }
+    }
+    this.evadeEvaluationQueue.sort((left, right) => {
+      const leftAge = now - left.evadeRequestedAtSeconds!;
+      const rightAge = now - right.evadeRequestedAtSeconds!;
+      const leftExpired = leftAge >= tuning.evaluationDeadlineSeconds;
+      const rightExpired = rightAge >= tuning.evaluationDeadlineSeconds;
+      return Number(rightExpired) - Number(leftExpired) ||
+        (leftExpired ? rightAge - leftAge :
+          Number(left.evadeRequestReason === "periodic") - Number(right.evadeRequestReason === "periodic")) ||
+        rightAge - leftAge || left.evadeOrdinal - right.evadeOrdinal;
     });
-    const primaryThreat = orderedThreats[0];
-    if (!primaryThreat) {
-      throw new Error(`回避脅威集合が空です: ${npc.id}`);
+    for (let index = 0; index < Math.min(tuning.maximumEvaluationsPerUpdate, this.evadeEvaluationQueue.length); index += 1) {
+      this.grantedEvadeEvaluations.add(this.evadeEvaluationQueue[index].id);
     }
-    npc.evadeNavigationReplanPriority = orderedThreats.some(
-      (threat) => threat.provenance === "direct"
-    )
-      ? 1
-      : 5;
-    const threatSetKey = orderedThreats
-      .map((threat) => threat.sourceId)
-      .sort()
-      .join("\u0000");
-    if (npc.evadeThreatSetKey !== threatSetKey) {
-      npc.wanderDestination = null;
-      this.clearRestSlot(npc);
-      this.clearNavigationAgent(npc);
+  }
+
+  private updateEvadingNpc(npc: NpcRuntime, threats: readonly NpcEvadeThreat[], deltaSeconds: number, allowPathRecalculation: boolean) {
+    let primaryThreat = threats[0];
+    let primaryDistance = Vector3.DistanceSquared(npc.footPosition, primaryThreat.sourceAimPosition);
+    for (const threat of threats) {
+      const distance = Vector3.DistanceSquared(npc.footPosition, threat.sourceAimPosition);
+      if (distance < primaryDistance || (distance === primaryDistance && threat.sourceId < primaryThreat.sourceId)) {
+        primaryThreat = threat;
+        primaryDistance = distance;
+      }
     }
-    npc.evadeThreatSetKey = threatSetKey;
+    npc.evadeNavigationReplanPriority = threats.some((threat) => threat.provenance === "direct") ? 1 : 5;
+    npc.evadeThreatSetKey = threats.map((threat) => threat.sourceId).sort().join("\u0000");
     npc.evadeThreatId = primaryThreat.sourceId;
     npc.evadeThreatSightClear = primaryThreat.sightClear;
     npc.targetId = null;
@@ -6018,151 +6202,63 @@ class SchoolV2NpcSystem implements V2NpcSystem {
     npc.visualTargetSightClear = false;
     npc.alertLeaderId = null;
     npc.alertRemainingSeconds = 0;
-    if (!npc.wanderDestination) {
-      npc.wanderDestination = this.selectNpcEvadeDestination(
-        npc,
-        orderedThreats
-      );
-      this.clearNavigationAgent(npc);
-      if (!npc.wanderDestination) {
-        return;
-      }
+    if (this.grantedEvadeEvaluations.has(npc.id)) {
+      this.evaluateEvadeDestination(npc, threats, primaryThreat);
     }
-    const movement = this.updateNavigation(
-      npc,
-      "evade",
-      npc.wanderDestination.position,
-      V2_NPC_CHASE_SPEED,
-      deltaSeconds,
-      allowPathRecalculation
-    );
+    if (!npc.wanderDestination) return;
+    const previousForwardX = npc.forward.x;
+    const previousForwardZ = npc.forward.z;
+    const movement = this.updateNavigation(npc, "evade", npc.wanderDestination.position,
+      V2_NPC_CHASE_SPEED, deltaSeconds, allowPathRecalculation);
     this.recordNavigationStep(movement);
-    if (movement.state === "waiting-for-path") {
-      return;
-    }
+    if (movement.state === "waiting-for-path") return;
     const moved = this.applyNavigationMovement(npc, movement.location);
-    if (
-      !moved ||
-      movement.state === "arrived" ||
-      movement.state === "unreachable"
-    ) {
+    if (moved && previousForwardX * npc.forward.x + previousForwardZ * npc.forward.z < 0) this.evadeDirectionReversalCount += 1;
+    if (!moved || movement.state === "arrived" || movement.state === "unreachable") {
       this.clearNavigationAgent(npc);
       npc.wanderDestination = null;
+      this.requestEvadeEvaluation(npc, !moved ? "blocked" : movement.state === "arrived" ? "arrived" : "unreachable");
     }
   }
 
-  private selectNpcEvadeDestination(
-    npc: NpcRuntime,
-    threats: readonly NpcEvadeThreat[]
-  ) {
-    type ScoredDestination = Readonly<{
-      location: NavigationLocation;
-      nonDecreasingForAllThreats: boolean;
-      minimumThreatDistance: number;
-      primaryThreatDistance: number;
-      pathDistance: number;
-      sourceOrder: number;
-    }>;
-    const currentThreatDistances = threats.map((threat) =>
-      Vector3.Distance(npc.footPosition, threat.sourceAimPosition)
-    );
-    const candidateLocations: Array<
-      Readonly<{
-        location: NavigationLocation;
-        sourceOrder: number;
-      }>
-    > = [];
-    for (let sourceOrder = 0; sourceOrder < 16; sourceOrder += 1) {
-      const angle = (sourceOrder / 16) * Math.PI * 2;
-      const candidate = npc.navigationLocation.position.add(
-        new Vector3(
-          Math.cos(angle) * NPC_WANDER_RADIUS,
-          0,
-          Math.sin(angle) * NPC_WANDER_RADIUS
-        )
-      );
-      const location = this.stage.navigation.constrainMovement(
-        npc.navigationLocation,
-        candidate
-      );
-      if (location) {
-        candidateLocations.push(
-          Object.freeze({
-            location,
-            sourceOrder
-          })
-        );
-      }
+  private evaluateEvadeDestination(npc: NpcRuntime, threats: readonly NpcEvadeThreat[], primaryThreat: NpcEvadeThreat) {
+    const started = this.diagnosticsEnabled ? performance.now() : 0;
+    const candidates = this.evadeCandidateScratch;
+    candidates.length = 0;
+    for (let index = 0; index < 16; index += 1) {
+      const angle = index * Math.PI / 8;
+      this.evadeCandidatePosition.set(
+        npc.navigationLocation.position.x + Math.cos(angle) * V2_NPC_EVADE_TUNING.candidateRadius,
+        npc.navigationLocation.position.y,
+        npc.navigationLocation.position.z + Math.sin(angle) * V2_NPC_EVADE_TUNING.candidateRadius);
+      const location = this.stage.navigation.constrainMovement(npc.navigationLocation, this.evadeCandidatePosition);
+      if (location) candidates.push(location);
     }
-    const elevatorDestinations =
-      this.collectNpcElevatorEvadeDestinations(npc);
-    for (
-      let index = 0;
-      index < elevatorDestinations.length;
-      index += 1
-    ) {
-      candidateLocations.push(
-        Object.freeze({
-          location: elevatorDestinations[index],
-          sourceOrder: 16 + index
-        })
-      );
+    for (const location of this.collectNpcElevatorEvadeDestinations(npc)) candidates.push(location);
+    this.evadeCandidateCount += candidates.length;
+    const previous = npc.wanderDestination;
+    const selected = selectNpcEvadeDestination({
+      personality: npc.evadePersonality, ordinal: npc.evadeOrdinal,
+      position: npc.navigationLocation.position, aimPosition: toAimPosition(npc.footPosition), forward: npc.forward,
+      previousDirection: npc.evadeDirection, primaryPosition: primaryThreat.sourceAimPosition, threats, candidates,
+      currentDestination: previous,
+      elapsedSinceSelection: this.traversalElapsedSeconds - npc.evadeSelectedAtSeconds,
+      emergency: npc.evadeRequestReason !== "periodic", arrivalTolerance: NAVIGATION_AGENT_CONFIG.waypointTolerance
+    });
+    npc.evadeSelectionReason = npc.evadeRequestReason;
+    npc.evadeRequestedAtSeconds = null;
+    npc.evadeNextEvaluationSeconds = this.traversalElapsedSeconds + V2_NPC_EVADE_TUNING.evaluationIntervalSeconds;
+    if (selected.destination === null) npc.wanderDestination = null;
+    if (selected.destination !== null && (previous === null || !selected.destination.position.equalsWithEpsilon(previous.position, 1e-6))) {
+      npc.wanderDestination = cloneNavigationLocation(selected.destination);
+      npc.evadeSelectedAtSeconds = this.traversalElapsedSeconds;
+      const direction = selected.destination.position.subtract(npc.navigationLocation.position);
+      direction.y = 0;
+      npc.evadeDirection = direction.lengthSquared() === 0 ? null : direction.normalize();
+      this.evadeDestinationChangeCount += 1;
     }
-    let selected: ScoredDestination | null = null;
-    for (const candidate of candidateLocations) {
-      const threatDistances = threats.map((threat) =>
-        Vector3.Distance(
-          candidate.location.position,
-          threat.sourceAimPosition
-        )
-      );
-      const scored: ScoredDestination = Object.freeze({
-        location: cloneNavigationLocation(candidate.location),
-        nonDecreasingForAllThreats: threatDistances.every(
-          (distance, index) =>
-            distance + NPC_COMMAND_DISTANCE_EPSILON >=
-            currentThreatDistances[index]
-        ),
-        minimumThreatDistance: Math.min(...threatDistances),
-        primaryThreatDistance: threatDistances[0],
-        pathDistance: Vector3.Distance(
-          npc.navigationLocation.position,
-          candidate.location.position
-        ),
-        sourceOrder: candidate.sourceOrder
-      });
-      if (
-        !selected ||
-        Number(scored.nonDecreasingForAllThreats) >
-          Number(selected.nonDecreasingForAllThreats) ||
-        (scored.nonDecreasingForAllThreats ===
-          selected.nonDecreasingForAllThreats &&
-          (scored.minimumThreatDistance >
-            selected.minimumThreatDistance +
-              NPC_COMMAND_DISTANCE_EPSILON ||
-            (Math.abs(
-              scored.minimumThreatDistance -
-                selected.minimumThreatDistance
-            ) <= NPC_COMMAND_DISTANCE_EPSILON &&
-              (scored.primaryThreatDistance >
-                selected.primaryThreatDistance +
-                  NPC_COMMAND_DISTANCE_EPSILON ||
-                (Math.abs(
-                  scored.primaryThreatDistance -
-                    selected.primaryThreatDistance
-                ) <= NPC_COMMAND_DISTANCE_EPSILON &&
-                  (scored.pathDistance <
-                    selected.pathDistance -
-                      NPC_COMMAND_DISTANCE_EPSILON ||
-                    (Math.abs(
-                      scored.pathDistance - selected.pathDistance
-                    ) <= NPC_COMMAND_DISTANCE_EPSILON &&
-                      scored.sourceOrder < selected.sourceOrder)))))))
-      ) {
-        selected = scored;
-      }
-    }
-    return selected?.location ?? null;
+    this.evadeEvaluationCount += 1;
+    if (this.diagnosticsEnabled) this.evadeEvaluationMilliseconds += performance.now() - started;
   }
 
   private updateBreakaway(
@@ -6225,7 +6321,6 @@ class SchoolV2NpcSystem implements V2NpcSystem {
   private findNearestVisibleTarget(
     npc: NpcRuntime,
     targets: readonly V2HumanTargetSnapshot[],
-    excludedTargetIds: ReadonlySet<string>,
     tieBreak: "source-order" | "target-id",
     sightResults: NpcSightResultCache
   ) {
@@ -6236,9 +6331,6 @@ class SchoolV2NpcSystem implements V2NpcSystem {
       sourceOrder: number;
     }> = [];
     targets.forEach((target, sourceOrder) => {
-      if (excludedTargetIds.has(target.id)) {
-        return;
-      }
       const distanceSquared = this.getVisualDistanceSquared(
         npc,
         target,
@@ -6291,6 +6383,7 @@ class SchoolV2NpcSystem implements V2NpcSystem {
       sightResults
     );
     npc.visualTargetSightClear = sightClear;
+    if (sightClear) this.resetUnseenPatrol(npc);
     return sightClear;
   }
 
@@ -6520,7 +6613,14 @@ class SchoolV2NpcSystem implements V2NpcSystem {
     }
     npc.targetSelectionPersonality =
       selectV2TargetSelectionPersonality("npc", npc.id);
+    this.resetUnseenPatrol(npc);
     npc.visualSightCheckPriority = true;
+  }
+
+  private resetUnseenPatrol(npc: NpcRuntime) {
+    npc.unseenTargetSeconds = 0;
+    npc.patrolDirectionAngle = null;
+    npc.patrolDistanceMeters = 0;
   }
 
   private requireTargetSelectionPersonality(npc: NpcRuntime) {
@@ -6538,6 +6638,7 @@ class SchoolV2NpcSystem implements V2NpcSystem {
     target: V2HumanTargetSnapshot
   ) {
     const targetIdChanged = npc.targetId !== target.id;
+    this.resetUnseenPatrol(npc);
     npc.targetId = target.id;
     npc.targetProvenance = "visual";
     npc.alertLeaderId = null;
@@ -6625,6 +6726,11 @@ class SchoolV2NpcSystem implements V2NpcSystem {
   }
 
   private finishScriptedStateChange(npc: NpcRuntime) {
+    this.resetEvadeDecision(npc);
+    npc.autonomousVisualThreats.clear();
+    npc.evadeThreatSetKey = "";
+    npc.evadeThreatId = null;
+    npc.evadeThreatSightClear = false;
     this.clearNpcCommand(npc, false);
     this.removePendingRequestsForNpc(npc.id);
     npc.stateSnapshot = npc.stateSystem.getSnapshot();
@@ -6782,6 +6888,12 @@ class SchoolV2NpcSystem implements V2NpcSystem {
             npc.traversalState
           ),
           pursuitPhase: npc.pursuitPhase,
+          evadePersonality: npc.evadePersonality,
+          evadeDestination: npc.evadeThreatSetKey.length > 0 && npc.wanderDestination !== null ? npc.wanderDestination.position.clone() : null,
+          evadeSelectionReason: npc.evadeSelectionReason,
+          evadeDirectThreatIds: Object.freeze([...npc.evadeDirectThreatIds]),
+          evadeVisibleThreatIds: Object.freeze([...npc.autonomousVisualThreats.values()].filter((threat) => threat.sightClear).map((threat) => threat.sourceId)),
+          evadeRememberedThreatIds: Object.freeze([...npc.autonomousVisualThreats.values()].filter((threat) => !threat.sightClear && !npc.evadeDirectThreatIds.has(threat.sourceId)).map((threat) => threat.sourceId)),
           evadeThreatIds: Object.freeze(
             npc.evadeThreatSetKey.length === 0
               ? []
@@ -6866,6 +6978,13 @@ class SchoolV2NpcSystem implements V2NpcSystem {
         this.autonomousThreatVisibleCount,
       autonomousThreatMaximumSourceCount:
         this.autonomousThreatMaximumSourceCount,
+      evadeEvaluationCount: this.evadeEvaluationCount,
+      evadeCandidateCount: this.evadeCandidateCount,
+      evadeEvaluationMilliseconds: this.evadeEvaluationMilliseconds,
+      evadeMaximumWaitSeconds: this.evadeMaximumWaitSeconds,
+      evadeDestinationChangeCount: this.evadeDestinationChangeCount,
+      evadeDirectionReversalCount: this.evadeDirectionReversalCount,
+      autonomousThreatRememberedCount: this.autonomousThreatRememberedCount,
       frameViewBuildSequence: this.frameViewBuildSequence
     });
   }
@@ -6920,8 +7039,18 @@ class SchoolV2NpcSystem implements V2NpcSystem {
     playerTarget: V2HumanTargetSnapshot
   ) {
     const origin = npc.navigationLocation;
+    const directionDistance = getV2NpcPatrolDistanceMeters(npc.unseenTargetSeconds);
+    const expanded = isCompletedBrainwashState(npc.stateSnapshot.state) && directionDistance > 0;
+    if (!expanded || npc.patrolDistanceMeters >= directionDistance) {
+      npc.patrolDirectionAngle = null;
+      npc.patrolDistanceMeters = 0;
+    }
     for (let attempt = 0; attempt < NPC_WANDER_MAX_ATTEMPTS; attempt += 1) {
-      const angle = this.nextRandom() * Math.PI * 2;
+      const angleRoll = this.nextRandom();
+      const angle = expanded && npc.patrolDirectionAngle !== null &&
+        attempt < V2_NPC_PATROL_TUNING.directionalAttempts
+        ? npc.patrolDirectionAngle + (angleRoll * 2 - 1) * V2_NPC_PATROL_TUNING.directionHalfAngleRadians
+        : angleRoll * Math.PI * 2;
       const distance = Math.sqrt(this.nextRandom()) * NPC_WANDER_RADIUS;
       const candidate = new Vector3(
         origin.position.x + Math.cos(angle) * distance,
@@ -6953,10 +7082,24 @@ class SchoolV2NpcSystem implements V2NpcSystem {
           Number.POSITIVE_INFINITY
         );
         if (restSlot) {
+          if (expanded) {
+            const selectedAngle = Math.atan2(
+              restSlot.position.z - origin.position.z,
+              restSlot.position.x - origin.position.x
+            );
+            if (npc.patrolDirectionAngle === null ||
+              attempt >= V2_NPC_PATROL_TUNING.directionalAttempts ||
+              Math.cos(selectedAngle - npc.patrolDirectionAngle) <= 0) {
+              npc.patrolDirectionAngle = selectedAngle;
+              npc.patrolDistanceMeters = 0;
+            }
+          }
           return restSlot;
         }
       }
     }
+    npc.patrolDirectionAngle = null;
+    npc.patrolDistanceMeters = 0;
     return null;
   }
 

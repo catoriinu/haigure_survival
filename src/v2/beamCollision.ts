@@ -21,8 +21,7 @@ import type {
   V2HumanTargetSnapshot
 } from "./combatTypes";
 import {
-  V2_TRANSPARENT_ALPHA_INDEX_BEAM_COLOR,
-  V2_TRANSPARENT_ALPHA_INDEX_BEAM_DEPTH
+  V2_TRANSPARENT_ALPHA_INDEX_BEAM_COLOR
 } from "./v2TransparentRenderingOrder";
 
 export const V2_NORMAL_BEAM_MAX_BODY_LENGTH = 0.75;
@@ -732,23 +731,11 @@ const createBeamBodyRotation = (direction: Vector3): Quaternion => {
   return Quaternion.RotationAxis(axis, Math.acos(dot));
 };
 
-class V2BeamDepthProxyMaterial extends StandardMaterial {
-  protected override _hasAlphaChannel(): boolean {
-    return true;
-  }
-}
-
-type BeamVisualPoolPair = Readonly<{
-  mesh: InstancedMesh;
-  depthMesh: InstancedMesh;
-}>;
-
 type BeamVisualPoolBucket = {
   source: Mesh;
-  depthSource: Mesh;
-  available: BeamVisualPoolPair[];
-  instances: Set<BeamVisualPoolPair>;
-  inUse: Map<InstancedMesh, BeamVisualPoolPair>;
+  available: InstancedMesh[];
+  instances: Set<InstancedMesh>;
+  inUse: Set<InstancedMesh>;
   nextSerial: number;
 };
 
@@ -756,7 +743,6 @@ type BeamVisualPool = Readonly<{
   acquire(kind: V2BeamVisualPoolKind, ownerId: string): InstancedMesh;
   release(kind: V2BeamVisualPoolKind, mesh: InstancedMesh): void;
   setOpacity(
-    kind: V2BeamVisualPoolKind,
     mesh: InstancedMesh,
     opacity: number
   ): void;
@@ -778,29 +764,13 @@ const createBeamVisualPool = (scene: Scene): BeamVisualPool => {
   visualMaterial.backFaceCulling = false;
   visualMaterial.transparencyMode = Material.MATERIAL_ALPHABLEND;
 
-  const depthMaterial = new V2BeamDepthProxyMaterial(
-    "v2NormalBeamDepthMaterial",
-    scene
-  );
-  depthMaterial.emissiveColor = BEAM_EFFECT_COLOR.clone();
-  depthMaterial.diffuseColor = BEAM_EFFECT_COLOR.clone();
-  depthMaterial.specularColor = Color3.Black();
-  depthMaterial.alpha = BEAM_EFFECT_ALPHA;
-  depthMaterial.backFaceCulling = false;
-  depthMaterial.transparencyMode =
-    Material.MATERIAL_ALPHATESTANDBLEND;
-  depthMaterial.alphaCutOff = 0.1;
-  depthMaterial.disableColorWrite = true;
-  depthMaterial.forceDepthWrite = true;
-
   const bodySource = MeshBuilder.CreateCylinder(
     "v2NormalBeamPoolSource-body",
     {
       height: 1,
       diameterTop: V2_NORMAL_BEAM_FRONT_DIAMETER,
       diameterBottom: V2_NORMAL_BEAM_BACK_DIAMETER,
-      tessellation: 12,
-      sideOrientation: Mesh.DOUBLESIDE
+      tessellation: 12
     },
     scene
   );
@@ -848,33 +818,17 @@ const createBeamVisualPool = (scene: Scene): BeamVisualPool => {
   const buckets = {} as Record<V2BeamVisualPoolKind, BeamVisualPoolBucket>;
   for (const kind of V2_BEAM_VISUAL_POOL_KINDS) {
     const source = sources[kind];
-    const depthSource = source.clone(
-      `v2NormalBeamPoolDepthSource-${kind}`,
-      null,
-      false,
-      false
-    );
     source.registerInstancedBuffer(VertexBuffer.ColorInstanceKind, 4);
     source.instancedBuffers.instanceColor = new Color4(1, 1, 1, 1);
     source.material = visualMaterial;
     source.isPickable = false;
     source.isVisible = false;
     source.alphaIndex = V2_TRANSPARENT_ALPHA_INDEX_BEAM_COLOR;
-    depthSource.registerInstancedBuffer(
-      VertexBuffer.ColorInstanceKind,
-      4
-    );
-    depthSource.instancedBuffers.instanceColor = new Color4(1, 1, 1, 1);
-    depthSource.material = depthMaterial;
-    depthSource.isPickable = false;
-    depthSource.isVisible = false;
-    depthSource.alphaIndex = V2_TRANSPARENT_ALPHA_INDEX_BEAM_DEPTH;
     buckets[kind] = {
       source,
-      depthSource,
       available: [],
       instances: new Set(),
-      inUse: new Map(),
+      inUse: new Set(),
       nextSerial: 1
     };
   }
@@ -884,20 +838,20 @@ const createBeamVisualPool = (scene: Scene): BeamVisualPool => {
   const pool: BeamVisualPool = {
     acquire: (kind, ownerId) => {
       const bucket = buckets[kind];
-      let pair = bucket.available.pop();
-      if (!pair) {
+      let mesh = bucket.available.pop();
+      if (!mesh) {
         const serial = bucket.nextSerial++;
-        const mesh = bucket.source.createInstance(
+        mesh = bucket.source.createInstance(
           `v2NormalBeamPool-${kind}-${serial}`
         );
-        const depthMesh = bucket.depthSource.createInstance(
-          `v2NormalBeamPoolDepth-${kind}-${serial}`
-        );
-        pair = Object.freeze({ mesh, depthMesh });
-        bucket.instances.add(pair);
+        if (bucket.instances.size === 0) {
+          // 事前compile時にはInstanceがないkindもある。最初の生成で
+          // INSTANCESCOLORを再判定し、遅れて出現するtrailにもfadeを渡す。
+          visualMaterial.markAsDirty(Material.AttributesDirtyFlag);
+        }
+        bucket.instances.add(mesh);
       }
-      const { mesh, depthMesh } = pair;
-      bucket.inUse.set(mesh, pair);
+      bucket.inUse.add(mesh);
       mesh.name = `${ownerId}-${kind}`;
       mesh.position.setAll(0);
       mesh.rotation.setAll(0);
@@ -908,43 +862,19 @@ const createBeamVisualPool = (scene: Scene): BeamVisualPool => {
       mesh.isVisible = true;
       mesh.alphaIndex = V2_TRANSPARENT_ALPHA_INDEX_BEAM_COLOR;
       mesh.setEnabled(true);
-      depthMesh.name = `${ownerId}-${kind}-depth`;
-      depthMesh.parent = mesh;
-      depthMesh.position.setAll(0);
-      depthMesh.rotation.setAll(0);
-      depthMesh.rotationQuaternion = null;
-      depthMesh.scaling.setAll(1);
-      depthMesh.instancedBuffers.instanceColor = new Color4(1, 1, 1, 1);
-      depthMesh.isPickable = false;
-      depthMesh.isVisible = true;
-      depthMesh.alphaIndex = V2_TRANSPARENT_ALPHA_INDEX_BEAM_DEPTH;
-      depthMesh.setEnabled(true);
       return mesh;
     },
     release: (kind, mesh) => {
       const bucket = buckets[kind];
-      const pair = bucket.inUse.get(mesh)!;
       bucket.inUse.delete(mesh);
-      pair.depthMesh.setEnabled(false);
-      pair.depthMesh.isVisible = false;
-      pair.depthMesh.parent = null;
-      pair.depthMesh.instancedBuffers.instanceColor = new Color4(
-        1,
-        1,
-        1,
-        1
-      );
       mesh.instancedBuffers.instanceColor = new Color4(1, 1, 1, 1);
       mesh.scaling.setAll(1);
       mesh.setEnabled(false);
       mesh.isVisible = false;
-      bucket.available.push(pair);
+      bucket.available.push(mesh);
     },
-    setOpacity: (kind, mesh, opacity) => {
-      const pair = buckets[kind].inUse.get(mesh)!;
-      const color = new Color4(1, 1, 1, opacity);
-      mesh.instancedBuffers.instanceColor = color;
-      pair.depthMesh.instancedBuffers.instanceColor = color.clone();
+    setOpacity: (mesh, opacity) => {
+      mesh.instancedBuffers.instanceColor = new Color4(1, 1, 1, opacity);
     },
     prepare: () => {
       if (preparationPromise === null) {
@@ -953,9 +883,6 @@ const createBeamVisualPool = (scene: Scene): BeamVisualPool => {
           const bucket = buckets[kind];
           compilationPromises.push(
             visualMaterial.forceCompilationAsync(bucket.source, {
-              useInstances: true
-            }),
-            depthMaterial.forceCompilationAsync(bucket.depthSource, {
               useInstances: true
             })
           );
@@ -984,7 +911,7 @@ const createBeamVisualPool = (scene: Scene): BeamVisualPool => {
     clear: () => {
       for (const kind of V2_BEAM_VISUAL_POOL_KINDS) {
         const bucket = buckets[kind];
-        for (const mesh of [...bucket.inUse.keys()]) {
+        for (const mesh of [...bucket.inUse]) {
           pool.release(kind, mesh);
         }
       }
@@ -995,19 +922,15 @@ const createBeamVisualPool = (scene: Scene): BeamVisualPool => {
       }
       for (const kind of V2_BEAM_VISUAL_POOL_KINDS) {
         const bucket = buckets[kind];
-        for (const pair of [...bucket.instances]) {
-          pair.depthMesh.parent = null;
-          pair.depthMesh.dispose(false, false);
-          pair.mesh.dispose(false, false);
+        for (const mesh of bucket.instances) {
+          mesh.dispose(false, false);
         }
         bucket.instances.clear();
         bucket.inUse.clear();
         bucket.available.length = 0;
         bucket.source.dispose(false, false);
-        bucket.depthSource.dispose(false, false);
       }
       visualMaterial.dispose();
-      depthMaterial.dispose();
       disposed = true;
     }
   };
@@ -1087,7 +1010,7 @@ export const createV2BeamSystem = (
               V2_WORLD_BOUNDARY_FADE_DURATION_SECONDS
           )
         : 1;
-    visualPool.setOpacity("tip", beam.tipMesh, opacity);
+    visualPool.setOpacity(beam.tipMesh, opacity);
     beam.tipMesh.setEnabled(beam.phase !== "retracting");
     if (beam.bodyLength <= SEGMENT_LENGTH_EPSILON) {
       beam.bodyMesh.setEnabled(false);
@@ -1098,7 +1021,7 @@ export const createV2BeamSystem = (
     beam.bodyMesh.setEnabled(true);
     beam.bodyMesh.position.copyFrom(tail.add(front).scale(0.5));
     beam.bodyMesh.scaling.set(1, beam.bodyLength, 1);
-    visualPool.setOpacity("body", beam.bodyMesh, opacity);
+    visualPool.setOpacity(beam.bodyMesh, opacity);
   };
 
   const releaseBeam = (
@@ -1177,7 +1100,7 @@ export const createV2BeamSystem = (
     const mesh = visualPool.acquire("trail", beam.id);
     mesh.position.copyFrom(position);
     mesh.scaling.setAll(diameter);
-    visualPool.setOpacity("trail", mesh, 0);
+    visualPool.setOpacity(mesh, 0);
     const trailVisual: TrailVisual = {
       ownerBeamId: beam.id,
       mesh,
@@ -1287,7 +1210,6 @@ export const createV2BeamSystem = (
           trailVisual.boundaryFadeStartScale!
         );
         visualPool.setOpacity(
-          "trail",
           trailVisual.mesh,
           trailVisual.boundaryFadeStartAlpha! * boundaryFade
         );
@@ -1320,7 +1242,7 @@ export const createV2BeamSystem = (
         trailVisual.ageSeconds / BEAM_TRAIL_FADE_IN_DURATION_SECONDS
       );
       trailVisual.mesh.scaling.setAll(trailVisual.diameter * trailScale);
-      visualPool.setOpacity("trail", trailVisual.mesh, fadeIn);
+      visualPool.setOpacity(trailVisual.mesh, fadeIn);
     }
   };
 
@@ -1405,7 +1327,6 @@ export const createV2BeamSystem = (
         trailVisual.boundaryFadeStartScale =
           trailVisual.mesh.scaling.x;
         visualPool.setOpacity(
-          "trail",
           trailVisual.mesh,
           currentAlpha *
             (remainingFadeSeconds /

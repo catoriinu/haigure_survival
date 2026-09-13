@@ -956,6 +956,23 @@ export const runSchoolNpcNavigationPolicyAcceptance = ({
       elevator,
       "riding"
     );
+  const reservedFollowerSelection = createPolicy()(
+    createContext(fullTripActorIds[0]!, firstStopCenter, {
+      behavior: "follow",
+      speed: 0.5,
+      characterState: "brainwash-complete-no-gun",
+      brainwashed: true,
+      commandMode: "follow",
+      targetId: "player",
+      playerElevatorTraversal: playerRidingTraversal
+    }),
+    Object.freeze([stairsShort, fastElevatorCandidate])
+  );
+  add(
+    "自分の予約で満員になったFollowerは確保済みの同便を維持する",
+    getSelectedElevatorId(reservedFollowerSelection) === elevator.link.id,
+    `capacity=${trackingElevator.estimateTripSeconds(elevator.initialStop.id, destinationStop.id).availableCapacity} / selected=${reservedFollowerSelection?.kind ?? "null"}`
+  );
   const fullFollowerAlternativeSelection = createPolicy()(
     createContext("npc_follower_full", firstStopCenter, {
       behavior: "follow",

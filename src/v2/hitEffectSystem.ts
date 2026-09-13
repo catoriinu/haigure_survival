@@ -2,6 +2,7 @@ import {
   Color3,
   Color4,
   Light,
+  Material,
   Mesh,
   MeshBuilder,
   PointLight,
@@ -382,6 +383,10 @@ export const createV2HitEffectSystem = ({
       mesh = orbSource.createInstance(
         `v2-hit-effect-orb-${nextOrbSerial}`
       );
+      if (orbInstances.length === 0) {
+        // 事前compile後に初めて現れる光球にもinstance alphaを適用する。
+        orbMaterial.markAsDirty(Material.AttributesDirtyFlag);
+      }
       nextOrbSerial += 1;
       mesh.isPickable = false;
       orbInstances.push(mesh);

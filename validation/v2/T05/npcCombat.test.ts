@@ -63,6 +63,7 @@ import type { V2NpcTraversalState } from "../../../src/v2/npcTraversal";
 import { createV2PlanarSpatialIndex } from "../../../src/v2/planarSpatialIndex";
 import type { V2TargetNavigationAreaSnapshot } from "../../../src/v2/pursuitNavigation";
 import { BLENDER_METERS_TO_WORLD_UNITS } from "../../../src/world/worldUnits";
+import { getV2NpcPatrolDistanceMeters } from "../../../src/v2/npcPatrolPolicy";
 import type { V2CharacterVisualRuntime } from "../../../src/v2/v2CharacterVisualRuntime";
 import { createDefaultV2CharacterVisualRuntime } from "../characterVisualFixture";
 import {
@@ -117,6 +118,10 @@ type NpcRuntimeTestAccess = {
     navigationAgentCleared: boolean;
     navigationBehavior: string;
     wanderWaitSeconds: number;
+    unseenTargetSeconds: number;
+    patrolDirectionAngle: number | null;
+    patrolDistanceMeters: number;
+    targetSelectionPersonality: "persistent" | "nearest-visible" | null;
     restSlot: Readonly<{
       position: Vector3;
       polygonRef: number;
@@ -264,7 +269,7 @@ const createNpcSpawnRandom = (npcCount: number) => {
   );
 };
 
-const createNpcFixture = async (
+export const createNpcFixture = async (
   npcCount: number,
   initialBrainwashedNpcCount: number,
   boundaryExtent = 5,
@@ -598,7 +603,7 @@ const createNpcFixture = async (
   });
 };
 
-const createPlayerTarget = (
+export const createPlayerTarget = (
   footPosition: Vector3,
   state: V2CharacterState = "normal"
 ): V2HumanTargetSnapshot => {
@@ -1192,6 +1197,236 @@ const startNoGunCaptureOfNpc = (
   return distantPlayer;
 };
 
+const testGunFiresAtCapturedNpcAndNoGunsShareCapture = async () => {
+  const fixture = await createNpcFixture(3, 2);
+  const player = createPlayerTarget(new Vector3(4, 0, 4));
+  try {
+    fixture.system.placeNpcs([
+      { id: "npc_0", footPosition: new Vector3(0, 0, 0.2), formation: false },
+      { id: "npc_1", footPosition: new Vector3(0.2, 0, 0), formation: false },
+      { id: "npc_2", footPosition: Vector3.Zero(), formation: false }
+    ]);
+    fixture.system.setVisibleNpcIds(["npc_1", "npc_2"]);
+    fixture.system.update(0, player, EMPTY_ALARM_TARGET_EVENTS);
+    assert(
+      fixture.system.getFrameView().captures[0]?.targetId === "npc_2",
+      "銃ありNPCの新規取得テストで対象を拘束できません。"
+    );
+    fixture.system.setVisibleNpcIds(["npc_0", "npc_1", "npc_2"]);
+    fixture.system.update(0.2, player, EMPTY_ALARM_TARGET_EVENTS);
+    const acquired = fixture.system.getFrameView();
+    const gunTargetId = acquired.tracking
+      .find(({ npcId }) => npcId === "npc_0")?.targetId;
+    assert(
+      gunTargetId === "npc_2" && acquired.captures.length === 1,
+      "銃ありNPCが拘束中の未洗脳NPCを新規の視認標的に選べません: " +
+        `target=${gunTargetId ?? "none"}`
+    );
+
+    fixture.system.drainBeamRequests();
+    for (let index = 0; index < 15; index += 1) {
+      fixture.system.update(0.2, player, EMPTY_ALARM_TARGET_EVENTS);
+    }
+    const shots = fixture.system.drainBeamRequests();
+    assert(
+      shots.some(({ sourceId, originKind, origin, direction }) =>
+        sourceId === "npc_0" && originKind === "npc-gun" &&
+        Vector3.Dot(
+          new Vector3(0, NPC_SPRITE_CENTER_HEIGHT, 0).subtract(origin).normalize(),
+          direction
+        ) > 0.999) &&
+        fixture.system.getFrameView().captures[0]?.targetId === "npc_2",
+      "銃ありNPCが拘束継続中の標的に向けて射撃要求を出しません。"
+    );
+
+    fixture.system.setCompletedBrainwashedNpcsState("brainwash-complete-no-gun");
+    for (let index = 0; index < 20; index += 1) {
+      fixture.system.update(0.1, player, EMPTY_ALARM_TARGET_EVENTS);
+    }
+    const noGunFrame = fixture.system.getFrameView();
+    assert(
+      noGunFrame.captures.length === 2 &&
+        noGunFrame.captures.every(({ targetId }) => targetId === "npc_2") &&
+        noGunFrame.captures.some(({ npcId }) => npcId === "npc_0") &&
+        noGunFrame.captures.some(({ npcId }) => npcId === "npc_1"),
+      "複数の銃なしNPCが同じ未洗脳NPCを捕獲できません。"
+    );
+    return "拘束対象を銃ありNPCが新規取得して射撃し、複数の銃なしNPCも捕獲";
+  } finally {
+    fixture.dispose();
+  }
+};
+
+const testPersistentGunRetainsNpcAfterCapture = async () => {
+  const fixture = await createNpcFixture(3, 2, 5, true, null, 0.6);
+  (fixture.system as unknown as NpcRuntimeTestAccess).npcs[1].targetSelectionPersonality = "persistent";
+  const player = createPlayerTarget(new Vector3(4, 0, 4));
+  try {
+    fixture.system.prepareExecutionRoles([{ npcId: "npc_1", role: "shooter" }]);
+    fixture.system.placeNpcs([
+      { id: "npc_0", footPosition: new Vector3(0.2, 0, 0), formation: false },
+      { id: "npc_1", footPosition: new Vector3(0, 0, 1), formation: false },
+      { id: "npc_2", footPosition: Vector3.Zero(), formation: false }
+    ]);
+    fixture.system.setVisibleNpcIds(["npc_1", "npc_2"]);
+    fixture.system.update(0, player, EMPTY_ALARM_TARGET_EVENTS);
+    const before = fixture.system.getFrameView().tracking
+      .find(({ npcId }) => npcId === "npc_1");
+    assert(
+      before?.targetSelectionPersonality === "persistent" &&
+        before.targetId === "npc_2",
+      "拘束前の銃ありNPCがpersistent個性で未洗脳NPCを追跡していません。"
+    );
+    fixture.system.setVisibleNpcIds(["npc_0", "npc_1", "npc_2"]);
+    fixture.system.update(0, player, EMPTY_ALARM_TARGET_EVENTS);
+    fixture.system.update(0.2, player, EMPTY_ALARM_TARGET_EVENTS);
+    const after = fixture.system.getFrameView();
+    assert(
+      after.captures.some(({ npcId, targetId }) =>
+        npcId === "npc_0" && targetId === "npc_2") &&
+        after.tracking.find(({ npcId }) => npcId === "npc_1")?.targetId ===
+          "npc_2",
+      "銃ありNPCが既存の視認標的を、拘束されたことだけを理由に破棄しました。"
+    );
+    return "persistentの銃ありNPCは拘束開始後も既存の視認標的を保持";
+  } finally {
+    fixture.dispose();
+  }
+};
+
+const testCapturedNpcHasNoNearestVisiblePriority = async () => {
+  const fixture = await createNpcFixture(4, 2, 5, true);
+  const player = createPlayerTarget(new Vector3(4, 0, 4));
+  try {
+    fixture.system.placeNpcs([
+      { id: "npc_0", footPosition: new Vector3(0, 0, 1), formation: false },
+      { id: "npc_1", footPosition: new Vector3(0.2, 0, 0), formation: false },
+      { id: "npc_2", footPosition: Vector3.Zero(), formation: false },
+      { id: "npc_3", footPosition: new Vector3(0, 0, 0.4), formation: false }
+    ]);
+    fixture.system.setVisibleNpcIds(["npc_1", "npc_2"]);
+    fixture.system.update(0, player, EMPTY_ALARM_TARGET_EVENTS);
+    assert(
+      fixture.system.getFrameView().captures[0]?.targetId === "npc_2",
+      "標的優先度テストで遠い未洗脳NPCを拘束できません。"
+    );
+    fixture.system.setVisibleNpcIds(["npc_0", "npc_1", "npc_2", "npc_3"]);
+    fixture.system.update(0.2, player, EMPTY_ALARM_TARGET_EVENTS);
+    const frame = fixture.system.getFrameView();
+    const tracking = frame.tracking.find(({ npcId }) => npcId === "npc_0");
+    assert(
+      tracking?.targetSelectionPersonality === "nearest-visible" &&
+        tracking.targetId === "npc_3" &&
+        frame.captures[0]?.targetId === "npc_2",
+      "nearest-visibleの銃ありNPCが近い通常標的より遠い拘束対象を優先しました: " +
+        `target=${tracking?.targetId ?? "none"}`
+    );
+    return "拘束への優先加点をせず、nearest-visibleは近い非拘束NPCを選ぶ";
+  } finally {
+    fixture.dispose();
+  }
+};
+
+const testFollowerCaptureMovement = async () => {
+  const fixture = await createNpcFixture(3, 2);
+  try {
+    startNoGunCaptureOfNpc(fixture);
+    const nearPlayer = createPlayerTarget(new Vector3(0, 0, -0.4));
+    assert(fixture.system.requestCommand("npc_2", "follow", createNpcCommandQuery(nearPlayer)),
+      "拘束対象への同行指示が受理されません。");
+    assert(fixture.system.getFrameView().captures.length === 0,
+      "同行指示の受理時に既存拘束が解除されません。");
+    for (let i = 0; i < 20 && fixture.system.getFrameView().captures.length === 0; i += 1) {
+      fixture.system.update(0.05, nearPlayer, EMPTY_ALARM_TARGET_EVENTS);
+    }
+    assert(fixture.system.getFrameView().captures.some(c => c.targetId === "npc_2"),
+      "同行中のNPCを再捕獲できません。");
+    const before = fixture.system.getFrameView().targets.find(t => t.id === "npc_2")!.footPosition.clone();
+    const movingPlayer = createPlayerTarget(new Vector3(0, 0, -1.5));
+    for (let i = 0; i < 20; i += 1) fixture.system.update(0.05, movingPlayer, EMPTY_ALARM_TARGET_EVENTS);
+    const during = fixture.system.getFrameView();
+    assert(during.targets.find(t => t.id === "npc_2")!.footPosition.equals(before),
+      "捕獲中の同行NPCが捕獲者から離れて移動しました。");
+    fixture.system.setVisibleNpcIds(["npc_2"]);
+    for (let i = 0; i < 10; i += 1) fixture.system.update(0.05, movingPlayer, EMPTY_ALARM_TARGET_EVENTS);
+    assert(fixture.system.getFrameView().captures.length === 0 &&
+      !fixture.system.getFrameView().targets.find(t => t.id === "npc_2")!.footPosition.equals(before),
+      "捕獲者の非表示後に拘束解除と同行再開ができません。");
+    return "同行指示で解除、再捕獲中は停止、捕獲者除去後に同行再開";
+  } finally { fixture.dispose(); }
+};
+
+const testRescuedCapturerResumesMission = async () => {
+  const fixture = await createNpcFixture(3, 2);
+  try {
+    startNoGunCaptureOfNpc(fixture);
+    const destination = { position: new Vector3(2, 0, 0), polygonRef: 1 };
+    fixture.system.assignLocationMission("npc_1", {
+      missionId: "救助後の復帰", locationId: "元の目的地", source: "normal", destination
+    });
+    const player = createPlayerTarget(new Vector3(0, 0, -0.4));
+    const before = fixture.system.getFrameView().targets.find(t => t.id === "npc_1")!.footPosition.clone();
+    assert(fixture.system.requestCommand("npc_2", "follow", createNpcCommandQuery(player)),
+      "拘束中の相手を同行指示で救助できません。");
+    assert(fixture.system.getFrameView().captures.length === 0,
+      "救助直後に捕獲が残っています。");
+    // 新たな視認による再捕獲と、保持済みMissionへの復帰を分離する。
+    fixture.setSightBlocked(true);
+    for (let i = 0; i < 10; i += 1) fixture.system.update(0.05, player, EMPTY_ALARM_TARGET_EVENTS);
+    const frame = fixture.system.getFrameView();
+    const capturer = frame.tracking.find(t => t.npcId === "npc_1")!;
+    assert(capturer.locationMission?.state === "moving" &&
+      frame.targets.find(t => t.id === "npc_1")!.footPosition.x > before.x &&
+      frame.tracking.find(t => t.npcId === "npc_2")!.commandMode === "follow",
+      "救助後に捕獲者のMission移動と対象の同行状態へ復帰しません。");
+    return "同行指示で救助し、捕獲者は保持していたMission移動へ復帰";
+  } finally { fixture.dispose(); }
+};
+
+const testCaptureDistanceRelease = async () => {
+  const fixture = await createNpcFixture(3, 2);
+  try {
+    const player = startNoGunCaptureOfNpc(fixture);
+    // 配置APIは捕獲も解除するため、外部移動だけが起きた状態を再現する。
+    const target = (fixture.system as unknown as NpcRuntimeTestAccess).npcs[2];
+    target.footPosition.set(0, 0, 2);
+    fixture.system.update(0, player, EMPTY_ALARM_TARGET_EVENTS);
+    assert(fixture.system.getFrameView().captures.length === 0,
+      "接触距離外に離れた相手の捕獲状態が残っています。");
+    return "接触距離外の捕獲は次の論理更新で解除";
+  } finally { fixture.dispose(); }
+};
+
+const testMultipleCaptureDistanceRelease = async () => {
+  const fixture = await createNpcFixture(3, 2);
+  const player = createPlayerTarget(new Vector3(4, 0, 4));
+  try {
+    fixture.system.setCompletedBrainwashedNpcsState("brainwash-complete-no-gun");
+    fixture.system.placeNpcs([
+      { id: "npc_0", footPosition: new Vector3(0.2, 0, 0), formation: false },
+      { id: "npc_1", footPosition: new Vector3(-0.2, 0, 0), formation: false },
+      { id: "npc_2", footPosition: Vector3.Zero(), formation: false }
+    ]);
+    fixture.system.update(0, player, EMPTY_ALARM_TARGET_EVENTS);
+    const npcs = (fixture.system as unknown as NpcRuntimeTestAccess).npcs;
+    npcs[0].footPosition.x = V2_NPC_CAPTURE_RADIUS;
+    npcs[1].footPosition.x = -V2_NPC_CAPTURE_RADIUS;
+    fixture.system.update(0.2, player, EMPTY_ALARM_TARGET_EVENTS);
+    assert(fixture.system.getFrameView().captures.length === 2,
+      "接触距離の境界で複数捕獲を維持できません。");
+    npcs[0].footPosition.x = V2_NPC_CAPTURE_RADIUS + 0.001;
+    fixture.system.update(0, player, EMPTY_ALARM_TARGET_EVENTS);
+    const remaining = fixture.system.getFrameView().captures;
+    assert(remaining.length === 1 && remaining[0].npcId === "npc_1",
+      "距離外の捕獲者だけを解除できません。");
+    npcs[1].footPosition.x = -V2_NPC_CAPTURE_RADIUS - 0.001;
+    fixture.system.update(0, player, EMPTY_ALARM_TARGET_EVENTS);
+    assert(fixture.system.getFrameView().captures.length === 0,
+      "最後の捕獲者が離れた後も拘束が残りました。");
+    return "境界内2件、1人離脱で1件、全員離脱で0件";
+  } finally { fixture.dispose(); }
+};
+
 const testNpcCaptureTargetImmediateReleasePaths = async () => {
   const impactFixture = await createNpcFixture(3, 2);
   const visibilityFixture = await createNpcFixture(3, 2);
@@ -1619,16 +1854,20 @@ const testExternalThreatAndPlayerBlocking = async () => {
       createPlayerTarget(new Vector3(4, 0, 4)),
       EMPTY_ALARM_TARGET_EVENTS
     );
+    assert(fixture.system.getFrameView().targets.every((snapshot) =>
+      snapshot.state === (snapshot.id === "npc_0" ? "evade" : "normal")),
+      "直接脅威の記憶とプレイヤー接触停止解除を分離できません。");
+    fixture.system.update(5.01, createPlayerTarget(new Vector3(4, 0, 4)), EMPTY_ALARM_TARGET_EVENTS);
     assert(
       fixture.system
         .getFrameView()
         .targets
         .every((snapshot) => snapshot.state === "normal"),
-      "空集合を設定した次frameに脅威・停止状態が解除されません。"
+      "5秒の記憶失効後も脅威が解除されません。"
     );
     return (
       "外部脅威evade・逃走、経路policyへ脅威ID・露出状態、" +
-      "複数NPC停止、空集合で次frame解除"
+      "複数NPC停止の即時解除、直接脅威の5秒記憶"
     );
   } finally {
     fixture.dispose();
@@ -1696,6 +1935,7 @@ const placeVisionSelectionNpcs = (system: V2NpcSystem) => {
 const testNearestVisibleTargetRayEarlyExitAndTieOrder = async () => {
   const nearestTieFixture = await createNpcFixture(3, 1);
   const persistentTieFixture = await createNpcFixture(3, 2);
+  (persistentTieFixture.system as unknown as NpcRuntimeTestAccess).npcs[1].targetSelectionPersonality = "persistent";
   const blockedFixture = await createNpcFixture(3, 1);
   const player = createPlayerTarget(
     new Vector3(1, NPC_SPRITE_CENTER_HEIGHT - 0.3, -1)
@@ -1801,6 +2041,7 @@ const testNearestVisibleTargetRayEarlyExitAndTieOrder = async () => {
 
 const testNpcCurrentTargetSightSchedule = async () => {
   const fixture = await createNpcFixture(2, 2);
+  (fixture.system as unknown as NpcRuntimeTestAccess).npcs[1].targetSelectionPersonality = "persistent";
   const player = createPlayerTarget(new Vector3(0, 0, -1));
   try {
     fixture.system.placeNpcs([
@@ -1978,6 +2219,7 @@ const testNpcFollowAndAlarmSightSchedules = async () => {
 
 const testNpcTargetSelectionPersonalitiesAndForcedPriority = async () => {
   const fixture = await createNpcFixture(3, 2, 5, true);
+  (fixture.system as unknown as NpcRuntimeTestAccess).npcs[1].targetSelectionPersonality = "persistent";
   const initialPlayer = createPlayerTarget(
     new Vector3(0, 0, -0.5)
   );
@@ -2266,6 +2508,7 @@ const testNpcTargetlessPriorityDoesNotStarveCurrentSightChecks = async () => {
   const npcCount = 30;
   const holderId = "npc_1";
   const fixture = await createNpcFixture(npcCount, npcCount, 5, true);
+  (fixture.system as unknown as NpcRuntimeTestAccess).npcs[1].targetSelectionPersonality = "persistent";
   const player = createPlayerTarget(new Vector3(0, 0, -2));
   const targetlessRayOrigins = new Set<string>();
   let measurementHalf = 0;
@@ -3980,7 +4223,9 @@ const testBrainwashedSearchRecovery = async () => {
           formation: false
         }
       ]);
-      fixture.system.update(0, nearPlayer, EMPTY_ALARM_TARGET_EVENTS);
+      for (let i = 0; i < 20 && fixture.system.getFrameView().captures.length === 0; i += 1) {
+      fixture.system.update(0.05, nearPlayer, EMPTY_ALARM_TARGET_EVENTS);
+    }
       assert(
         fixture.system.getFrameView().targets[0].state === expectedState &&
           fixture.system.getFrameView().tracking[0].targetId === "player",
@@ -4097,8 +4342,99 @@ const testPlanarSpatialIndexPreservesSourceOrder = () => {
   return "cell走査順に依存せず、rebuild後も同じ出力配列へ入力順で返す";
 };
 
+const testNpcMissionCombatAndPatrol = async () => {
+  for (const stateRoll of [0.1, 0.6]) {
+    const fixture = await createNpcFixture(1, 1, 30, false, null, stateRoll);
+    try {
+      fixture.system.placeNpcs([{ id: "npc_0", footPosition: Vector3.Zero(), formation: false }]);
+      const actor = (fixture.system as unknown as NpcRuntimeTestAccess).npcs[0];
+      const destination = fixture.navigation.projectPoint(new Vector3(5, 0, 0), 1)!;
+      fixture.system.assignLocationMission("npc_0", {
+        missionId: "巡回回帰", source: "normal", locationId: "目的地", destination
+      });
+      const hidden = createPlayerTarget(new Vector3(20, 0, 20));
+      fixture.system.update(20, hidden, EMPTY_ALARM_TARGET_EVENTS);
+      assert(actor.unseenTargetSeconds === 20, "Mission中の無遭遇時間を計測できません。");
+      assert(actor.navigationBehavior === "mission", "Missionに徘徊を重ねました。");
+      const visible = createPlayerTarget(actor.footPosition.add(new Vector3(0, 0, -0.5)));
+      fixture.system.update(0.2, visible, EMPTY_ALARM_TARGET_EVENTS);
+      const combat = fixture.system.getFrameView().tracking[0];
+      assert(combat.targetId === "player" && combat.locationMission?.state === "paused",
+        `Mission中の戦闘移行に失敗: ${JSON.stringify(combat)}`);
+      assert(actor.unseenTargetSeconds === 0, "視認で無遭遇時間がリセットされません。");
+      fixture.system.update(0.2, createPlayerTarget(visible.footPosition, "brainwash-complete-gun"), EMPTY_ALARM_TARGET_EVENTS);
+      const resumed = fixture.system.getFrameView().tracking[0];
+      assert(resumed.targetId === null && resumed.locationMission?.state === "moving" &&
+        actor.navigationBehavior === "mission", "標的洗脳後にMissionへ復帰しません。");
+      for (let tick = 0; tick < 10; tick += 1) {
+        fixture.system.update(0.2, hidden, EMPTY_ALARM_TARGET_EVENTS);
+      }
+      const paths = fixture.getPathfindRecords();
+      assert(paths[paths.length - 1].destination.equals(destination.position),
+        "中断したMissionの目的地を失いました。");
+    } finally { fixture.dispose(); }
+  }
+  return "銃あり／なしともMission中断、視認リセット、標的洗脳後に同じ目的地へ復帰";
+};
+
+const testEmptySightPreservesWanderPath = async () => {
+  const fixture = await createNpcFixture(1, 1, 30, false, null, 0.1);
+  try {
+    const access = fixture.system as unknown as NpcRuntimeTestAccess;
+    access.random = () => 0.5;
+    access.npcs[0].wanderWaitSeconds = 0;
+    const player = createPlayerTarget(new Vector3(29, 0, 29));
+    const start = access.npcs[0].footPosition.clone();
+    for (let tick = 0; tick < 120; tick += 1) fixture.system.update(1 / 60, player, []);
+    assert(fixture.getPathfindCount() === 1, `空振り索敵で短経路を再計算しました: ${fixture.getPathfindCount()}`);
+    assert(Vector3.Distance(start, access.npcs[0].footPosition) > 0.38, "継続経路の移動が途切れました。");
+    return "2秒の空振り索敵を経ても経路計算1回、既存経路を連続移動";
+  } finally { fixture.dispose(); }
+};
+
+const testNpcPatrolBoundaries = async () => {
+  for (const [seconds, meters] of [[0, 0], [19.999, 0], [20, 16], [50, 32], [80, 48], [800, 48]]) {
+    assert(getV2NpcPatrolDistanceMeters(seconds) === meters, `${seconds}秒の距離が${meters}mではありません。`);
+  }
+  const fixture = await createNpcFixture(1, 1, 30, false, null, 0.1);
+  try {
+    const access = fixture.system as unknown as NpcRuntimeTestAccess;
+    const actor = access.npcs[0];
+    const player = createPlayerTarget(new Vector3(29, 0, 29));
+    actor.unseenTargetSeconds = 80;
+    actor.patrolDirectionAngle = 0;
+    actor.patrolDistanceMeters = 20;
+    access.random = () => 0.5;
+    const start = actor.footPosition.clone();
+    const goal = access.createWanderDestination(actor, player)!;
+    assert(goal.position.x > start.x, "方向を引き継いだ短距離候補になりません。");
+    assert(Vector3.Distance(goal.position, start) < 3, "一回の経路を長距離にしました。");
+    actor.patrolDistanceMeters = 48;
+    access.createWanderDestination(actor, player);
+    assert(actor.patrolDistanceMeters === 0, "累積距離上限で方向維持を終了しません。");
+    fixture.system.placeNpcs([{ id: "npc_0", footPosition: new Vector3(29.8, 0, 0), formation: false }]);
+    actor.unseenTargetSeconds = 80;
+    actor.patrolDirectionAngle = 0;
+    const awayFromWall = access.createWanderDestination(actor, player)!;
+    assert(awayFromWall.position.x < actor.footPosition.x,
+      "方向候補が壁で失敗しても方向を変えません。");
+    fixture.system.setAiSuspended(true);
+    fixture.system.update(1, player, []);
+    assert(actor.unseenTargetSeconds === 80, "AI停止中に無遭遇時間を加算しました。");
+    fixture.system.setAiSuspended(false);
+    fixture.system.prepareExecutionRoles([{ npcId: "npc_0", role: "audience" }]);
+    const before = actor.unseenTargetSeconds;
+    fixture.system.update(1, player, EMPTY_ALARM_TARGET_EVENTS);
+    assert(actor.unseenTargetSeconds === before, "行動不能の演出中に加算しました。");
+    return "20／50／80秒の距離勾配、48m上限、方向継続、壁で転向、AI・演出中停止";
+  } finally { fixture.dispose(); }
+};
+
 export const runNpcCombatTests = async () =>
   Object.freeze(await Promise.all([
+    executeTest("索敵空振りで徘徊経路を破棄しない", testEmptySightPreservesWanderPath),
+    executeTest("通常Missionの戦闘優先・同一目的地復帰", testNpcMissionCombatAndPatrol),
+    executeTest("無遭遇巡回の境界・短経路・演出停止", testNpcPatrolBoundaries),
     executeTest("NPC初期状態・楕円体snapshot", testInitialStatesAndHitShape),
     executeTest(
       "NPC標的選択個性の洗脳完了時一回割当",
@@ -4119,8 +4455,32 @@ export const runNpcCombatTests = async () =>
       testCaptureEndsWithoutBreakawayWhenTargetIsHit
     ),
     executeTest(
+      "同行NPCの捕獲停止・解除・再開", testFollowerCaptureMovement
+    ),
+    executeTest(
+      "距離外の捕獲解除", testCaptureDistanceRelease
+    ),
+    executeTest(
+      "同行による救助後の捕獲者Mission復帰", testRescuedCapturerResumesMission
+    ),
+    executeTest(
+      "複数捕獲の距離境界・個別解除", testMultipleCaptureDistanceRelease
+    ),
+    executeTest(
       "NPC capture対象の被弾・非表示即解除",
       testNpcCaptureTargetImmediateReleasePaths
+    ),
+    executeTest(
+      "NPC拘束対象への射撃・複数捕獲",
+      testGunFiresAtCapturedNpcAndNoGunsShareCapture
+    ),
+    executeTest(
+      "NPC拘束開始後のpersistent射撃標的保持",
+      testPersistentGunRetainsNpcAfterCapture
+    ),
+    executeTest(
+      "NPC拘束対象への優先加点なし",
+      testCapturedNpcHasNoNearestVisiblePriority
     ),
     executeTest(
       "NPC beam impact・AI停止・厳格配置",

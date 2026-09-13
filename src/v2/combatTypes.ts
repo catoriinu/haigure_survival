@@ -39,7 +39,7 @@ export const selectV2TargetSelectionPersonality = (
   const hash = hashTargetSelectionKey(
     `${TARGET_SELECTION_PERSONALITY_SALT}:${actorKind}:${actorId}`
   );
-  return (hash & 0x80000000) === 0
+  return hash < 0x40000000
     ? "persistent"
     : "nearest-visible";
 };

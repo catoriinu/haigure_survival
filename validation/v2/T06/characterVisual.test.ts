@@ -9,7 +9,6 @@ import {
   Mesh,
   MeshBuilder,
   NullEngine,
-  RawTexture,
   Scene,
   StandardMaterial,
   Texture,
@@ -25,6 +24,7 @@ import {
 import { V2_DEFAULT_PORTRAIT_DIRECTORY } from "../../../src/v2/v2CharacterAssignments";
 import { resolveV2CharacterFacingYaw } from "../../../src/v2/v2CharacterFacing";
 import { createV2PortraitAssetCatalogFromPublicPaths } from "../../../src/v2/v2PortraitAssetCatalog";
+import { configureV2TransparentDepthComposition } from "../../../src/v2/v2TransparentDepthComposition";
 import {
   V2_TRANSPARENT_ALPHA_INDEX_SPATIAL,
   V2_TRANSPARENT_ALPHA_INDEX_NPC_CHARACTER,
@@ -36,6 +36,7 @@ import {
   V2_PORTRAIT_IMAGE_BASE_NAMES,
   V2_CHARACTER_VISUAL_MAX_HEIGHT,
   V2_CHARACTER_VISUAL_MAX_WIDTH,
+  V2_NPC_RESTRAINT_DEPTH_OFFSET,
   calculateV2CharacterVisualSize,
   createV2CharacterVisualRuntime,
   getV2CharacterVisualCellIndex,
@@ -236,8 +237,9 @@ export const runCharacterVisualTests = async (): Promise<
             handle.height > handle.width &&
             playerSize.width === handle.width &&
             playerSize.height === handle.height &&
-            handle.presentationMesh === null &&
-            handle.sprite.manager.layerMask !== 0,
+            handle.presentationMesh.billboardMode === Mesh.BILLBOARDMODE_ALL &&
+            handle.presentationMesh.rotation.equals(Vector3.Zero()) &&
+            handle.sprite.manager.layerMask === 0,
           "組込みCharacter表示の状態または寸法が不正です。"
         );
         let unknownActorRejected = false;
@@ -265,7 +267,7 @@ export const runCharacterVisualTests = async (): Promise<
             duplicateDisposeRejected,
           "未割当actorの生成・寸法取得またはSprite二重破棄が拒否されません。"
         );
-        return "Sprite描画、actor寸法取得、未割当actor、二重破棄を検証";
+        return "camera-facing Plane描画、actor寸法取得、未割当actor、二重破棄を検証";
       } finally {
         runtime.dispose();
         scene.dispose();
@@ -314,7 +316,7 @@ export const runCharacterVisualTests = async (): Promise<
             presentationMaterial.needAlphaTesting() &&
             presentationMaterial.needAlphaBlendingForMesh(firstMesh) &&
             !presentationMaterial.needDepthPrePass &&
-            presentationMaterial.forceDepthWrite &&
+            !presentationMaterial.forceDepthWrite &&
             first.sprite.manager.layerMask === 0 &&
             npcMesh.alphaIndex ===
               V2_TRANSPARENT_ALPHA_INDEX_NPC_CHARACTER &&
@@ -324,7 +326,7 @@ export const runCharacterVisualTests = async (): Promise<
               V2_TRANSPARENT_ALPHA_INDEX_SPATIAL &&
             V2_TRANSPARENT_ALPHA_INDEX_SPATIAL <
               V2_TRANSPARENT_ALPHA_INDEX_PLAYER_CHARACTER,
-          "upright Plane、alpha discard後depth、共有Materialまたは透明描画順が不正です。"
+          "upright Plane、透明材質の深度write抑止、共有Materialまたは透明描画順が不正です。"
         );
 
         runtime.setFacingYaw(Math.PI / 3);
@@ -486,7 +488,11 @@ export const runCharacterVisualTests = async (): Promise<
             firstBand !== null &&
             firstBand.isVisible &&
             firstBand.position.equalsWithEpsilon(
-              new Vector3(1, expectedFirstY, 3),
+              new Vector3(
+                1 - Math.sin(Math.PI / 3) * V2_NPC_RESTRAINT_DEPTH_OFFSET,
+                expectedFirstY,
+                3 - Math.cos(Math.PI / 3) * V2_NPC_RESTRAINT_DEPTH_OFFSET
+              ),
               0.000001
             ) &&
             firstBand.scaling.equalsWithEpsilon(
@@ -508,6 +514,23 @@ export const runCharacterVisualTests = async (): Promise<
         const restraintMeshCount = scene.meshes.filter((mesh) =>
           mesh.name.endsWith("_noGunRestraint")
         ).length;
+        assert(firstMaterial !== null, "拘束帯のMaterialがありません。");
+        const singleCaptureAlpha = firstMaterial.alpha;
+        runtime.updateNoGunRestraint(
+          Object.freeze(["npc-001", "npc-001", "npc-001"]),
+          0
+        );
+        assert(
+          scene.getMeshByName("fixture-restraint-first_noGunRestraint") ===
+            firstBand &&
+            scene.meshes.filter((mesh) =>
+              mesh.name.endsWith("_noGunRestraint")
+            ).length === restraintMeshCount &&
+            firstBand.isVisible &&
+            firstBand.material === firstMaterial &&
+            firstMaterial.alpha === singleCaptureAlpha,
+          "複数捕獲により拘束帯が重複するか濃さが変わりました。"
+        );
         firstNpc.sprite.position.copyFromFloats(2, 2.5, 4);
         runtime.setFacingYaw(Math.PI / 2);
         runtime.updateNoGunRestraint(Object.freeze(["npc-001"]), 0.5);
@@ -522,7 +545,7 @@ export const runCharacterVisualTests = async (): Promise<
               mesh.name.endsWith("_noGunRestraint")
             ).length === restraintMeshCount &&
             firstBand.position.equalsWithEpsilon(
-              new Vector3(2, expectedMovedY, 4),
+              new Vector3(2 - V2_NPC_RESTRAINT_DEPTH_OFFSET, expectedMovedY, 4),
               0.000001
             ) &&
             Math.abs(firstBand.rotation.y - Math.PI / 2) <= 0.000001,
@@ -558,7 +581,7 @@ export const runCharacterVisualTests = async (): Promise<
             !scene.textures.includes(firstTexture),
           "Runtime破棄で拘束Plane・共有Material・gradient Textureを破棄しません。"
         );
-        return "Player除外、feet追随、0.075高、再利用、解除、record/runtime破棄";
+        return "Player除外、複数捕獲でも帯1本・同じ濃さ、feet追随、0.075高、再利用、解除、record/runtime破棄";
       } finally {
         if (!runtimeDisposed) {
           runtime.dispose();
@@ -615,11 +638,16 @@ export const runCharacterVisualTests = async (): Promise<
         );
         const initialBandBottom = band.position.subtract(
           initialCameraUp.scale(restraintHeight / 2)
-        );
+        ).add(camera.getDirection(Vector3.Forward()).scale(V2_NPC_RESTRAINT_DEPTH_OFFSET));
         const initialBandPosition = band.position.clone();
+        handle.presentationMesh.computeWorldMatrix(true);
+        const initialPlaneFoot = Vector3.TransformCoordinates(
+          new Vector3(0, -0.5, 0), handle.presentationMesh.getWorldMatrix()
+        );
         assert(
           band.billboardMode === Mesh.BILLBOARDMODE_ALL &&
             band.rotation.equals(Vector3.Zero()) &&
+            initialPlaneFoot.equalsWithEpsilon(initialSpriteFoot, 0.000001) &&
             initialBandBottom.equalsWithEpsilon(
               initialSpriteFoot,
               0.000001
@@ -642,11 +670,16 @@ export const runCharacterVisualTests = async (): Promise<
         );
         const turnedBandBottom = band.position.subtract(
           turnedCameraUp.scale(restraintHeight / 2)
+        ).add(camera.getDirection(Vector3.Forward()).scale(V2_NPC_RESTRAINT_DEPTH_OFFSET));
+        handle.presentationMesh.computeWorldMatrix(true);
+        const turnedPlaneFoot = Vector3.TransformCoordinates(
+          new Vector3(0, -0.5, 0), handle.presentationMesh.getWorldMatrix()
         );
         assert(
           !band.position.equalsWithEpsilon(initialBandPosition, 0.000001) &&
             band.billboardMode === Mesh.BILLBOARDMODE_ALL &&
             band.rotation.equals(Vector3.Zero()) &&
+            turnedPlaneFoot.equalsWithEpsilon(turnedSpriteFoot, 0.000001) &&
             turnedBandBottom.equalsWithEpsilon(
               turnedSpriteFoot,
               0.000001
@@ -660,7 +693,7 @@ export const runCharacterVisualTests = async (): Promise<
         engine.dispose();
       }
     }),
-    executeTest("Character透明画素の奥側WebGL描画", async () => {
+    ...(["upright", "camera-facing"] as const).map((orientationMode) => executeTest(`Character ${orientationMode} のPNG三段階alpha・Playerfade・前後光・拘束帯・壁のWebGL合成`, async () => {
       const canvas = document.createElement("canvas");
       canvas.width = 96;
       canvas.height = 96;
@@ -672,6 +705,7 @@ export const runCharacterVisualTests = async (): Promise<
       );
       engine.setSize(96, 96);
       const scene = new Scene(engine);
+      configureV2TransparentDepthComposition(scene);
       scene.clearColor = new Color4(0, 0, 0, 1);
       const camera = new FreeCamera(
         "fixture-character-alpha-camera",
@@ -688,12 +722,17 @@ export const runCharacterVisualTests = async (): Promise<
       camera.maxZ = 10;
       scene.activeCamera = camera;
 
-    const runtime = await createV2CharacterVisualRuntime({
-      scene,
-      showGroundShadows: false,
-      orientationMode: "upright",
-      includeNoGunTouchBlendFrames: false,
+      const runtime = await createV2CharacterVisualRuntime({
+        scene,
+        showGroundShadows: false,
+        orientationMode,
+        includeNoGunTouchBlendFrames: false,
         assignments: Object.freeze([
+          Object.freeze({
+            actorId: "player",
+            voiceProfileId: "01",
+            portraitDirectory: V2_DEFAULT_PORTRAIT_DIRECTORY
+          }),
           Object.freeze({
             actorId: "npc-001",
             voiceProfileId: "01",
@@ -702,10 +741,26 @@ export const runCharacterVisualTests = async (): Promise<
         ])
       });
       let runtimeDisposed = false;
-      const alphaTexture = RawTexture.CreateRGBATexture(
-        new Uint8Array([0, 255, 0, 255, 0, 0, 0, 0]),
-        2,
-        1,
+      const alphaCanvas = document.createElement("canvas");
+      alphaCanvas.width = 3;
+      alphaCanvas.height = 1;
+      const alphaContext = alphaCanvas.getContext("2d");
+      assert(alphaContext !== null, "三段階alphaのPNG生成用Canvasがありません。");
+      alphaContext.putImageData(
+        new ImageData(
+          new Uint8ClampedArray([
+            0, 255, 0, 0,
+            0, 255, 0, 128,
+            0, 255, 0, 255
+          ]),
+          3,
+          1
+        ),
+        0,
+        0
+      );
+      const alphaTexture = new Texture(
+        alphaCanvas.toDataURL("image/png"),
         scene,
         false,
         false,
@@ -717,26 +772,27 @@ export const runCharacterVisualTests = async (): Promise<
 
       try {
         const handle = runtime.createSprite(
-          "npc-001",
+          "player",
           "fixture-character-alpha"
         );
+        handle.sprite.position.set(0, 0, 0);
+        handle.sprite.width = 2;
+        handle.sprite.height = 2;
+        handle.sprite.isVisible = true;
+        handle.syncPresentation();
         const characterMesh = handle.presentationMesh;
-        assert(
-          characterMesh !== null &&
-            characterMesh.material instanceof StandardMaterial,
-          "WebGL描画fixtureのCharacter Plane Materialがありません。"
-        );
-        const characterMaterial = characterMesh.material as StandardMaterial;
-        characterMaterial.diffuseTexture = alphaTexture;
-        characterMesh.position.set(0, 0, 0);
-        characterMesh.rotation.set(0, 0, 0);
-        characterMesh.scaling.set(2, 2, 1);
-        characterMesh.isVisible = true;
-        characterMesh.setVerticesData(
-          VertexBuffer.UVKind,
-          new Float32Array([0, 1, 1, 1, 1, 0, 0, 0]),
-          true
-        );
+        const syncCharacter = () => {
+          handle.syncPresentation();
+          assert(characterMesh.material instanceof StandardMaterial,
+            "WebGL描画fixtureのCharacter Plane Materialがありません。");
+          characterMesh.material.diffuseTexture = alphaTexture;
+          characterMesh.setVerticesData(
+            VertexBuffer.UVKind,
+            new Float32Array([0, 1, 1, 1, 1, 0, 0, 0]),
+            true
+          );
+        };
+        syncCharacter();
 
         const rearMesh = MeshBuilder.CreatePlane(
           "fixture-character-alpha-rear",
@@ -750,27 +806,6 @@ export const runCharacterVisualTests = async (): Promise<
           new Color3(0, 0, 1),
           scene
         );
-
-        await scene.whenReadyAsync();
-        scene.render();
-        const rearPixels = await engine.readPixels(0, 0, 96, 96, true, true);
-        const rearSamples = [
-          readRgbaPixel(rearPixels, 96, 24, 48),
-          readRgbaPixel(rearPixels, 96, 72, 48)
-        ];
-        const opaqueSample = rearSamples.find(
-          ([red, green, blue]) => green > red + 80 && green > blue + 80
-        );
-        const transparentSample = rearSamples.find(
-          ([red, green, blue]) => blue > red + 80 && blue > green + 80
-        );
-        assert(
-          opaqueSample !== undefined && transparentSample !== undefined,
-          `透明部の奥側または実画素の遮蔽が不正です: ${JSON.stringify(
-            rearSamples
-          )}`
-        );
-
         const frontMesh = MeshBuilder.CreatePlane(
           "fixture-character-alpha-front",
           { size: 2 },
@@ -783,29 +818,112 @@ export const runCharacterVisualTests = async (): Promise<
           new Color3(1, 0, 0),
           scene
         );
+        (frontMesh.material as StandardMaterial).alpha = 0.5;
+        frontMesh.setEnabled(false);
+
+        const bandHandle = runtime.createSprite("npc-001", "fixture-character-band");
+        bandHandle.sprite.isVisible = true;
+        runtime.updateNoGunRestraint(Object.freeze(["npc-001"]), 0.5);
+        bandHandle.sprite.isVisible = false;
+        const restraintBand = scene.getMeshByName(
+          "fixture-character-band_noGunRestraint"
+        );
+        assert(restraintBand !== null, "Runtimeの拘束帯が生成されません。");
+        // 実際の帯材質を拡大し、同じPNG三領域上の画素を比較する。
+        restraintBand.position.set(0, 0, -0.25);
+        restraintBand.rotation.set(0, 0, 0);
+        restraintBand.scaling.set(2, 2, 1);
+        restraintBand.isVisible = false;
+
+        const wallMesh = MeshBuilder.CreatePlane(
+          "fixture-character-alpha-wall",
+          { width: 0.6, height: 2 },
+          scene
+        );
+        wallMesh.position.set(-2 / 3, 0, -0.5);
+        const wallMaterial = new StandardMaterial(
+          "fixture-character-alpha-wall-material",
+          scene
+        );
+        wallMaterial.disableLighting = true;
+        wallMaterial.diffuseColor = Color3.Black();
+        wallMaterial.emissiveColor = new Color3(1, 1, 0);
+        wallMesh.material = wallMaterial;
+        wallMesh.setEnabled(false);
+
         await scene.whenReadyAsync();
-        scene.render();
-        const frontPixels = await engine.readPixels(0, 0, 96, 96, true, true);
-        const frontSamples = [
-          readRgbaPixel(frontPixels, 96, 24, 48),
-          readRgbaPixel(frontPixels, 96, 72, 48)
-        ];
+        const captureSamples = async () => {
+          scene.render();
+          await scene.whenReadyAsync();
+          for (let frame = 0; frame < 3; frame += 1) {
+            scene.render();
+          }
+          const pixels = await engine.readPixels(0, 0, 96, 96, true, true);
+          return [16, 48, 80].map((x) => readRgbaPixel(pixels, 96, x, 48));
+        };
+
+        const rearSamples = await captureSamples();
+        const opaqueSample = rearSamples.find(
+          ([red, green, blue]) => green > 200 && red < 20 && blue < 20
+        );
+        const transparentSample = rearSamples.find(
+          ([red, green, blue]) => blue > 200 && red < 20 && green < 20
+        );
+        const halfSample = rearSamples[1];
         assert(
-          frontSamples.every(
-            ([red, green, blue]) => red > green + 80 && red > blue + 80
+          opaqueSample !== undefined &&
+            transparentSample !== undefined &&
+            halfSample[0] < 20 &&
+            Math.abs(halfSample[1] - opaqueSample[1] * (128 / 255)) <= 20 &&
+            Math.abs(halfSample[2] - transparentSample[2] * (127 / 255)) <= 20,
+          `PNGのalpha0/0.5/1が奥側の光と一度ずつ合成されません: ${JSON.stringify(rearSamples)}`
+        );
+
+        handle.sprite.color.a = 0.5;
+        syncCharacter();
+        const fadedSamples = await captureSamples();
+        assert(fadedSamples.every(([red, green, blue], index) => {
+          const effectiveAlpha = (rearSamples[index][1] / opaqueSample[1]) * 0.5;
+          return red < 20 &&
+            Math.abs(green - opaqueSample[1] * effectiveAlpha) <= 20 &&
+            Math.abs(blue - transparentSample[2] * (1 - effectiveAlpha)) <= 20;
+        }), `Playerのfade alpha0.5がPNG alphaと掛け合わされず、奥光が遮られます: ${JSON.stringify({ rearSamples, fadedSamples })}`);
+        handle.sprite.color.a = 1;
+        syncCharacter();
+
+        frontMesh.setEnabled(true);
+        const frontSamples = await captureSamples();
+        assert(
+          frontSamples.every(([red, green, blue], index) =>
+            Math.abs(red - 127.5) <= 16 &&
+            Math.abs(green - rearSamples[index][1] * 0.5) <= 16 &&
+            Math.abs(blue - rearSamples[index][2] * 0.5) <= 16
           ),
-          `Character前面の光が描画されません: ${JSON.stringify(
-            frontSamples
-          )}`
+          `Character前面の光が奥側のCharacterと光を透過しません: ${JSON.stringify({ rearSamples, frontSamples })}`
+        );
+
+        frontMesh.setEnabled(false);
+        wallMesh.setEnabled(true);
+        const wallSamples = await captureSamples();
+        restraintBand.isVisible = true;
+        const restraintSamples = await captureSamples();
+        const wallSample = restraintSamples[0];
+        assert(
+          wallSample[0] > 230 && wallSample[1] > 230 && wallSample[2] < 20 &&
+            wallSample.every((channel, index) =>
+              Math.abs(channel - wallSamples[0][index]) <= 2
+            ) &&
+            restraintSamples.slice(1).every(([red, green, blue], index) =>
+              red > wallSamples[index + 1][0] + 20 &&
+              green + blue > 80 &&
+              green + blue < wallSamples[index + 1][1] + wallSamples[index + 1][2] - 10
+            ),
+          `拘束帯が壁を越えるか、帯の奥のCharacterと光が透けません: ${JSON.stringify({ wallSamples, restraintSamples })}`
         );
 
         runtime.dispose();
         runtimeDisposed = true;
-        return `透明部=${JSON.stringify(
-          transparentSample
-        )}、実画素=${JSON.stringify(
-          opaqueSample
-        )}、前面=${JSON.stringify(frontSamples)}`;
+        return `PNG alpha0/0.5/1=${JSON.stringify(rearSamples)}、Playerfade=${JSON.stringify(fadedSamples)}、前面の光=${JSON.stringify(frontSamples)}、壁と拘束帯=${JSON.stringify(restraintSamples)}`;
       } finally {
         if (!runtimeDisposed) {
           runtime.dispose();
@@ -814,6 +932,94 @@ export const runCharacterVisualTests = async (): Promise<
         scene.dispose();
         engine.dispose();
       }
+    })),
+    executeTest("実拘束帯の同位置Characterへの合成・両表示モード・平行斜視", async () => {
+      const results: string[] = [];
+      for (const orientationMode of ["upright", "camera-facing"] as const) {
+        const canvas = document.createElement("canvas");
+        const engine = new Engine(canvas, false, { preserveDrawingBuffer: true, stencil: false }, false);
+        engine.setSize(96, 96);
+        const scene = new Scene(engine);
+        configureV2TransparentDepthComposition(scene);
+        scene.imageProcessingConfiguration.isEnabled = false;
+        scene.clearColor = new Color4(0, 0, 0, 1);
+        const camera = new FreeCamera("実拘束帯camera", new Vector3(0, 1, -3), scene);
+        camera.setTarget(new Vector3(0, 1, 0));
+        camera.mode = Camera.ORTHOGRAPHIC_CAMERA;
+        camera.minZ = 0.1;
+        camera.maxZ = 10;
+        scene.activeCamera = camera;
+        const runtime = await createV2CharacterVisualRuntime({
+          scene, orientationMode, showGroundShadows: false,
+          includeNoGunTouchBlendFrames: false,
+          assignments: [{ actorId: "npc-band", voiceProfileId: "01", portraitDirectory: V2_DEFAULT_PORTRAIT_DIRECTORY }]
+        });
+        const textureCanvas = document.createElement("canvas");
+        textureCanvas.width = 1; textureCanvas.height = 1;
+        const context = textureCanvas.getContext("2d")!;
+        context.fillStyle = "#00ff00";
+        context.fillRect(0, 0, 1, 1);
+        const texture = new Texture(textureCanvas.toDataURL("image/png"), scene, false, false, Texture.NEAREST_SAMPLINGMODE);
+        texture.hasAlpha = true;
+        try {
+          const handle = runtime.createSprite("npc-band", "fixture-real-band");
+          handle.sprite.position.set(0, 1, 0);
+          handle.sprite.width = 0.333;
+          handle.sprite.height = 0.4;
+          handle.sprite.isVisible = true;
+          handle.syncPresentation();
+          const character = handle.presentationMesh;
+          (character.material as StandardMaterial).diffuseTexture = texture;
+          runtime.updateNoGunRestraint(["npc-band"], 0.5);
+          const band = scene.getMeshByName("fixture-real-band_noGunRestraint")!;
+          const renderPixel = async () => {
+            await scene.whenReadyAsync();
+            for (let frame = 0; frame < 3; frame++) {
+              scene.render();
+              await new Promise<void>((resolve) => setTimeout(resolve, 0));
+            }
+            const pixels = await engine.readPixels(0, 0, 96, 96, true, true);
+            return readRgbaPixel(pixels, 96, 48, 48);
+          };
+          for (const oblique of [false, true]) {
+            camera.position.set(oblique ? 0.9 : 0, oblique ? 1.5 : 1, -3);
+            camera.setTarget(handle.sprite.position);
+            const forward = camera.getDirection(Vector3.Forward());
+            runtime.setFacingYaw(Math.atan2(forward.x, forward.z));
+            handle.syncPresentation();
+            runtime.updateNoGunRestraint(["npc-band", "npc-band"], 0.5);
+            const viewCenter = Vector3.TransformCoordinates(band.position, camera.getViewMatrix(true));
+            camera.orthoLeft = viewCenter.x - 0.15;
+            camera.orthoRight = viewCenter.x + 0.15;
+            camera.orthoBottom = viewCenter.y - 0.03;
+            camera.orthoTop = viewCenter.y + 0.03;
+            const materialAlpha = band.material!.alpha;
+            assert(scene.meshes.filter((mesh) => mesh.name.endsWith("_noGunRestraint")).length === 1 &&
+              Math.abs(materialAlpha - 0.675) <= 0.000001 &&
+              Math.abs(band.scaling.x - handle.sprite.width) <= 0.000001 &&
+              Math.abs(band.scaling.y - 0.3 * BLENDER_METERS_TO_WORLD_UNITS) <= 0.000001,
+            "実拘束帯が重複するか、元の幅・高さ・濃さが変わりました。");
+            band.isVisible = false;
+            const characterOnly = await renderPixel();
+            band.isVisible = true;
+            character.isVisible = false;
+            const bandOnly = await renderPixel();
+            character.isVisible = true;
+            const combined = await renderPixel();
+            const bandAlpha = bandOnly[0] / 255;
+            const expected = characterOnly.slice(0, 3).map((channel, index) =>
+              channel * (1 - bandAlpha) + bandOnly[index]
+            );
+            assert(characterOnly[1] > 245 && bandOnly[0] > 30 && bandOnly[0] < 220 &&
+              expected.every((channel, index) => Math.abs(channel - combined[index]) <= 4),
+            `${orientationMode}/${oblique ? "斜視" : "平行"}で同位置の拘束帯がMAX混色されます: ${JSON.stringify({ characterOnly, bandOnly, combined, expected })}`);
+            results.push(`${orientationMode}/${oblique ? "斜視" : "平行"}: ${combined.join(",")}`);
+          }
+        } finally {
+          runtime.dispose(); texture.dispose(); scene.dispose(); engine.dispose();
+        }
+      }
+      return results.join(" / ");
     }),
     executeTest("Character水平yawの真下安定化", () => {
       const forwardYaw = resolveV2CharacterFacingYaw({

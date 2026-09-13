@@ -30,8 +30,7 @@ import type {
   V2HumanTargetSnapshot
 } from "../../../src/v2/combatTypes";
 import {
-  V2_TRANSPARENT_ALPHA_INDEX_BEAM_COLOR,
-  V2_TRANSPARENT_ALPHA_INDEX_BEAM_DEPTH
+  V2_TRANSPARENT_ALPHA_INDEX_BEAM_COLOR
 } from "../../../src/v2/v2TransparentRenderingOrder";
 import type { StageSpatialSession } from "../../../src/world/stageSpatialContext";
 import type { StageSpatialQueryDiagnostics } from "../../../src/world/stageSpatialQueries";
@@ -693,7 +692,7 @@ export const runBeamCombatTests =
                 0.015,
                 1e-6
               ) &&
-              meshCountWithImpact === 12 &&
+              meshCountWithImpact === 6 &&
               retractFrame.impacts.length === 0 &&
               activeAfterRetraction === 0 &&
               impactVisualRemains &&
@@ -803,8 +802,8 @@ export const runBeamCombatTests =
           });
         try {
           const templatesPrepared =
-            fixture.scene.meshes.length === fixtureMeshCount + 8 &&
-            fixture.scene.materials.length === fixtureMaterialCount + 2;
+            fixture.scene.meshes.length === fixtureMeshCount + 4 &&
+            fixture.scene.materials.length === fixtureMaterialCount + 1;
           for (let serial = 0; serial < 3; serial += 1) {
             spawnBeam(serial);
           }
@@ -2059,11 +2058,7 @@ export const runBeamCombatTests =
               !bodySource ||
               !tipSource ||
               !trailSource ||
-              !impactSource ||
-              !bodyDepthSource ||
-              !tipDepthSource ||
-              !trailDepthSource ||
-              !impactDepthSource
+              !impactSource
             ) {
               throw new Error("光線Pool sourceがありません");
             }
@@ -2108,8 +2103,6 @@ export const runBeamCombatTests =
             }
             const visualMaterial =
               bodySource.material as StandardMaterial;
-            const depthMaterial =
-              bodyDepthSource.material as StandardMaterial;
             const tipBounds = tipSource.getBoundingInfo().boundingBox;
             const impactBounds =
               impactSource.getBoundingInfo().boundingBox;
@@ -2161,21 +2154,13 @@ export const runBeamCombatTests =
                 V2_TRANSPARENT_ALPHA_INDEX_BEAM_COLOR &&
               impactSource.alphaIndex ===
                 V2_TRANSPARENT_ALPHA_INDEX_BEAM_COLOR &&
-              bodyDepthSource.alphaIndex ===
-                V2_TRANSPARENT_ALPHA_INDEX_BEAM_DEPTH &&
-              tipDepthSource.alphaIndex ===
-                V2_TRANSPARENT_ALPHA_INDEX_BEAM_DEPTH &&
-              trailDepthSource.alphaIndex ===
-                V2_TRANSPARENT_ALPHA_INDEX_BEAM_DEPTH &&
-              impactDepthSource.alphaIndex ===
-                V2_TRANSPARENT_ALPHA_INDEX_BEAM_DEPTH &&
+              bodyDepthSource === null &&
+              tipDepthSource === null &&
+              trailDepthSource === null &&
+              impactDepthSource === null &&
               bodySource.material === tipSource.material &&
               bodySource.material === trailSource.material &&
               bodySource.material === impactSource.material &&
-              bodyDepthSource.material === tipDepthSource.material &&
-              bodyDepthSource.material === trailDepthSource.material &&
-              bodyDepthSource.material === impactDepthSource.material &&
-              bodySource.material !== bodyDepthSource.material &&
               approximately(
                 frontRadius * 2,
                 V2_NORMAL_BEAM_FRONT_DIAMETER,
@@ -2204,17 +2189,10 @@ export const runBeamCombatTests =
               !visualMaterial.needDepthPrePass &&
               !visualMaterial.forceDepthWrite &&
               !visualMaterial.disableColorWrite &&
+              !visualMaterial.backFaceCulling &&
               approximately(visualMaterial.emissiveColor.r, 1, 1e-6) &&
               approximately(visualMaterial.emissiveColor.g, 0.18, 1e-6) &&
               approximately(visualMaterial.emissiveColor.b, 0.74, 1e-6) &&
-              depthMaterial.alpha === 0.55 &&
-              depthMaterial.transparencyMode ===
-                Material.MATERIAL_ALPHATESTANDBLEND &&
-              depthMaterial.needAlphaTesting() &&
-              !depthMaterial.needDepthPrePass &&
-              depthMaterial.forceDepthWrite &&
-              depthMaterial.disableColorWrite &&
-              approximately(depthMaterial.alphaCutOff, 0.1, 1e-6) &&
               bodyInstance !== null &&
               tipInstance !== null &&
               bodyInstance.alphaIndex ===
@@ -2223,24 +2201,10 @@ export const runBeamCombatTests =
                 V2_TRANSPARENT_ALPHA_INDEX_BEAM_COLOR &&
               trail?.alphaIndex ===
                 V2_TRANSPARENT_ALPHA_INDEX_BEAM_COLOR &&
-              bodyDepthInstance !== null &&
-              tipDepthInstance !== null &&
-              bodyDepthInstance.alphaIndex ===
-                V2_TRANSPARENT_ALPHA_INDEX_BEAM_DEPTH &&
-              tipDepthInstance.alphaIndex ===
-                V2_TRANSPARENT_ALPHA_INDEX_BEAM_DEPTH &&
-              trailDepth?.alphaIndex ===
-                V2_TRANSPARENT_ALPHA_INDEX_BEAM_DEPTH &&
-              bodyDepthInstance.parent === bodyInstance &&
-              tipDepthInstance.parent === tipInstance &&
-              trailDepth?.parent === trail &&
-              approximately(
-                Number(
-                  trailDepth?.instancedBuffers.instanceColor?.a ?? -1
-                ),
-                Number(trail?.instancedBuffers.instanceColor?.a ?? -2),
-                1e-6
-              ) &&
+              bodyDepthInstance === null &&
+              tipDepthInstance === null &&
+              trailDepth === undefined &&
+              Number(trail?.instancedBuffers.instanceColor?.a) === 0 &&
               approximately(bodyFrontX, tipBackX, 1e-6) &&
               approximately(
                 tipInstance.position.x,
@@ -2259,7 +2223,8 @@ export const runBeamCombatTests =
                  `tip=${(tipBounds.maximum.x - tipBounds.minimum.x).toFixed(4)} / ` +
                  `placement=${bodyFrontX.toFixed(4)}/` +
                  `${tipBackX.toFixed(4)}/${tipFrontX.toFixed(4)} / ` +
-                 `trail=${trail?.scaling.x.toFixed(4) ?? "none"}`
+                 `trail=${trail?.scaling.x.toFixed(4) ?? "none"} / ` +
+                 `trailAlpha=${trail?.instancedBuffers.instanceColor?.a ?? "none"}`
              };
           } finally {
             system.dispose();

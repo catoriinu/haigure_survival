@@ -337,6 +337,7 @@ export interface V2SurvivalRuntime {
   cancelNpcFollow(npcId: string): boolean;
   notifyPlayerElevatorStartedMoving(): void;
   setHostileActionsSuspended(suspended: boolean): void;
+  setBitAiSuspended(suspended: boolean): void;
   requestBroadcast(command: V2BroadcastCommand): boolean;
   previewNpcLocationMissionRoute(
     npcId: string,
@@ -1261,7 +1262,17 @@ constructionDependencies: V2SurvivalConstructionDependencies = Object.freeze({})
           })
         )
       );
-      bitSystem.faceBitsAt(player.getEyePosition());
+      const targetById = new Map(
+        rebuildHumanTargets().map((target) => [target.id, target] as const)
+      );
+      bitSystem.faceBitsAt(
+        executionFrame.assignments.flatMap((assignment) =>
+          assignment.shooterIds.map((id) => ({
+            id,
+            aimPosition: targetById.get(assignment.targetId)!.aimPosition
+          }))
+        )
+      );
     }
     for (const target of rebuildHumanTargets()) {
       targetNavigationAreaTracker.relocate(
@@ -2168,6 +2179,13 @@ constructionDependencies: V2SurvivalConstructionDependencies = Object.freeze({})
           performanceSectionStartedAt
         );
         const npcFrameView = npcSystem.getFrameView();
+        performanceDiagnostics?.count("npc.evade.evaluations", npcFrameView.evadeEvaluationCount);
+        performanceDiagnostics?.count("npc.evade.candidates", npcFrameView.evadeCandidateCount);
+        performanceDiagnostics?.count("npc.evade.evaluation-ms", npcFrameView.evadeEvaluationMilliseconds);
+        performanceDiagnostics?.count("npc.evade.max-wait-seconds", npcFrameView.evadeMaximumWaitSeconds);
+        performanceDiagnostics?.count("npc.evade.destination-changes", npcFrameView.evadeDestinationChangeCount);
+        performanceDiagnostics?.count("npc.evade.reversals", npcFrameView.evadeDirectionReversalCount);
+        performanceDiagnostics?.count("npc.evade.remembered", npcFrameView.autonomousThreatRememberedCount);
         performanceDiagnostics?.count(
           "npc.route-plans",
           npcFrameView.pathRecalculationCount
@@ -2422,6 +2440,13 @@ constructionDependencies: V2SurvivalConstructionDependencies = Object.freeze({})
           performanceSectionStartedAt
         );
         const npcFrameView = npcSystem.getFrameView();
+        performanceDiagnostics?.count("npc.evade.evaluations", npcFrameView.evadeEvaluationCount);
+        performanceDiagnostics?.count("npc.evade.candidates", npcFrameView.evadeCandidateCount);
+        performanceDiagnostics?.count("npc.evade.evaluation-ms", npcFrameView.evadeEvaluationMilliseconds);
+        performanceDiagnostics?.count("npc.evade.max-wait-seconds", npcFrameView.evadeMaximumWaitSeconds);
+        performanceDiagnostics?.count("npc.evade.destination-changes", npcFrameView.evadeDestinationChangeCount);
+        performanceDiagnostics?.count("npc.evade.reversals", npcFrameView.evadeDirectionReversalCount);
+        performanceDiagnostics?.count("npc.evade.remembered", npcFrameView.autonomousThreatRememberedCount);
         performanceDiagnostics?.count(
           "npc.route-plans",
           npcFrameView.pathRecalculationCount
@@ -2565,6 +2590,13 @@ constructionDependencies: V2SurvivalConstructionDependencies = Object.freeze({})
           }
         }
         const npcFrameView = npcSystem.getFrameView();
+        performanceDiagnostics?.count("npc.evade.evaluations", npcFrameView.evadeEvaluationCount);
+        performanceDiagnostics?.count("npc.evade.candidates", npcFrameView.evadeCandidateCount);
+        performanceDiagnostics?.count("npc.evade.evaluation-ms", npcFrameView.evadeEvaluationMilliseconds);
+        performanceDiagnostics?.count("npc.evade.max-wait-seconds", npcFrameView.evadeMaximumWaitSeconds);
+        performanceDiagnostics?.count("npc.evade.destination-changes", npcFrameView.evadeDestinationChangeCount);
+        performanceDiagnostics?.count("npc.evade.reversals", npcFrameView.evadeDirectionReversalCount);
+        performanceDiagnostics?.count("npc.evade.remembered", npcFrameView.autonomousThreatRememberedCount);
         const bitFrameView = bitSystem.getFrameView();
         performanceDiagnostics.count("bit.population-count", bitFrameView.populationBitCount);
         performanceDiagnostics.count(
@@ -2737,6 +2769,10 @@ constructionDependencies: V2SurvivalConstructionDependencies = Object.freeze({})
       hostileActionsSuspendedByRuntime = suspended;
       npcSystem.setHostileActionsSuspended(suspended);
       bitSystem.setHostileActionsSuspended(suspended);
+    },
+    setBitAiSuspended: (suspended) => {
+      assertActive();
+      bitSystem.setAiSuspended(suspended);
     },
     requestBroadcast: (command) => {
       assertActive();

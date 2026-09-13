@@ -1,3 +1,4 @@
+import { testNpcEvadePolicy } from "./npcEvadePolicy.test";
 import {
   FreeCamera,
   Frustum,
@@ -91,6 +92,7 @@ type NpcCommandFixture = Readonly<{
   setProjectionResolver(
     resolver: ((position: Vector3) => Vector3 | null) | null
   ): void;
+  setMovementConstraint(resolver: (start: Vector3, destination: Vector3) => Vector3): void;
   getSpriteCellIndex(npcId: string): number;
   dispose(): void;
 }>;
@@ -271,6 +273,7 @@ const createNpcCommandFixture = async (
     | null = null;
   let pathsAvailable = true;
   let movementBlocked = false;
+  let movementConstraint = (_start: Vector3, destination: Vector3) => destination;
   let projectionResolver:
     | ((position: Vector3) => Vector3 | null)
     | null = null;
@@ -354,8 +357,9 @@ const createNpcCommandFixture = async (
       if (movementBlocked) {
         return createLocation(start.position);
       }
-      return isInside(destination)
-        ? createLocation(destination)
+      const constrained = movementConstraint(start.position, destination);
+      return isInside(constrained)
+        ? createLocation(constrained)
         : null;
     },
     randomPointAround: (origin) =>
@@ -505,6 +509,7 @@ const createNpcCommandFixture = async (
     setProjectionResolver: (resolver) => {
       projectionResolver = resolver;
     },
+    setMovementConstraint: (resolver) => { movementConstraint = resolver; },
     getSpriteCellIndex: (npcId) => {
       const sprite = scene.spriteManagers
         ?.flatMap((manager) => manager.sprites)
@@ -1555,6 +1560,28 @@ const testFollowDistanceAndOcclusion = async () => {
   } finally {
     fixture.dispose();
   }
+};
+
+const testFollowElevatorApproachKeepsPath = async () => {
+  for (const phase of ["calling", "reserved", "riding"] as const) {
+    let routeSelections = 0;
+    const fixture = await createNpcCommandFixture(1, 0, 6, () => { routeSelections += 1; });
+    const player = createPlayerTarget(new Vector3(0, 0, -0.2));
+    try {
+      placeNpcs(fixture.system, [Vector3.Zero()]);
+      assert(fixture.system.requestCommand("npc_0", "follow", createCommandQuery(player)),
+        "乗車接近検証の同行指示が受理されません。");
+      fixture.system.setPlayerElevatorTraversalSnapshot(Object.freeze({
+        elevatorId: "elevator-follow-test", linkId: "link-follow-test",
+        from: "A" as const, to: "B" as const,
+        destinationFloorPosition: new Vector3(0, 0, 2), phase
+      }));
+      for (let i = 0; i < 5; i += 1) fixture.system.update(0.05, player, EMPTY_ALARM_EVENTS);
+      assert(routeSelections === 1,
+        `${phase}中、通常の同行停止距離で経路を破棄しました: 経路選択${routeSelections}回`);
+    } finally { fixture.dispose(); }
+  }
+  return "Playerの呼出・予約・乗車中とも近距離で接近経路を保持";
 };
 
 const testFollowElevatorSightGrace = async () => {
@@ -3260,7 +3287,7 @@ const testAutonomousThreatVisionAndEscape = async () => {
     );
     updateSight();
     assert(
-      !getTracking(fixture.system, observerId).evadeThreatIds.includes(
+      !getTracking(fixture.system, observerId).evadeVisibleThreatIds.includes(
         "bit-range"
       ),
       "12m超のBIT視認が次回3Hz探索で解除されません。"
@@ -3305,7 +3332,7 @@ const testAutonomousThreatVisionAndEscape = async () => {
     );
     updateSight();
     assert(
-      !getTracking(fixture.system, observerId).evadeThreatIds.includes(
+      !getTracking(fixture.system, observerId).evadeVisibleThreatIds.includes(
         "bit-angle"
       ),
       "左右95度外側のBITを自律視認しました。"
@@ -3340,11 +3367,13 @@ const testAutonomousThreatVisionAndEscape = async () => {
     );
     updateSight();
     assert(
-      getTracking(fixture.system, observerId).evadeThreatIds.join("|") ===
-        "direct-threat",
+      getTracking(fixture.system, observerId).evadeThreatIds.includes("direct-threat"),
       "自律視認解除時に直接脅威まで消えました。"
     );
 
+    fixture.system.setExternalThreats([]);
+    fixture.system.setAutonomousThreatActors([]);
+    fixture.system.update(5.01, player, EMPTY_ALARM_EVENTS);
     fixture.setSightResolver(null);
     fixture.system.setExternalThreats(Object.freeze([]));
     fixture.system.setAutonomousThreatActors(
@@ -3362,7 +3391,7 @@ const testAutonomousThreatVisionAndEscape = async () => {
     updateSight();
     view = fixture.system.getFrameView();
     assert(
-      getTracking(fixture.system, observerId).evadeThreatIds.length === 2 &&
+      getTracking(fixture.system, observerId).evadeVisibleThreatIds.length === 2 &&
         view.autonomousThreatMaximumSourceCount === 2 &&
         view.autonomousThreatSightCheckCount === 1,
       "複数BIT脅威または3Hz探索診断値が不正です。"
@@ -3373,7 +3402,7 @@ const testAutonomousThreatVisionAndEscape = async () => {
     ).footPosition.clone();
     fixture.setMovementBlocked(false);
     fixture.system.update(0, player, EMPTY_ALARM_EVENTS);
-    for (let frame = 0; frame < 5; frame += 1) {
+    for (let frame = 0; frame < 15; frame += 1) {
       fixture.system.update(0.05, player, EMPTY_ALARM_EVENTS);
     }
     const afterEscape = getNpcTarget(
@@ -3409,6 +3438,241 @@ const testAutonomousThreatVisionAndEscape = async () => {
     fixture.dispose();
   }
 };
+
+const testBrainwashedPlayerThreatVision = async () => {
+  const scenarios: ReadonlyArray<{
+    name: string;
+    state: V2CharacterState;
+    position: Vector3;
+    occluded: boolean;
+    detected: boolean;
+  }> = [
+    { name: "銃持ち", state: "brainwash-complete-gun", position: new Vector3(0, 0, -1), occluded: false, detected: true },
+    { name: "銃なし", state: "brainwash-complete-no-gun", position: new Vector3(0, 0, -1), occluded: false, detected: true },
+    { name: "ハイグレ", state: "brainwash-complete-haigure", position: new Vector3(0, 0, -1), occluded: false, detected: true },
+    { name: "未洗脳", state: "normal", position: new Vector3(0, 0, -1), occluded: false, detected: false },
+    { name: "洗脳進行中", state: "brainwash-in-progress", position: new Vector3(0, 0, -1), occluded: false, detected: false },
+    { name: "背後", state: "brainwash-complete-gun", position: new Vector3(0, 0, 1), occluded: false, detected: false },
+    { name: "視認距離外", state: "brainwash-complete-gun", position: new Vector3(0, 0, -4), occluded: false, detected: false },
+    { name: "遮蔽", state: "brainwash-complete-gun", position: new Vector3(0, 0, -1), occluded: true, detected: false }
+  ];
+  for (const scenario of scenarios) {
+    const fixture = await createNpcCommandFixture(1, 0, 20);
+    try {
+      placeNpcs(fixture.system, [Vector3.Zero()]);
+      if (scenario.occluded) fixture.setSightResolver(() => true);
+      const player = createPlayerTarget(scenario.position, scenario.state);
+      fixture.system.update(0.34, player, EMPTY_ALARM_EVENTS);
+      const tracking = getTracking(fixture.system, "npc_0");
+      assert(tracking.evadeVisibleThreatIds.includes("player") === scenario.detected,
+        `洗脳済みプレイヤーの視認判定が不正です: ${scenario.name}`);
+      if (!scenario.detected) {
+        assert(tracking.evadeThreatIds.length === 0, `視認していないプレイヤーから逃走します: ${scenario.name}`);
+        continue;
+      }
+      assert(getNpcTarget(fixture.system, "npc_0").state === "evade", `プレイヤー視認で逃走状態になりません: ${scenario.name}`);
+      fixture.setSightResolver(() => true);
+      fixture.system.update(0.34, player, EMPTY_ALARM_EVENTS);
+      assert(getTracking(fixture.system, "npc_0").evadeRememberedThreatIds.includes("player"),
+        "洗脳済みプレイヤーを見失った直後に忘れました");
+      assert(Vector3.Distance(getNpcTarget(fixture.system, "npc_0").footPosition, player.footPosition) > 1.1,
+        `視認したプレイヤーから実際に離れません: ${scenario.name}`);
+      fixture.system.update(4.65, player, EMPTY_ALARM_EVENTS);
+      assert(getTracking(fixture.system, "npc_0").evadeThreatIds.includes("player"), "プレイヤー記憶が5秒前に失効しました");
+      fixture.system.update(0.02, player, EMPTY_ALARM_EVENTS);
+      assert(!getTracking(fixture.system, "npc_0").evadeThreatIds.includes("player"), "プレイヤー記憶が5秒後も残りました");
+    } finally {
+      fixture.dispose();
+    }
+  }
+  return "洗脳完了3状態の視認・実逃走・5秒記憶、未洗脳／進行中／背後／距離外／遮蔽の除外を確認";
+};
+
+const testNpcInProgressIsNotThreat = async () => {
+  const fixture = await createNpcCommandFixture(2, 0, 20);
+  const player = createPlayerTarget(new Vector3(15, 0, 15));
+  try {
+    placeNpcs(fixture.system, [Vector3.Zero(), new Vector3(0, 0, -1)]);
+    fixture.setMovementBlocked(true);
+    fixture.system.applyBeamImpacts([{
+      npcId: "npc_1",
+      source: { sourceId: "bit_0", originKind: "bit-chase" },
+      playerNoGunAssisted: false
+    }]);
+    fixture.system.update(4, player, EMPTY_ALARM_EVENTS);
+    assert(getNpcTarget(fixture.system, "npc_1").state === "brainwash-in-progress", "視認試験のNPCが洗脳進行中ではありません");
+    fixture.system.update(0.34, player, EMPTY_ALARM_EVENTS);
+    assert(getTracking(fixture.system, "npc_0").evadeThreatIds.length === 0,
+      "未洗脳NPCが正面の洗脳進行中NPCから逃げています");
+    assert(getNpcTarget(fixture.system, "npc_0").state === "normal", "洗脳進行中NPCを見て逃走状態になりました");
+    fixture.system.update(60, player, EMPTY_ALARM_EVENTS);
+    fixture.system.update(0.34, player, EMPTY_ALARM_EVENTS);
+    assert(getTracking(fixture.system, "npc_0").evadeVisibleThreatIds.includes("npc_1"),
+      "洗脳完了に移行したNPCを逃走対象として視認しません");
+    assert(getNpcTarget(fixture.system, "npc_0").state === "evade", "洗脳完了後も逃走しません");
+    return "正面の洗脳進行中NPCは除外し、洗脳完了後に視認・逃走することを確認";
+  } finally {
+    fixture.dispose();
+  }
+};
+
+const testEvadeMemoryAndStableRoute = async () => {
+  const fixture = await createNpcCommandFixture(1, 0, 20);
+  const player = createPlayerTarget(new Vector3(15, 0, 15));
+  try {
+    placeNpcs(fixture.system, [Vector3.Zero()]);
+    fixture.system.setAutonomousThreatActors([
+      createBitThreat("remembered", new Vector3(0, NPC_SPRITE_CENTER_HEIGHT, -1))
+    ]);
+    fixture.system.update(0.34, player, EMPTY_ALARM_EVENTS);
+    const initial = getTracking(fixture.system, "npc_0");
+    assert(initial.evadeThreatIds.includes("remembered"), "記憶対象を視認しません");
+    assert(initial.evadeDestination !== null, "初回目的地がありません");
+    fixture.system.setAutonomousThreatActors([]);
+    fixture.system.update(0.34, player, EMPTY_ALARM_EVENTS);
+    const remembered = getTracking(fixture.system, "npc_0");
+    assert(remembered.evadeRememberedThreatIds.includes("remembered") && remembered.evadeVisibleThreatIds.length === 0,
+      "見失い直後に視認と記憶を区別できません");
+    assert(initial.evadeDestination!.equals(remembered.evadeDestination!), "視認解除だけで目的地が変わりました");
+    assert(fixture.system.getFrameView().pathRecalculationCount <= 1, "不要な経路再計算です");
+    for (let frame = 0; frame < 139; frame += 1) fixture.system.update(1 / 30, player, EMPTY_ALARM_EVENTS);
+    assert(getTracking(fixture.system, "npc_0").evadeThreatIds.includes("remembered"), "5秒前に失効しました");
+    fixture.system.setExternalThreats([{sourceId: "direct", targetId: "npc_0", sourcePosition: new Vector3(0, 0, -2), sightClear: false}]);
+    fixture.system.update(0.04, player, EMPTY_ALARM_EVENTS);
+    const expired = getTracking(fixture.system, "npc_0");
+    assert(!expired.evadeThreatIds.includes("remembered") && expired.evadeThreatIds.includes("direct"), "記憶失効と直接脅威の独立性が不正です");
+    return "5秒の記憶境界、視認解除時の目的地保持、直接脅威を確認";
+  } finally { fixture.dispose(); }
+};
+
+const testEvadeAlternatingEnemies = async () => {
+  const distances: number[] = [];
+  for (let ordinal = 0; ordinal < 3; ordinal += 1) {
+    const fixture = await createNpcCommandFixture(3, 0, 20);
+    const player = createPlayerTarget(new Vector3(15, 0, 15));
+    try {
+      const positions = [new Vector3(-10, 0, 10), new Vector3(0, 0, 10), new Vector3(10, 0, 10)];
+      positions[ordinal] = Vector3.Zero();
+      placeNpcs(fixture.system, positions);
+      const id = `npc_${ordinal}`;
+      fixture.system.setAutonomousThreatActors([
+        createBitThreat("front", new Vector3(0, NPC_SPRITE_CENTER_HEIGHT, -1)),
+        createBitThreat("back", new Vector3(0, NPC_SPRITE_CENTER_HEIGHT, 1))
+      ]);
+      let reversals = 0;
+      for (let frame = 0; frame < 300; frame += 1) {
+        fixture.system.update(1 / 60, player, EMPTY_ALARM_EVENTS);
+        reversals += fixture.system.getFrameView().evadeDirectionReversalCount;
+      }
+      const distance = fixture.system.getNpcPosition(id).length() / BLENDER_METERS_TO_WORLD_UNITS;
+      distances.push(distance);
+      assert(distance >= 2, `${id}が挟撃から2m離れません: ${distance}`);
+      assert(reversals <= 4, `${id}が反転を繰り返します: ${reversals}`);
+    } finally { fixture.dispose(); }
+  }
+  return `3個性の5秒移動距離(m): ${distances.join(", ")}`;
+};
+
+const testEvadeConstrainedScenarios = async () => {
+  const summary: string[] = [];
+  for (const scenario of ["単独", "挟撃", "包囲", "壁際", "袋小路", "移動不能"] as const) {
+    const ends: string[] = [];
+    for (let ordinal = 0; ordinal < 3; ordinal += 1) {
+      const fixture = await createNpcCommandFixture(3, 0, 40);
+      const player = createPlayerTarget(new Vector3(39, 0, 39));
+      try {
+        const id = "npc_" + ordinal;
+        const positions = [new Vector3(-20, 0, 20), new Vector3(0, 0, 20), new Vector3(20, 0, 20)];
+        positions[ordinal] = Vector3.Zero();
+        placeNpcs(fixture.system, positions);
+        const threatPositions = scenario === "包囲"
+          ? [new Vector3(-1, 0, 0), new Vector3(1, 0, 0), new Vector3(0, 0, -1), new Vector3(0, 0, 1)]
+          : scenario === "挟撃" ? [new Vector3(0, 0, -1), new Vector3(0, 0, 1)] : [new Vector3(0, 0, -1)];
+        fixture.system.setExternalThreats(threatPositions.map((position, index) => ({
+          sourceId: "threat-" + index, targetId: id, sourcePosition: position.add(new Vector3(0, NPC_SPRITE_CENTER_HEIGHT, 0)), sightClear: false
+        })));
+        if (scenario === "壁際") fixture.setMovementConstraint((from, to) => from.z > 2 ? to : new Vector3(to.x, to.y, Math.min(0.1, to.z)));
+        if (scenario === "袋小路") fixture.setMovementConstraint((from, to) => from.z > 2 ? to : new Vector3(Math.max(-0.1, Math.min(0.1, to.x)), to.y, Math.min(0.7, to.z)));
+        if (scenario === "移動不能") fixture.setMovementBlocked(true);
+        let evaluations = 0;
+        const trace: unknown[] = [];
+        for (let frame = 0; frame < 300; frame += 1) {
+          fixture.system.update(1 / 60, player, EMPTY_ALARM_EVENTS);
+          evaluations += fixture.system.getFrameView().evadeEvaluationCount;
+          if (frame % 30 === 0) trace.push({position: fixture.system.getNpcPosition(id).asArray(), target: getTracking(fixture.system, id).evadeDestination?.asArray(), reason: getTracking(fixture.system, id).evadeSelectionReason});
+        }
+        const end = fixture.system.getNpcPosition(id);
+        ends.push(end.x.toFixed(3) + "," + end.z.toFixed(3));
+        assert(Number.isFinite(end.x) && Number.isFinite(end.z), scenario + "で位置が不正です");
+        if (scenario === "移動不能") {
+          assert(end.length() < TEST_EPSILON && getTracking(fixture.system, id).evadeDestination === null,
+            "移動不能を目的地ありと扱いました");
+          assert(evaluations <= 11, "移動不能時に毎frame候補を計算しました");
+        } else if (scenario !== "袋小路") assert(end.length() >= 0.5, scenario + "で2m移動しません: " + id + " " + end.toString() + JSON.stringify(trace));
+        if (scenario === "袋小路") assert(Math.abs(end.x) <= 0.1 + TEST_EPSILON && end.z <= 0.7 + TEST_EPSILON, "袋小路をすり抜けました: " + id + " " + end.toString());
+      } finally { fixture.dispose(); }
+    }
+    summary.push(scenario + ": " + ends.join(" / "));
+    if (scenario === "単独") assert(new Set(ends).size >= 2, "通常逃走で個性差がありません");
+  }
+  return summary.join("; ");
+};
+
+const testEvadeImpactAndReplay = async () => {
+  for (let replay = 0; replay < 2; replay += 1) {
+    const fixture = await createNpcCommandFixture(3 + replay, 0, 20);
+    const player = createPlayerTarget(new Vector3(15, 0, 15));
+    try {
+      fixture.system.setExternalThreats([{sourceId: "known", targetId: "npc_0", sourcePosition: Vector3.Zero(), sightClear: false}]);
+      fixture.system.update(0.1, player, EMPTY_ALARM_EVENTS);
+      fixture.system.setExternalThreats([]);
+      fixture.system.update(0.1, player, EMPTY_ALARM_EVENTS);
+      assert(getTracking(fixture.system, "npc_0").evadeRememberedThreatIds.includes("known"), "直接脅威を認識終了直後に忘れました");
+      const before = getTracking(fixture.system, "npc_0").evadePersonality;
+      fixture.system.applyBeamImpacts([{npcId: "npc_0", source: {sourceId: "bit_0", originKind: "bit-chase"}, playerNoGunAssisted: false}]);
+      const hit = getTracking(fixture.system, "npc_0");
+      assert(hit.evadeSelectionReason === null && hit.evadeThreatIds.length === 0 && hit.evadeRememberedThreatIds.length === 0, "被弾後に逃走要求・記憶が残りました");
+      fixture.system.update(60, player, EMPTY_ALARM_EVENTS);
+      assert(getTracking(fixture.system, "npc_0").evadePersonality === before && before === "cautious", "陣営・人数・再生成でID個性が変わりました");
+    } finally { fixture.dispose(); }
+  }
+  return "直接脅威終了後の5秒記憶、被弾解除、陣営変更、人数変更、再生成で個性固定";
+};
+
+const testEvadePopulationBudget = async () => {
+  const results: string[] = [];
+  for (const hertz of [30, 60]) {
+    const fixture = await createNpcCommandFixture(99, 0, 40);
+    const player = createPlayerTarget(new Vector3(39, 0, 39));
+    try {
+      const threats = fixture.system.getFrameView().targets.map((target) => ({
+        sourceId: `direct-${target.id}`, targetId: target.id,
+        sourcePosition: target.aimPosition.add(new Vector3(0, 0, -1)), sightClear: false
+      }));
+      fixture.system.setExternalThreats(threats);
+      const totals = new Map<string, number>();
+      let maximumWait = 0;
+      let evaluations = 0;
+      for (let frame = 0; frame < hertz * 5; frame += 1) {
+        fixture.system.update(1 / hertz, player, EMPTY_ALARM_EVENTS);
+        const view = fixture.system.getFrameView();
+        assert(view.evadeEvaluationCount <= 4, "逃走候補評価が4体を超えました");
+        assert(view.pathRecalculationCount <= 4, "経路再計算が4件を超えました");
+        maximumWait = Math.max(maximumWait, view.evadeMaximumWaitSeconds);
+        evaluations += view.evadeEvaluationCount;
+      }
+      for (const tracking of fixture.system.getFrameView().tracking) {
+        totals.set(tracking.evadePersonality, (totals.get(tracking.evadePersonality) ?? 0) + 1);
+        assert(tracking.evadeSelectionReason !== null, `${tracking.npcId}が評価されません`);
+      }
+      assert([...totals.values()].every((count) => count === 33) && totals.size === 3, "99人の割当が33人ずつではありません");
+      assert(maximumWait <= 1 + TEST_EPSILON, `${hertz}Hzの最大待ちが1秒超です: ${maximumWait}`);
+      results.push(`${hertz}Hz: 最大待ち${maximumWait.toFixed(4)}秒、評価${evaluations}回`);
+    } finally { fixture.dispose(); }
+  }
+  return results.join(" / ");
+};
+
 
 const testAutonomousThreatRoundRobinFairness = async () => {
   const fixture = await createNpcCommandFixture(4, 0);
@@ -3853,6 +4117,9 @@ export const runNpcCommandTests = async () =>
         testFollowDistanceAndOcclusion
       ),
       executeTest(
+        "Followエレベーター接近経路の保持", testFollowElevatorApproachKeepsPath
+      ),
+      executeTest(
         "Followエレベーター搬送中の見失い停止",
         testFollowElevatorSightGrace
       ),
@@ -3905,6 +4172,14 @@ export const runNpcCommandTests = async () =>
         "未洗脳NPCの自律脅威視認・回避",
         testAutonomousThreatVisionAndEscape
       ),
+      executeTest("逃走方針の候補評価と継続", testNpcEvadePolicy),
+      executeTest("洗脳済みプレイヤーの視認と逃走", testBrainwashedPlayerThreatVision),
+      executeTest("洗脳進行中NPCの脅威除外と完了後の視認", testNpcInProgressIsNotThreat),
+      executeTest("逃走の5秒記憶と経路保持", testEvadeMemoryAndStableRoute),
+      executeTest("挟撃の往復解消と3個性", testEvadeAlternatingEnemies),
+      executeTest("逃走の壁際・袋小路・包囲と3個性", testEvadeConstrainedScenarios),
+      executeTest("逃走の被弾解除と再生成", testEvadeImpactAndReplay),
+      executeTest("99体逃走の評価予算と公平性", testEvadePopulationBudget),
       executeTest(
         "自律脅威探索3Hz公平性",
         testAutonomousThreatRoundRobinFairness

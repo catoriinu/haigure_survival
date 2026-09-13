@@ -268,7 +268,9 @@ export const runSurvivalRulesTests =
           Object.freeze({ npcId: "captor-a", targetId: "npc-both" }),
           Object.freeze({ npcId: "captor-b", targetId: "player" }),
           Object.freeze({ npcId: "captor-c", targetId: "npc-captured" }),
-          Object.freeze({ npcId: "captor-d", targetId: "player" })
+          Object.freeze({ npcId: "captor-d", targetId: "player" }),
+          Object.freeze({ npcId: "captor-e", targetId: "npc-captured" }),
+          Object.freeze({ npcId: "captor-f", targetId: "npc-captured" })
         ]);
         const restrained = collectV2NoGunRestrainedTargetIds(
           playerBlockedNpcIds,

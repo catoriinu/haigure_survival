@@ -832,6 +832,10 @@ class StrictTraversalSurvivalHarness implements V2SurvivalRuntime {
     return true;
   }
 
+  setBitAiSuspended(_suspended: boolean): void {
+    this.unexpected("setBitAiSuspended");
+  }
+
   setHostileActionsSuspended(_suspended: boolean): void {
     this.unexpected("setHostileActionsSuspended");
   }

@@ -1,6 +1,6 @@
 # HAIGURE SURVIVAL v2 3Dステージランタイム仕様書
 
-更新日: 2026-09-06
+更新日: 2026-09-12
 対象バージョン: v2
 
 ## 1. 文書の位置付け
@@ -63,7 +63,7 @@ export type StageCatalogEntry = Readonly<{
 - `worldBoundaryMode`は空間形状ではなく、対応資産世代を厳格に選ぶ非空間契約である。`required`では`BND_WorldLimit`を正確に1件要求し、`unsupported`では同Objectを許可しない。
 - `locationAssetsMode`も対応資産世代を厳格に選ぶ非空間契約である。`required`はschema version 3以上とB05意味資産の完全な目録を要求し、`unsupported`はB05用`MAP_*`、Marker、Volumeを1件も許可しない。
 - `navProfileId`と`bitNavProfileId`はGLBと各NavMesh生成記録の双方に一致させる。
-- `depthPrePassMaterialNames`は、半透明面の重なり順を安定させるため、透明Color pass前に深度を確定するMaterial名を重複なく列挙する。各名前はGLB内のMaterialちょうど1件と一致しなければ読込失敗とする。
+- `depthPrePassMaterialNames`は、Color pass前に不透明な深度を確定するMaterial名を重複なく列挙する。各名前はGLB内のMaterialちょうど1件と一致しなければ読込失敗とする。半透明面の並べ替えには使用しない。学校は空配列とし、窓とカーテンは画素の深度・alphaで透過合成する。
 - GLB、静的人間用NavMesh、対応時の部屋variant bundle、ビット用NavMeshのいずれかのハッシュが不一致なら読込失敗とし、古い成果物を継続使用しない。
 - 当面のカタログ件数は学校1件とする。
 
@@ -411,7 +411,9 @@ T04-3Aでは資産仕様7.9節に従い、`door`、`door_panel`、`door_open_pos
 
 `StagePlayerSpawnRegistry`は`player_spawn` Marker、`hs_player_spawn_id`でそのMarker IDを参照する1件の`player_spawn_exclusion` Volume、同じIDを参照する1件以上の`npc_spawn_bias` Volumeを組み立てる。参照先欠落、除外Volumeの重複対応、bias欠落、孤立対応、`0.000001`未満または`1,000,000`超の重み、単一`npc_spawn`へ完全内包されないbias、対応する人間用NavMeshとの実交差面積がないbiasは読込失敗とする。同一Playerのbias同士は実NavMesh上の正面積重複を禁止し、面・辺で接するだけの場合は許可する。学校は承認済みIDの固定順から、session seedから分離した`player-spawn`乱数列で一様抽選する。選択結果はPlayerとSurvivalへ同一objectで渡す。
 
-NPCとBITのランダム出現は多数の点を列挙せず、対応する3D Volumeとbaked NavMesh polygonの交差面から実面積比例で抽選する。NPCは全`npc_spawn`実交差面をまとめた基礎チャンネルを重み`1.0`とし、選択Player開始地点の`npc_spawn_bias`だけを各`hs_weight`の追加チャンネルとして有効化する。各チャンネルを重み比例で選んだ後、そのチャンネル内を実交差面積比例で抽選する。非選択地点のbiasは候補にも乱数消費にも含めず、基礎チャンネルを常に残すことで全`npc_spawn`許可面の出現確率を0にしない。初期値`hs_weight=0.5`では全校チャンネル`2/3`、近傍チャンネル`1/3`となる。初期洗脳済みを先に配置し、残る未洗脳NPCを同じチャンネル構成と全NPC間の最小距離を共有して後に配置する。`bit_spawn`は対象ゾーンID・帯IDを明示し、対応するBIT用NavMeshだけを使う。開始地点、NPC出現、BIT出現、その他のゲーム進行はsession seedからラベル付きで分離した乱数列を使う。
+NPCとBITのランダム出現は多数の点を列挙せず、対応する3D Volumeとbaked NavMesh polygonの交差面を使い、選択した分類・チャンネル内を実面積比例で抽選する。NPCは全`npc_spawn`実交差面をまとめた基礎チャンネルを重み`1.0`とし、選択Player開始地点の`npc_spawn_bias`だけを各`hs_weight`の追加チャンネルとして有効化する。各チャンネルを重み比例で選んだ後、そのチャンネル内を実交差面積比例で抽選する。非選択地点のbiasは候補にも乱数消費にも含めず、基礎チャンネルを常に残すことで全`npc_spawn`許可面の出現確率を0にしない。初期値`hs_weight=0.5`では全校チャンネル`2/3`、近傍チャンネル`1/3`となる。初期洗脳済みを先に配置し、残る未洗脳NPCを同じチャンネル構成と全NPC間の最小距離を共有して後に配置する。`bit_spawn`は対象ゾーンID・帯IDを明示し、対応するBIT用NavMeshだけを使う。開始地点、NPC出現、BIT出現、その他のゲーム進行はsession seedからラベル付きで分離した乱数列を使う。
+
+BITの初期出現・時間増援は、有効な`bit_spawn`のzoneにある`spaceKind`で屋内・屋外を分け、両方が存在するときは1機ごとに屋内50%・屋外50%を選ぶ。体育館は屋内に含む。比率は`V2_BIT_INDOOR_SPAWN_PROBABILITY`へ集約する。位置・高度の候補を安全判定や出現禁止・開始地点除外・他BITとの最小距離で棄却しても、その機の分類は変えずに同じ分類内で再抽選する。片方の分類しかないステージではその分類のみを使い、分類抽選の乱数は消費しない。候補が試行上限までに見つからないときは既存の生成失敗を報告する。Alertによる発信機近傍の追加生成は別の配置規則を維持する。この比率は通常出現時の抽選配分であり、Alert追加機を含む全生成率や移動後の所在比率を保証しない。
 
 ## 9. ボリュームと境界
 
@@ -444,7 +446,7 @@ B04対応ステージの`BND_WorldLimit`は、表示と光線が存在してよ�
 
 BITの通常探索、待機、CHASE、逃走、総当たり探索、Alert集合、初期出現、時間増援は既存の塀内飛行帯だけを利用する。選択された`player_spawn_exclusion`だけを初期洗脳済みNPC、初期BIT、時間増援、Alert新規生成へ適用し、未選択の10件はこの理由で除外しない。B04は外周飛行帯と塀越え`boundary`遷移を追加しない。
 
-通常ゲームは`initialBitCount=1`、`bitReinforcementIntervalSeconds=10`、`maximumBitCount=25`を必須入力とする。通常BITとAlert生成BITを上限へ含め、カーペット僚機は除外する。増援タイマーは`playing`のupdate中だけ進め、タイトル、停止、集合・公開処刑、ゲーム終了、破棄中は進めない。Alert生成を時間増援より先に処理し、interval超過時も`while`ではなく1機だけ生成してtimerを0に戻す。上限中はtimerを0に保ち、欠員後のcatch-up burstを行わない。`schoolStress=baseline`はBIT初期20／最大20、`schoolStress=high`、`performance=stress`、`performance=acceptance`はBIT初期50／最大50とする。`performance=normal`は通常ゲームと同じ初期1／最大25を使用する。各入口の人口、時間軸、判定目的は14.1節のとおり分ける。
+通常ゲームは`initialBitCount=1`、`bitReinforcementIntervalSeconds=10`、`maximumBitCount=30`を必須入力とする。通常BITとAlert生成BITを上限へ含め、カーペット僚機は除外する。増援タイマーは`playing`のupdate中だけ進め、タイトル、停止、集合・公開処刑、ゲーム終了、破棄中は進めない。Alert生成を時間増援より先に処理し、interval超過時も`while`ではなく1機だけ生成してtimerを0に戻す。上限中はtimerを0に保ち、欠員後のcatch-up burstを行わない。`schoolStress=baseline`はBIT初期20／最大20、`schoolStress=high`、`performance=stress`、`performance=acceptance`はBIT初期50／最大50とする。`performance=normal`は通常ゲームと同じ初期1／最大30を使用する。各入口の人口、時間軸、判定目的は14.1節のとおり分ける。
 
 ### 9.1 集合・公開処刑会場
 
@@ -562,6 +564,7 @@ export interface StageSpatialQueries {
 - T05-2で実装済みの通常CHASE、固定、ランダム、カーペット、NPC gun、プレイヤーgun、公開処刑の全発射元は、前フレーム位置から新位置まで連続線分判定し、最初の`beamBlockers`交点で停止・着弾する。
 - 視線は観測点から標的中心まで`sightBlockers`へ線分判定する。
 - 通常索敵は距離、扇形視野、遮蔽物なしの全条件を満たす標的だけを取得する。
+- 拘束中の未洗脳対象も、銃あり・銃なしNPCとBITの通常標的候補へ含め、距離・視認・標的選択個性の既存規則に従って取得・保持する。拘束による優先加点は設けない。複数の銃なしNPCが同じ対象を同時に捕獲でき、捕獲記録は捕獲者ごとに保持する。赤い拘束帯は対象NPCごとに1本とし、捕獲人数によって濃さを変えない。
 - 通常視認由来の標的は遮蔽時に解除する。アラート由来の標的は期限まで保持できるが、ビームは壁を貫通しない。
 - 床高は下向き3D Rayで`normalColliders`の支持面へ問い合わせる。窓用の`COL_ActorOnly_*`、`COL_HumanOnly_*`、`COL_BeamSightOnly_*`を床支持面にせず、NavMeshの高さも物理接地面の代用にしない。
 
@@ -646,7 +649,9 @@ T05-1Aが提供する帯別NavMeshと接続グラフへ、T05-1Bが以下の実�
 
 ### 14.1 T07性能・保持検証
 
-T07では`performance=normal`、`performance=stress`、`performance=acceptance`を`src/v2/performanceDiagnostics.ts`の同一collectorで計測する。`normal`は1920×1080、DPR 1、固定seed・校庭視点、`V2_DEFAULT_TITLE_SETTINGS`のNPC 50、初期洗脳20%＝10、BIT初期1・10秒増援・最大25、荒れ度2、Mission ON、Alarm OFFを維持し、最初の`playing` frameから実時間`[0,10)`のcoldと`[10,70)`のsteadyを分ける。
+2026-09-12の既定値変更後は通常条件の荒れ度を5、BIT最大数を30とする。T07で取得済みの通常計測証拠は変更前の荒れ度2・BIT最大数25であり、再計測済みとは扱わない。
+
+T07では`performance=normal`、`performance=stress`、`performance=acceptance`を`src/v2/performanceDiagnostics.ts`の同一collectorで計測する。`normal`は1920×1080、DPR 1、固定seed・校庭視点、`V2_DEFAULT_TITLE_SETTINGS`のNPC 50、初期洗脳20%＝10、BIT初期1・10秒増援・最大30、荒れ度5、Mission ON、Alarm OFFを維持し、最初の`playing` frameから実時間`[0,10)`のcoldと`[10,70)`のsteadyを分ける。
 
 `stress`はPlayer 1、NPC 99、初期洗脳済み66、BIT 50、荒れ度10、Alarm ON、20室の荒れvariantで、最初の`playing` frameから実時間`[0,120)`を計測する。通常Runtimeの判定を通る意味requestを保存・再生し、複数NPCへの接近配置とFollowを短時間に連続させる募集burst、Player射撃、扉、エレベーターを実行して、Follower、同期射撃、動的空間、各標的選択個性の負荷成立を証拠化する。60fpsは合格条件とせず、120秒完走、負荷成立、診断・warning・error、最終owner解放、保持観測を分けて判定する。変更前後各3回の中央値でCPU frame work、frame interval、旧totalのp95／p99と主heap指標`usedSize`を比較し、各指標の悪化5%以内を要求する。
 
@@ -655,3 +660,13 @@ T07では`performance=normal`、`performance=stress`、`performance=acceptance`�
 同一collectorはCPU frame work、次callbackまでのframe interval、旧total frame、CPU section、GPU、heap、Long Taskを分離する。取得不能な指標は`null`とavailabilityで表し、0に置き換えない。最終callback後のLong Task通知をdrainしてからreportを確定する。stressの同一入力は意味request列のhashで確認し、record runを変更前または変更後の比較値へ混ぜない。
 
 強制GCは性能計測窓内では行わない。session再開始の保持観測ではnormal 70秒の完了後にGCし、同じrendererでRとEnter→Canvasを交互に使って3回以上のsessionを生成する。各GC直前に媒体観測ログをNode側へ退避してrenderer側配列を空にし、性能report履歴は最新1件だけ保持する。最終session後は`beforeunload`による全owner解放後にもGCする。主heap指標はCDP `Runtime.getHeapUsage()`の`usedSize`とし、複数runの分布、DOM／listener傾向、動的・静的ownerの解放状態を併せて判定する。14節の`static-only baseline`は動的owner残留0を測る所有基準であり、T07の変更前性能baselineとは別である。
+
+### 未洗脳NPCの逃走個性と記憶
+
+自律視認の脅威対象は洗脳完了後のプレイヤー・NPCとBITとする。プレイヤーにもNPCと同じ視認距離・視野・遮蔽条件を適用する。プレイヤー・NPCともに洗脳進行中（`brainwash-in-progress`）はまだ脅威対象にせず、完了後から視認対象とする。未洗脳プレイヤーも脅威対象にしない。
+
+未洗脳NPCの通常逃走は`npc_N`の数値を3で割った余りにより、慎重型・一目散型・突破型を固定割当する。視認・直接脅威で認識した敵の最後の位置をゲーム内時間で5秒保持し、見失った敵を現在位置で追跡しない。現在の直接脅威を優先してIDで重複排除し、認識対象全体を評価する。
+
+候補は既存の16方向・8m相当のNavMesh制約済み位置と既存条件のエレベーター候補を使用する。候補ごとの経路探索や遮蔽Rayを追加せず、最小敵距離、主脅威からの離隔、短い直線区間の敵接近、方向の好み・継続を共通評価する。突破型は左右45度の斜め方向を好み、同点は現在目的地、初回はIDに依存する固定順を優先する。個性の重み・継続時間は`src/v2/npcEvadePolicy.ts`を正本とする。
+
+候補評価は通常各体2Hz・全体最大4体／更新で、公平な待ちQueueと緊急要求を用いる。実経路再計算の既存最大4件／更新とは別予算とする。視認更新だけで経路を破棄せず、新しい計画の待機中は有効な旧経路を継続する。移動不能な経路は継続しない。詳細な受入・調整結果は`docs/plans/v2/npc-evade-personalities/plan.md`に記録する。

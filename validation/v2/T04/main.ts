@@ -1,3 +1,4 @@
+import { runNavigationEdgeMovementTests } from "./navigationEdgeMovement.test";
 import {
   ArcRotateCamera,
   Color3,
@@ -4194,6 +4195,7 @@ const runValidation = async () => {
           ["プール底", new Vector3(23.4, 39.0, 14.61)]
         ] as const;
         const schoolNavigation = schoolContext.navigation;
+        checks.push(...runNavigationEdgeMovementTests(schoolNavigation));
         const forbiddenInitialSpawnSurfaceRepresentatives = [
           ["2F渡り廊下屋根", new Vector3(41.4, 29.5, 7.05)],
           ["屋上階段室屋根", new Vector3(-9.6, 42.2, 17.0)],

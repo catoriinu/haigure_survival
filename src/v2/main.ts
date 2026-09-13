@@ -128,6 +128,7 @@ import {
   type V2CharacterVisualRuntime
 } from "./v2CharacterVisualRuntime";
 import { configureV2StageTransparentRenderingOrder } from "./v2StageTransparentRenderingOrder";
+import { configureV2TransparentDepthComposition } from "./v2TransparentDepthComposition";
 import {
   createSchoolStageActorPort,
   createSchoolStageTraversalCoordinator,
@@ -187,6 +188,9 @@ const schoolVisualAcceptanceScenario = (() => {
   }
   return Object.freeze({ id: requested, seed });
 })();
+const transparentDepthAcceptance = import.meta.env.DEV &&
+  schoolVisualAcceptanceScenario !== null &&
+  new URLSearchParams(location.search).get("transparentDepthAcceptance") === "1";
 const missionAcceptanceScenario = (() => {
   const requested = new URLSearchParams(location.search).get(
     "missionAcceptance"
@@ -225,7 +229,16 @@ const elevatorNpcAcceptanceScenario = (() => {
       "elevatorAcceptanceのfollowersには1以上5以下の整数が必要です。"
     );
   }
-  return Object.freeze({ id: requested, seed, followerCount });
+  const npcCount = Number(parameters.get("elevatorNpcs") ?? "50");
+  if (npcCount !== 50 && npcCount !== 99) {
+    throw new Error("elevatorNpcsには50または99が必要です。");
+  }
+  const population = Object.freeze({
+    ...V2_TEST_SURVIVAL_POPULATION,
+    npcCount,
+    initialBrainwashedNpcCount: Math.floor(npcCount * 0.2)
+  });
+  return Object.freeze({ id: requested, seed, followerCount, population });
 })();
 const rampValidationTarget = (() => {
   const requested = new URLSearchParams(location.search).get(
@@ -329,7 +342,7 @@ const createSessionStartSnapshot = (
   const roomVariantReviewRequested = new URLSearchParams(location.search).has(
     "roomVariantReview"
   );
-  const settings = roomVariantReviewRequested
+  const roomSettings = roomVariantReviewRequested
     ? {
         ...storedSettings,
         school: {
@@ -338,6 +351,14 @@ const createSessionStartSnapshot = (
         }
       }
     : storedSettings;
+  const settings = transparentDepthAcceptance
+    ? {
+        ...roomSettings,
+        population: { ...roomSettings.population, startPlayerBrainwashed: true },
+        bit: { ...roomSettings.bit, disabled: false, maximumCount: 1 },
+        features: { ...roomSettings.features, missionEnabled: false }
+      }
+    : roomSettings;
   const fixturePopulation: V2TitleSettingsRuntimePopulation | null = performanceScenario !== null &&
     performanceScenario.profile !== "normal"
     ? V2_PERFORMANCE_ACCEPTANCE_POPULATION
@@ -349,7 +370,7 @@ const createSessionStartSnapshot = (
           bitReinforcementIntervalSeconds: 10,
           maximumBitCount: 0
         })
-      : runtimeStressScenario?.population ?? null;
+      : elevatorNpcAcceptanceScenario?.population ?? runtimeStressScenario?.population ?? null;
   return createV2SessionStartSnapshot({
     startMode: titleStartMode,
     settings,
@@ -368,6 +389,7 @@ if (performanceScenario) {
 const engine = new Engine(canvas, true);
 markV2StartupPhase("engine-created");
 const scene = new Scene(engine);
+configureV2TransparentDepthComposition(scene);
 scene.collisionsEnabled = true;
 scene.clearColor = new Color4(0.48, 0.72, 0.92, 1);
 const ambientLight = new HemisphericLight(
@@ -1107,6 +1129,7 @@ let ownedVoiceRuntime: ReturnType<
 > | null = null;
 let ownedPlayerCharacterVisual: V2PlayerCharacterVisual | null = null;
 let ownedSchoolVisualAcceptanceBridge: HTMLTextAreaElement | null = null;
+let ownedTransparentDepthAcceptance: { dispose(): void } | null = null;
 let started = false;
 let deactivated = false;
 let disposed = false;
@@ -1155,6 +1178,7 @@ const disposeRuntimeSynchronously = () => {
   ownedGameplayAudioBridge?.dispose();
   ownedVoiceRuntime?.dispose();
   ownedSchoolVisualAcceptanceBridge?.remove();
+  ownedTransparentDepthAcceptance?.dispose();
   if (ownedAudio !== null) {
     audioDisposalPromise = ownedAudio.dispose();
     audioDisposeStarted = true;
@@ -1310,6 +1334,7 @@ if (schoolVisualAcceptanceScenario !== null) {
       const foot = Vector3.FromArray(footPosition);
       const lookAt = Vector3.FromArray(lookAtPosition);
       player.placeAt(foot, lookAt);
+      survival.relocateTargetNavigationArea("player", foot);
       camera.setTarget(lookAt);
       camera.fov = fov;
       scene.render();
@@ -1354,6 +1379,20 @@ if (schoolVisualAcceptanceScenario !== null) {
   ownedSchoolVisualAcceptanceBridge = bridge;
   document.body.dataset.v2SchoolVisualAcceptance =
     schoolVisualAcceptanceScenario.id;
+  if (transparentDepthAcceptance) {
+    const { createV2TransparentDepthAcceptance } = await import(
+      "./v2TransparentDepthAcceptance"
+    );
+    assertConstructionActive();
+    ownedTransparentDepthAcceptance = createV2TransparentDepthAcceptance({
+      scene,
+      engine,
+      stage,
+      survival,
+      setPose: visualAcceptanceController.setPose,
+      getSnapshot: visualAcceptanceController.getSnapshot
+    });
+  }
 }
 const runtimeHud = createV2RuntimeHudController({
   host: document.body,
@@ -2416,9 +2455,15 @@ const updateGameplayHelp = (frame: ReturnType<typeof survival.getFrame>) => {
     nextText += "\nR: リプレイ  Enter: タイトルへ戻る";
   }
   if (!V2_DEBUG_MODE) {
-    const unbrainwashedNpcCount = frame.npcHudCounts.unbrainwashed;
-    nextText += `\nNPC内訳 未洗脳者 ${unbrainwashedNpcCount}人  ` +
-      `洗脳済み ${frame.npcCount - unbrainwashedNpcCount}人\n` +
+    const playerUnbrainwashed =
+      frame.playerState === "normal" || frame.playerState === "evade";
+    const unbrainwashedCount =
+      frame.npcHudCounts.unbrainwashed + (playerUnbrainwashed ? 1 : 0);
+    const brainwashedCount = frame.npcCount + 1 - unbrainwashedCount;
+    const unbrainwashedLabel = playerUnbrainwashed ? "生存者" : "未洗脳者";
+    const brainwashedLabel = playerUnbrainwashed ? "洗脳済み" : "ハイグレ人間";
+    nextText += `\n現在の人数 ${unbrainwashedLabel}${unbrainwashedCount}人  ` +
+      `${brainwashedLabel}${brainwashedCount}人\n` +
       `ビット ${frame.bitCount}体`;
   }
   if (helpPanel.textContent !== nextText) {
@@ -2553,11 +2598,11 @@ if (schoolVisualAcceptanceScenario) {
 if (elevatorNpcAcceptanceScenario) {
   const initialFrame = survival.getFrame();
   if (
-    initialFrame.npcCount !== V2_TEST_SURVIVAL_POPULATION.npcCount ||
+    initialFrame.npcCount !== elevatorNpcAcceptanceScenario.population.npcCount ||
     initialFrame.brainwashedNpcCount !==
-      V2_TEST_SURVIVAL_POPULATION.initialBrainwashedNpcCount ||
+      elevatorNpcAcceptanceScenario.population.initialBrainwashedNpcCount ||
     initialFrame.bitCount !==
-      V2_TEST_SURVIVAL_POPULATION.initialBitCount
+      elevatorNpcAcceptanceScenario.population.initialBitCount
   ) {
     throw new Error(
       "エレベーターNPC受入の初期人口が通常ゲーム設定と一致しません。"

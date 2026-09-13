@@ -52,7 +52,7 @@ const testStablePersonalityVectors = () => {
     Object.freeze({
       actorKind: "npc",
       actorId: "npc_1",
-      expected: "persistent"
+      expected: "nearest-visible"
     }),
     Object.freeze({
       actorKind: "bit",
@@ -88,7 +88,7 @@ const testStablePersonalityVectors = () => {
 };
 
 const testIndependentBalancedActorKinds = () => {
-  const sampleCount = 4_096;
+  const sampleCount = 65_536;
   const nearestCounts = new Map<V2TargetSelectionActorKind, number>();
   for (const actorKind of ["npc", "bit"] as const) {
     let nearestCount = 0;
@@ -104,9 +104,9 @@ const testIndependentBalancedActorKinds = () => {
     }
     nearestCounts.set(actorKind, nearestCount);
     assert(
-      nearestCount >= sampleCount * 0.48 &&
-        nearestCount <= sampleCount * 0.52,
-      `${actorKind}の個性分布が50%許容範囲外です: ${nearestCount}/${sampleCount}`
+      nearestCount >= sampleCount * 0.74 &&
+        nearestCount <= sampleCount * 0.76,
+      `${actorKind}の個性分布が75%許容範囲外です: ${nearestCount}/${sampleCount}`
     );
   }
   assert(
@@ -124,7 +124,7 @@ export const runTargetSelectionTests = () =>
       testStablePersonalityVectors
     ),
     executeTest(
-      "NPC・BIT独立50%分布",
+      "NPC・BIT独立25%／75%分布",
       testIndependentBalancedActorKinds
     )
   ]);
